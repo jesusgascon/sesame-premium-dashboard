@@ -859,7 +859,7 @@ body {
    ============================================================ */
 .loading-overlay {
   position: fixed; inset: 0; z-index: 200;
-  background: rgba(13,15,23,0.85); backdrop-filter: blur(8px);
+  background: var(--bg-dark); backdrop-filter: blur(8px);
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
 }
 .spinner {
