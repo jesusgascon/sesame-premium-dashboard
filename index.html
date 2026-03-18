@@ -179,11 +179,11 @@
       </div>
 
       <div class="sidebar-section" style="margin-top: 24px;">
-        <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; padding: 0 6px;">
-          <h3 style="padding: 0; margin: 0;" id="emp-filter-title">Empleados</h3>
-          <div style="font-size: 0.75rem;">
-            <a href="#" id="emp-sel-all" style="color:var(--accent); text-decoration:none; font-weight:600;">Todos</a> <span style="color:var(--border-light)">|</span> 
-            <a href="#" id="emp-sel-none" style="color:var(--text-muted); text-decoration:none; font-weight:600;">Ninguno</a>
+        <div class="section-header">
+          <h3 class="section-title" id="emp-filter-title">Empleados</h3>
+          <div class="chip-group">
+            <button id="emp-sel-all" class="chip-btn">Todos</button>
+            <button id="emp-sel-none" class="chip-btn">Ninguno</button>
           </div>
         </div>
         <input type="text" id="employee-search" placeholder="🔍 Buscar empleado..." class="emp-search-input">

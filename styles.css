@@ -400,6 +400,35 @@ body {
   height: 18px;
 }
 
+/* Chip Toggles */
+.chip-group {
+  display: flex;
+  gap: 6px;
+}
+
+.chip-btn {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  padding: 3px 10px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition);
+  text-transform: capitalize;
+}
+
+.chip-btn:hover {
+  background: var(--accent-glow);
+  color: var(--accent);
+  border-color: var(--accent-glow);
+}
+
+.chip-btn:active {
+  transform: scale(0.95);
+}
+
 .filter-list { display: flex; flex-direction: column; gap: 4px; }
 
 .filter-chip {
