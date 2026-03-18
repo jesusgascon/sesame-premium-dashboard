@@ -606,6 +606,11 @@ body {
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
+
+.top-bar-left {
+  display: flex;
+  align-items: center;
+}
 .month-nav { display: flex; align-items: center; gap: 16px; }
 .current-period { display: flex; flex-direction: column; align-items: center; gap: 3px; }
 .current-period h2 { font-size: 1.25rem; font-weight: 700; }
