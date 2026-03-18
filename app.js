@@ -822,7 +822,7 @@ function renderFilters() {
 
   STATE.absenceTypes.forEach(type => {
     const count = counts[type.id] || 0;
-    if (count === 0) return; // Ocultar si el conteo es 0
+    // Show all types, even if count is 0, to maintain visibility
 
     const color = resolveColor(type.color);
     const chip = document.createElement('button');
