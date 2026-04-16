@@ -420,10 +420,21 @@ async function fetchPresence() {
 
 async function fetchVacationBalance(employeeId) {
   try {
-    // Intentar obtener la configuración de vacaciones del empleado
-    // Este endpoint suele devolver el total de días, usados y restantes
-    const data = await apiFetch(`/api/v3/vacation-configuration/employee/${employeeId}`);
-    return data.data || data || null;
+    // Intentar múltiples endpoints para asegurar la obtención del balance
+    const paths = [
+      `/api/v3/vacation-configuration/employee/${employeeId}`,
+      `/api/v3/vacation-calendars/employee/${employeeId}`,
+      `/api/v3/statistics/employee/${employeeId}/vacations`
+    ];
+
+    for (const path of paths) {
+      try {
+        const data = await apiFetch(path);
+        const balance = data.data || data;
+        if (balance && (balance.daysTotal || balance.totalDays)) return balance;
+      } catch (e) {}
+    }
+    return null;
   } catch (e) {
     console.warn("Could not fetch vacation balance:", e);
     return null;
@@ -1254,19 +1265,16 @@ async function loadInitialData() {
     const me = STATE.currentUser;
     const teamArray = Array.isArray(teamEmps) ? teamEmps : (teamEmps?.data || []);
     
-    // El usuario actual siempre primero
-    if (me && me.id) {
-      upsertEmployee({
-        ...me,
-        id: me.id,
-        firstName: me.firstName,
-        lastName: me.lastName,
-        imageProfileURL: me.imageProfileURL,
-        email: me.email || '',
-        phone: me.personalPhone || me.companyPhone || me.phone || '',
-        birthDate: me.birthDate || me.birthday || me.dateOfBirth || me.date_of_birth || '',
-        hiringDate: me.hiringDate || me.dateOfJoined || me.joinedDate || me.createdAt || ''
-      });
+    // COSECHA ESPECIAL: Si encontramos al usuario actual en el directorio de empleados,
+    // fusionamos los datos porque el directorio suele traer más campos (contratos, cargos, etc)
+    const detailedMe = teamArray.find(e => String(e.id) === String(me?.id));
+    if (detailedMe) {
+      STATE.currentUser = { ...STATE.currentUser, ...detailedMe };
+    }
+
+    // El usuario actual siempre primero en el estado global
+    if (STATE.currentUser && STATE.currentUser.id) {
+      upsertEmployee(STATE.currentUser);
     }
 
     // El resto de la plantilla
@@ -1500,33 +1508,41 @@ function renderUserInfo(user) {
 
 function updateProfileWidgets(user) {
   // 1. Antigüedad
-  const hiringDate = user.hiringDate || user.dateOfJoined || user.joinedDate;
+  const hiringDate = user.hiringDate || user.dateOfJoined || user.joinedDate || user.contract?.startAt || user.createdAt;
   if (hiringDate) {
     const start = new Date(hiringDate);
-    const now = new Date();
-    let diffSq = now.getTime() - start.getTime();
-    let years = Math.floor(diffSq / (1000 * 60 * 60 * 24 * 365.25));
-    let months = Math.floor((diffSq % (1000 * 60 * 60 * 24 * 365.25)) / (1000 * 60 * 60 * 24 * 30.44));
-    
-    let text = `${years} ${years === 1 ? 'año' : 'años'}`;
-    if (months > 0) text += ` y ${months} ${months === 1 ? 'mes' : 'meses'}`;
-    if (years === 0 && months === 0) text = "¡Recién llegado! ✨";
-    
-    const el = $('seniority-text');
-    if (el) el.textContent = text;
+    if (!isNaN(start.getTime())) {
+      const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+      const today = new Date();
+      const todayDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      
+      let years = today.getFullYear() - start.getFullYear();
+      let months = today.getMonth() - start.getMonth();
+      
+      if (months < 0 || (months === 0 && today.getDate() < start.getDate())) {
+        years--;
+        months += 12;
+      }
+      
+      let text = `${years} ${years === 1 ? 'año' : 'años'}`;
+      if (months > 0) text += ` y ${months} ${months === 1 ? 'mes' : 'meses'}`;
+      if (years === 0 && months === 0) text = "¡Recién llegado! ✨";
+      
+      const el = $('seniority-text');
+      if (el) el.textContent = text;
+    }
   }
 
   // 2. Vacaciones (Carga asíncrona dedicada)
   if (user.id) {
     fetchVacationBalance(user.id).then(balance => {
       if (!balance) {
-        $('vacation-subtitle').textContent = "No disponible";
+        $('vacation-subtitle').textContent = "Consulta restringida";
         return;
       }
       
-      // Sesame v3 suele devolver daysTotal y daysUsed
-      const total = balance.daysTotal || 22; // Fallback común
-      const used = balance.daysUsed || 0;
+      const total = balance.daysTotal || balance.totalDays || balance.maxDays || 22;
+      const used = balance.daysUsed || balance.usedDays || 0;
       const left = total - used;
       const percent = Math.min(100, Math.max(0, (used / total) * 100));
 
