@@ -21,29 +21,35 @@
   <!-- ========== LOCK SCREEN ========== -->
   <div id="lock-screen" class="screen active">
     <div class="setup-bg">
-      <div class="blob blob-1" style="background: var(--accent);"></div>
-      <div class="blob blob-2" style="background: var(--accent2);"></div>
-      <div class="blob blob-3" style="background: var(--danger);"></div>
+      <div class="blob blob-1"></div>
+      <div class="blob blob-2"></div>
+      <div class="blob blob-3"></div>
     </div>
     <div class="setup-card glass">
       <div class="setup-logo">
         <div class="logo-icon">🛡️</div>
-        <h1>Acceso Restringido</h1>
-        <p>Introduce la clave maestra de la compañía para continuar.</p>
+        <h1>Acceso Seguro</h1>
+        <p>Introduce la clave maestra de la compañía para desbloquear el panel técnico.</p>
       </div>
 
       <div class="setup-form">
         <div class="form-group">
-          <label for="master-pass">🔑 Clave Maestra</label>
-          <input type="password" id="master-pass" placeholder="Introduce el CIF..." style="text-align: center; letter-spacing: 0.2em; font-weight: 700;" />
+          <label for="master-pass">CIF de la Compañía</label>
+          <input type="password" id="master-pass" placeholder="Introduce el CIF..." autocomplete="current-password" />
         </div>
 
-        <button id="unlock-btn" class="btn-primary">
-          <span class="btn-icon">🔓</span>
-          Desbloquear Panel
-        </button>
+        <div style="margin-top: 10px;">
+          <button id="unlock-btn" class="btn-primary full-width-btn">
+            <span class="btn-icon">🔓</span>
+            Desbloquear Dashboard
+          </button>
+        </div>
 
-        <div id="lock-error" class="error-msg hidden">Clave incorrecta. Por favor revisa el CIF.</div>
+        <div id="lock-error" class="error-msg hidden">Clave incorrecta. Por favor revisa el CIF introducido.</div>
+      </div>
+
+      <div class="setup-footer-info">
+        <span>Sesame HR Premium Dashboard v2.0</span>
       </div>
     </div>
   </div>
@@ -57,68 +63,66 @@
     </div>
     <div class="setup-card glass">
       <div class="setup-logo">
-        <div class="logo-icon">📅</div>
-        <h1>Calendario Vacaciones</h1>
-        <p>Conecta con tu cuenta de Sesame HR para visualizar las ausencias del equipo en tiempo real.</p>
+        <div class="logo-icon">🚀</div>
+        <h1>Configuración Inicial</h1>
+        <p>Configura tu conexión con Sesame HR para desplegar el panel de analítica avanzada.</p>
       </div>
 
       <div class="setup-form">
+        <!-- Main Connection Group -->
+        <div class="setup-section-inline">
+          <div class="form-group">
+            <label for="token-input">USID (Token de Sesión)</label>
+            <input type="password" id="token-input" placeholder="Pega tu cookie USID aquí..." />
+          </div>
 
-        <div class="form-group">
-          <label for="token-input">🔑 Token de Sesión (USID)</label>
-          <input type="password" id="token-input" placeholder="Pega aquí tu token JWT de Sesame..." />
-          <small>Ve a DevTools → Application → Cookies → <code>app.sesametime.com</code> → valor de <code>USID</code></small>
+          <div class="form-group">
+            <label for="company-input">UUID de la Empresa (CSID)</label>
+            <input type="text" id="company-input" placeholder="00000000-0000-0000-0000-000000000000" />
+          </div>
+        </div>
+
+        <!-- Preferences Group -->
+        <div class="setup-grid-fields">
+          <div class="form-group">
+            <label for="name-input">Nombre del Panel</label>
+            <input type="text" id="name-input" placeholder="Ej: Mi Equipo HR" />
+          </div>
+          <div class="form-group">
+            <label for="color-input">Color de Marca</label>
+            <input type="text" id="color-input" placeholder="#hex o color" />
+          </div>
         </div>
 
         <div class="form-group">
-          <label for="company-input">🏢 Company ID</label>
-          <input type="text" id="company-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
-          <small>Búscalo en las peticiones de red como parámetro <code>csid</code> o en la URL de la API.</small>
+          <label for="logo-input">URL del Logotipo</label>
+          <input type="text" id="logo-input" placeholder="https://url-de-tu-imagen.png" />
         </div>
 
-        <div class="form-group">
-          <label for="name-input">🏷️ Nombre de Empresa (Opcional)</label>
-          <input type="text" id="name-input" placeholder="Ej: Mi Empresa" />
-          <small>Si se deja vacío, se usará el nombre de Sesame.</small>
+        <div class="form-group hidden">
+          <label for="backend-input">Backend Endpoint</label>
+          <input type="text" id="backend-input" value="https://back-eu1.sesametime.com" />
         </div>
 
-        <div class="form-group">
-          <label for="color-input">🎨 Color de Marca (Opcional)</label>
-          <input type="text" id="color-input" placeholder="#hex o nombre de color" />
-          <small>Ej: #ff0000 o blue. Si se deja vacío, se usará el de Sesame.</small>
+        <div style="margin-top: 20px;">
+          <button id="connect-btn" class="btn-primary full-width-btn">
+            <span class="btn-icon">⚡</span>
+            Sincronizar Panel
+          </button>
         </div>
-
-        <div class="form-group">
-          <label for="logo-input">🖼️ URL del Logo (Opcional)</label>
-          <input type="text" id="logo-input" placeholder="https://..." />
-          <small>URL de una imagen pequeña. Si se deja vacío, se usará el de Sesame.</small>
-        </div>
-
-        <div class="form-group">
-          <label for="backend-input">🌐 Backend URL</label>
-          <input type="text" id="backend-input" value="https://back-eu1.sesametime.com" placeholder="https://back-eu1.sesametime.com" />
-          <small>Normalmente <code>back-eu1.sesametime.com</code> para Europa.</small>
-        </div>
-
-        <button id="connect-btn" class="btn-primary">
-          <span class="btn-icon">⚡</span>
-          Conectar con Sesame
-        </button>
 
         <div id="setup-error" class="error-msg hidden"></div>
       </div>
 
       <div class="setup-helper">
         <details>
-          <summary>❓ ¿Cómo obtengo mi token?</summary>
+          <summary>🔍 Guía rápida para obtener credenciales</summary>
           <div class="helper-content">
             <ol>
-              <li>Inicia sesión en <a href="https://app.sesametime.com" target="_blank">app.sesametime.com</a></li>
-              <li>Abre las DevTools con <kbd>F12</kbd></li>
-              <li>Ve a la pestaña <strong>Application</strong> (o Storage en Firefox)</li>
-              <li>Expande <strong>Cookies</strong> → <code>https://app.sesametime.com</code></li>
-              <li>Copia el valor de la cookie <strong>USID</strong></li>
-              <li>Para el Company ID ve a <strong>Network</strong> y mira el header <code>csid</code> de cualquier petición a la API</li>
+              <li>Entra en <strong>app.sesametime.com</strong> e inicia sesión de forma normal.</li>
+              <li>Pulsa <kbd>F12</kbd> → Pestaña <strong>Application</strong> → <strong>Cookies</strong>.</li>
+              <li>Busca <code>USID</code> y copia su valor en el primer campo de arriba.</li>
+              <li>Busca <code>csid</code> en cualquier petición de red (Network) para el UUID de empresa.</li>
             </ol>
           </div>
         </details>
