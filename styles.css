@@ -259,7 +259,7 @@ body {
 
 .details-layout-split {
   display: flex;
-  gap: 50px;
+  gap: 30px;
   align-items: flex-start;
   width: 100%;
 }
@@ -289,18 +289,18 @@ body {
 }
 
 
-.signings-table-wrapper { width: 100%; }
+/* Contenedor de la tabla */
 
 .signings-stats-panel {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 25px;
+  padding: 20px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  flex: 1;
-  max-width: 500px;
+  gap: 15px;
+  width: 280px; 
+  flex-shrink: 0;
   animation: fadeIn 0.6s ease-out;
 }
 
@@ -385,7 +385,7 @@ body {
 
 .signings-stats-panel .stat-value {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 1.4rem !important; /* Valor destacado */
+  font-size: 1.25rem !important;
   font-weight: 700;
   color: var(--accent);
   line-height: 1.2;
@@ -393,7 +393,7 @@ body {
 
 .signings-stats-panel .stat-value-alt {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 1.1rem !important;
+  font-size: 1rem !important;
   font-weight: 600;
   color: var(--text-primary);
   line-height: 1.2;
