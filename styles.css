@@ -232,15 +232,18 @@ body {
 }
 
 .details-tech-table td {
-  padding: 12px 15px;
+  padding: 12px 20px;
   border-bottom: 1px solid var(--border-light);
   color: var(--text-primary);
   font-size: 0.9rem;
 }
 
-.details-tech-table tr:last-child td { border-bottom: none; }
+.details-tech-table th:first-child,
+.details-tech-table td:first-child {
+  padding-right: 40px;
+}
 
-.details-tech-table tr:hover { background: rgba(var(--accent-rgb), 0.02); }
+.details-tech-table tr:last-child td { border-bottom: none; }
 
 .details-container {
   padding: 20px;
