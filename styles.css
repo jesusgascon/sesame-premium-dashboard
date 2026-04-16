@@ -259,7 +259,7 @@ body {
 
 .details-layout-split {
   display: flex;
-  gap: 25px;
+  gap: 50px;
   align-items: flex-start;
   width: 100%;
 }
@@ -295,12 +295,13 @@ body {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 15px;
+  padding: 25px;
   display: flex;
   flex-direction: column;
-  gap: 15px;
-  width: 250px; /* Ancho fijo para el panel lateral de stats */
-  flex-shrink: 0; /* No se encoge */
+  gap: 20px;
+  flex: 1;
+  max-width: 500px;
+  animation: fadeIn 0.6s ease-out;
 }
 
 .signings-stats-panel .info-title {
@@ -335,14 +336,7 @@ body {
 
 
 /* --- Panel de Estadísticas BI --- */
-.signings-stats-panel {
-  flex: 1;
-  max-width: 500px;
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
-  animation: fadeIn 0.6s ease-out;
-}
+/* (Unificado arriba) */
 
 /* Unificamos el estilo del título con el de la tabla */
 .signings-stats-panel .info-title {
@@ -391,17 +385,17 @@ body {
 
 .signings-stats-panel .stat-value {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.8rem !important; /* Forzamos para evitar conflictos con reglas globales */
-  font-weight: 600;
-  color: var(--text-primary);
+  font-size: 1.4rem !important; /* Valor destacado */
+  font-weight: 700;
+  color: var(--accent);
   line-height: 1.2;
 }
 
 .signings-stats-panel .stat-value-alt {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.8rem !important;
+  font-size: 1.1rem !important;
   font-weight: 600;
-  color: var(--accent);
+  color: var(--text-primary);
   line-height: 1.2;
 }
 
