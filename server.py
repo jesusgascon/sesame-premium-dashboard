@@ -65,12 +65,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     # ── GET: Sirve archivos estáticos o la configuración ─────────────────
     def do_GET(self):
+        # Normalizar path para ignorar query params en la decisión de routing básico
+        parsed_path = urllib.parse.urlparse(self.path).path
+        
         if self.path.startswith('/sesame-api/'):
             self._proxy('GET', None)
-        elif self.path == '/config':
+        elif parsed_path == '/config':
             self._serve_config()
-        elif self.path.startswith('/feed.ics'):
+        elif parsed_path.startswith('/feed.ics'):
             self._serve_ics_feed()
+        elif parsed_path in ['/', '/index.html']:
+            self.path = '/index.html'
+            super().do_GET()
         else:
             super().do_GET() # Comportamiento estándar: busca el archivo en disco
 
@@ -170,6 +176,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(b'{"ok":true}')
                 print(f'  🗑️  Empresa eliminada: {cid}')
+            else:
+                self.send_response(404)
+                self._cors_headers()
+                self.end_headers()
                 self.wfile.write(b'{"error":"Company not found"}')
         except Exception as e:
             self.send_response(400)
@@ -292,8 +302,19 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     # ── Proxy ─────────────────────────────────────────────────────────────
     def _proxy(self, method, body):
         api_path = self.path[len('/sesame-api'):]   # strip prefix
-        backend = self.headers.get('X-Backend-Url', 'https://back-eu1.sesametime.com')
-        target = backend.rstrip('/') + api_path
+        backend = self.headers.get('X-Backend-Url', 'https://back-eu1.sesametime.com').rstrip('/')
+        
+        # 🛡️ Saneado y Allowlist de Upstream (Seguridad)
+        ALLOWED_UPSTREAMS = [
+            'https://back-eu1.sesametime.com',
+            'https://api-eu1.sesametime.com',
+            'https://bi-engine.sesametime.com'
+        ]
+        if backend not in ALLOWED_UPSTREAMS:
+            print(f'  ⚠️  Upstream bloqueado o inválido: {backend}. Usando fallback.')
+            backend = 'https://back-eu1.sesametime.com'
+
+        target = backend + api_path
 
         hdrs = {}
         for h in self.headers:
@@ -304,6 +325,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             hl_sec = hl.startswith('sec-') or (hl.startswith('accept-') and hl != 'accept-encoding')
             if hl_allowed or hl_sec:
                 hdrs[h] = self.headers[h]
+        
+        # Log de contexto para depuración de 403/404
+        has_auth = '✅' if 'Authorization' in hdrs else '❌'
+        cid_val = hdrs.get('csid') or hdrs.get('x-company-id') or '?'
+        print(f'  🌐 {method} {api_path.split("?")[0]} | Upstream: {backend} | Auth: {has_auth} | CSID: {cid_val}')
+
         # Ensure we always pass a realistic User-Agent if missing, otherwise WAF blocks us
         if 'User-Agent' not in hdrs:
             hdrs['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'

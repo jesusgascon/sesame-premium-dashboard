@@ -104,8 +104,16 @@ const AUDIT = {
   lastPresenceStatus: null,
   lastMeStatus: null,
   lastPresencePathTried: null,
-  isSearching: false
+  isSearching: false,
+  teamChecksRestricted: false,
+  forbiddenChecksCount: 0,
+  accessibleChecksCount: 0
 };
+
+function getCurrentEmployeeId() {
+  if (!STATE.currentUser) return null;
+  return String(STATE.currentUser.id || STATE.currentUser.employeeId || '');
+}
 
 const DISCOVERY = {
   presencePaths: [
@@ -131,8 +139,13 @@ const DISCOVERY = {
     '/api/v3/companies/{companyId}/attendance/work-entries',
     '/api/v3/companies/{companyId}/attendance/work-entries/search'
   ],
+  balancePaths: [
+    '/api/v3/vacation-configuration/employee/{id}',
+    '/api/v3/statistics/employee/{id}/vacations'
+  ],
   workingPresence: localStorage.getItem('ssm_path_presence') || null,
-  workingChecks:   localStorage.getItem('ssm_path_checks') || null
+  workingChecks:   localStorage.getItem('ssm_path_checks') || null,
+  workingBalance:  localStorage.getItem('ssm_path_balance')  || null
 };
 
 // Función de Descubrimiento Inteligente: Prueba POST, si falla 405/404, prueba GET
@@ -239,7 +252,16 @@ async function apiFetch(path, params = {}, isRetry = false) {
     // Rastrear estados para Auditoría
     if (path.includes('/me')) AUDIT.lastMeStatus = res.status;
     if (path.includes('/presence')) AUDIT.lastPresenceStatus = res.status;
-    if (path.includes('/checks') || path.includes('/work-entries')) AUDIT.lastRawStatus = res.status;
+    if (path.includes('/checks') || path.includes('/work-entries')) {
+      AUDIT.lastRawStatus = res.status;
+      const myId = getCurrentEmployeeId();
+      if (res.status === 403 && myId && !path.includes(myId)) {
+        AUDIT.forbiddenChecksCount++;
+        AUDIT.teamChecksRestricted = true;
+      } else if (res.status === 200) {
+        AUDIT.accessibleChecksCount++;
+      }
+    }
 
     // NOTA: El retry automático en 404/405 generaba el doble de peticiones al WAF,
     // aumentando la puntuación de bot. Se elimina para reducir huella.
@@ -316,7 +338,12 @@ function upsertEmployee(emp) {
   const updated = {
     ...existing,
     ...emp,
-    id: emp.id // Mantenemos el ID original (podría ser Number) dentro del objeto por consistencia
+    id: emp.id,
+    birthDate: emp.birthDate || emp.birthday || emp.dateOfBirth || emp.date_of_birth || 
+               (emp.personalData && (emp.personalData.birthDate || emp.personalData.birthday)) || 
+               (emp.details && emp.details.birthDate) || existing.birthDate || '',
+    hiringDate: emp.hiringDate || emp.dateOfJoined || emp.joinedDate || emp.createdAt || 
+                (emp.contract && emp.contract.startAt) || existing.hiringDate || ''
   };
 
   // MEJORA AGRESIVA DE FOTOS: Buscamos en todos los campos posibles de Sesame
@@ -420,18 +447,41 @@ async function fetchPresence() {
 
 async function fetchVacationBalance(employeeId) {
   try {
-    // 1. Intentar endpoints oficiales primero (requieren más permisos)
-    const officialPaths = [
-      `/api/v3/vacation-configuration/employee/${employeeId}`,
-      `/api/v3/statistics/employee/${employeeId}/vacations`
-    ];
-
-    for (const path of officialPaths) {
+    // 1. Intentar endpoints oficiales primero (con descubrimiento para evitar 404 recurrentes)
+    if (DISCOVERY.workingBalance === 'DISABLED') {
+      // Proceder directamente al fallback si ya sabemos que no existen
+    } else if (DISCOVERY.workingBalance) {
       try {
+        const path = DISCOVERY.workingBalance.replace('{id}', employeeId);
         const data = await apiFetch(path);
         const balance = data.data || data;
         if (balance && (balance.daysTotal || balance.totalDays)) return balance;
-      } catch (e) {}
+      } catch (e) {
+        DISCOVERY.workingBalance = null; // Re-intentar descubrimiento si falla la guardada
+      }
+    }
+
+    if (DISCOVERY.workingBalance !== 'DISABLED') {
+      for (const rawPath of DISCOVERY.balancePaths) {
+        const path = rawPath.replace('{id}', employeeId);
+        try {
+          const data = await apiFetch(path);
+          const balance = data.data || data;
+          if (balance && (balance.daysTotal || balance.totalDays)) {
+            DISCOVERY.workingBalance = rawPath;
+            localStorage.setItem('ssm_path_balance', rawPath);
+            return balance;
+          }
+        } catch (e) {
+          if (e.message.includes('404')) {
+             console.warn(`Balance API not found: ${path}.`);
+          }
+        }
+      }
+      
+      // Si llegamos aquí, ninguna ruta oficial funciona
+      DISCOVERY.workingBalance = 'DISABLED';
+      localStorage.setItem('ssm_path_balance', 'DISABLED');
     }
 
     // 2. FALLBACK INTELIGENTE: Auto-cálculo basado en el calendario real
@@ -482,14 +532,7 @@ async function fetchEmployees() {
     let data = await apiFetch(`/api/v3/employees?limit=500`);
     let results = data.data || data || [];
 
-    // 2. Si no devuelve casi nada, intentamos el directorio de contactos (diseñado para visibilidad entre pares)
-    if (results.length <= 1) {
-      console.log("[Directory] Falling back to contact-directory...");
-      const contactData = await apiFetch(`/api/v3/contact-directory?limit=500`);
-      results = contactData.data || contactData || [];
-    }
-
-    // 3. Fallback final: endpoint de empresa
+    // 2. Fallback final: endpoint de empresa
     if (results.length <= 1) {
       console.log("[Directory] Falling back to company employees...");
       const companyData = await apiFetch(`/api/v3/companies/${STATE.companyId}/employees?limit=500`);
@@ -619,27 +662,6 @@ function getDayRange(date) {
 }
 function isToday(dateStr) {
   return dateStr === fmtDate(new Date());
-}
-
-/**
- * Comprueba si una fecha (YYYY-MM-DD) coincide con el día y mes actual (cumpleaños).
- */
-function isBirthdayToday(dateStr) {
-  if (!dateStr) return false;
-  const today = new Date();
-  const d = new Date(dateStr);
-  return today.getDate() === d.getDate() && today.getMonth() === d.getMonth();
-}
-
-/**
- * Comprueba si es el aniversario de contratación hoy.
- */
-function isAnniversaryToday(dateStr) {
-  if (!dateStr) return false;
-  const today = new Date();
-  const d = new Date(dateStr);
-  // Solo si es el mismo día/mes y lleva al menos 1 año
-  return today.getDate() === d.getDate() && today.getMonth() === d.getMonth() && today.getFullYear() > d.getFullYear();
 }
 
 /**
@@ -2316,6 +2338,7 @@ const FichajesModule = {
   searchQuery: '',
   presenceFilter: 'all', // 'all', 'working', 'paused'
   kioskoMode: false,
+  failedIds: new Set(),
   
   init() {
     if (this.initialized) return;
@@ -2560,38 +2583,52 @@ const FichajesModule = {
         console.warn("BI Engine failed. Trying Global Search Discovery...");
         AUDIT.isSearching = true;
         try {
-          // 1. Intentar Búsqueda por Estadísticas Diarias (Manager View)
-          // Este endpoint se ha descubierto en las trazas del navegador oficial y es global.
-          const searchPaths = [
-            `/api/v3/statistics/daily-computed-hour-stats?from=${start}&to=${end}`,
-            `/api/v3/work-entries/search?limit=1000&from=${start}&to=${end}`,
-            `/api/v3/attendance/work-entries/search?limit=1000&from=${start}&to=${end}`
-          ];
-          
+          // 1. Intentar Búsqueda por Estadísticas Diarias o Búsqueda Global (Manager View)
           let globalData = null;
-          for (const path of searchPaths) {
-            try {
-              const res = await apiFetch(path, { method: 'GET' });
-              let records = [];
-              if (res && res.data) {
-                // El endpoint de estadísticas puede venir con una estructura distinta, la normalizamos
-                records = Array.isArray(res.data) ? res.data : (res.data.items || []);
+          
+          if (DISCOVERY.workingChecks !== 'DISABLED') {
+            const candidates = DISCOVERY.workingChecks 
+              ? [DISCOVERY.workingChecks] 
+              : [
+                '/api/v3/statistics/daily-computed-hour-stats',
+                '/api/v3/work-entries/search',
+                '/api/v3/attendance/work-entries/search'
+              ];
+
+            for (const rawPath of candidates) {
+              try {
+                let path = rawPath.replace('{companyId}', STATE.companyId || '');
+                const res = await apiFetch(path, { from: start, to: end, limit: 1000 });
+                
+                let records = [];
+                if (res && res.data) {
+                  records = Array.isArray(res.data) ? res.data : (res.data.items || []);
+                }
+                
+                if (records.length > 0) {
+                  console.log(`✅ Global Discovery Success at ${path}: Found ${records.length} records.`);
+                  globalData = records;
+                  if (!DISCOVERY.workingChecks) {
+                    DISCOVERY.workingChecks = rawPath;
+                    localStorage.setItem('ssm_path_checks', rawPath);
+                  }
+                  break;
+                }
+              } catch (e) {
+                // Si ya teníamos una ruta guardada y falla, la invalidamos para re-descubrir
+                if (DISCOVERY.workingChecks && (e.message.includes('404') || e.message.includes('405'))) {
+                   DISCOVERY.workingChecks = null;
+                   localStorage.removeItem('ssm_path_checks');
+                }
+                console.log(`Global discovery at ${rawPath} failed.`);
               }
-              
-              if (records.length > 0) {
-                console.log(`✅ Global Discovery Success at ${path}: Found ${records.length} records.`);
-                globalData = records;
-                break;
-              }
-            } catch (e) {
-              console.log(`Global discovery at ${path} failed or empty.`);
             }
           }
 
           if (globalData) {
              // ESTRATEGIA HÍBRIDA: Si hemos recuperado datos globales (que suelen ser resúmenes sin pausas),
              // intentamos pedir los detalles específicos de "nuestro" usuario para no perder sus tipos/colores.
-             const myId = (STATE.me && STATE.me.id) || (window.companyConfig && window.companyConfig.employeeId);
+             const myId = getCurrentEmployeeId();
              if (myId) {
                 try {
                    console.log("Hybrid Mode: Fetching personal details for timeline accuracy...");
@@ -2625,7 +2662,7 @@ const FichajesModule = {
           let allIds = Array.from(STATE.allEmployees.keys());
           
           // Asegurar que estamos nosotros mismos
-          const myId = (STATE.me && STATE.me.id) || (window.companyConfig && window.companyConfig.employeeId);
+          const myId = getCurrentEmployeeId();
           if (myId && !allIds.includes(String(myId))) {
              allIds.push(String(myId));
           }
@@ -2637,7 +2674,6 @@ const FichajesModule = {
             const targetIds = allIds.slice(0, 100);
 
             // OPTIMIZACIÓN: No reintentar IDs que ya sabemos que dan 403 en esta sesión
-            if (!this.failedIds) this.failedIds = new Set();
 
             for (let i = 0; i < targetIds.length; i += 8) {
                const chunk = targetIds.slice(i, i + 8).filter(id => !this.failedIds.has(id));
@@ -3002,6 +3038,35 @@ const FichajesModule = {
     if (!tbody) return;
     tbody.innerHTML = '';
     
+    const myId = getCurrentEmployeeId();
+    const isTeamView = !this.selectedEmployee || this.selectedEmployee === 'all';
+    const isOtherEmployeeSelected = this.selectedEmployee && this.selectedEmployee !== 'all' && String(this.selectedEmployee) !== String(myId);
+    
+    // UI Hint: Restricted Access (Detección de 403 en esta sesión)
+    // Mostramos el aviso si:
+    // 1. Estamos viendo todo el equipo y hay restricciones.
+    // 2. Hemos seleccionado a un compañero y sabemos que no tenemos permiso (403).
+    let showWarning = false;
+    if (isTeamView && AUDIT.teamChecksRestricted) showWarning = true;
+    if (isOtherEmployeeSelected && (AUDIT.teamChecksRestricted || this.failedIds?.has(String(this.selectedEmployee)))) showWarning = true;
+
+    if (showWarning) {
+       const warningRow = document.createElement('tr');
+       const isSpecific = isOtherEmployeeSelected;
+       warningRow.innerHTML = `
+         <td colspan="4" style="background: rgba(239, 68, 68, 0.05); border-bottom: 1px solid rgba(239, 68, 68, 0.2); padding: 16px; text-align: center;">
+            <div style="display: inline-flex; align-items: center; gap: 10px; color: #f87171; font-size: 0.85rem; max-width: 600px;">
+               <span style="font-size: 1.2rem;">🛡️</span>
+               <div style="text-align: left;">
+                  <strong style="display: block; margin-bottom: 2px;">${isSpecific ? 'Sin Acceso a este Perfil' : 'Acceso de Equipo Restringido'}</strong>
+                  <span style="opacity: 0.8;">Sesame ha denegado el acceso (403 Forbidden). ${isSpecific ? 'No tienes permisos para ver los fichajes de este compañero.' : 'Solo puedes ver tu propia actividad en esta sesión.'}</span>
+               </div>
+            </div>
+         </td>
+       `;
+       tbody.appendChild(warningRow);
+    }
+    
     let filtered = this.data || [];
     if (this.selectedEmployee && this.selectedEmployee !== 'all') {
       const targetId = String(this.selectedEmployee);
@@ -3016,8 +3081,13 @@ const FichajesModule = {
     // Sort: Las más recientes primero
     filtered.sort((a,b) => (b.date || '').localeCompare(a.date || '') || (a.employeeName || '').localeCompare(b.employeeName || ''));
     
-    if (filtered.length === 0 && this.data.length > 0) {
-      tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding: 40px; color: var(--text-muted);">No hay fichajes que coincidan con los filtros aplicados.</td></tr>`;
+    if (filtered.length === 0) {
+      const emptyRow = document.createElement('tr');
+      emptyRow.innerHTML = `
+        <td colspan="4" style="text-align:center; padding: 40px; color: var(--text-muted);">
+          No hay fichajes que coincidan con los filtros aplicados en este periodo.
+        </td>`;
+      tbody.appendChild(emptyRow);
       return;
     }
 
@@ -3177,9 +3247,23 @@ const FichajesModule = {
  * Muestra la ficha de contacto de un empleado al hacer clic en su avatar.
  * @param {string} employeeId - ID del empleado a mostrar.
  */
-function showContactCard(employeeId) {
-  const emp = STATE.allEmployees.get(String(employeeId));
+async function showContactCard(employeeId) {
+  let emp = STATE.allEmployees.get(String(employeeId));
   if (!emp) return;
+
+  // Si faltan datos clave (cumpleaños, etc), intentamos pedir el perfil completo para esta ficha
+  if (!emp.birthDate || !emp.hiringDate || !emp.phone) {
+    try {
+      const res = await apiFetch(`/api/v3/employees/${employeeId}`);
+      const full = res.data || res;
+      if (full && full.id) {
+        upsertEmployee(full);
+        emp = STATE.allEmployees.get(String(employeeId));
+      }
+    } catch (e) {
+      console.warn("Could not enhance employee profile:", e);
+    }
+  }
 
   const overlay = document.createElement('div');
   overlay.className = 'contact-card-overlay';
@@ -3221,7 +3305,7 @@ function showContactCard(employeeId) {
             <span>🏢</span>
             <div style="flex:1">
               <div style="font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 2px;">Empresa</div>
-              <div>${STATE.companies.find(c => String(c.id) === String(STATE.activeId))?.name || 'Sesame'}</div>
+              <div>${STATE.companies.find(c => String(c.companyId || c.id) === String(STATE.companyId))?.name || 'Mi Empresa'}</div>
             </div>
           </div>
         </div>
