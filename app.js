@@ -2740,8 +2740,10 @@ const FichajesModule = {
           </tr>`;
         this.renderPresenceSummaryOnly();
       } else {
+        this.populateEmployeeSelect(); // Re-poblar para incluir los empleados recién cosechados
         this.renderTable();
       }
+
       
       // REFRESCAR BARRA LATERAL: Para que los puntos de estado se vean al instante tras la carga
       renderEmployeeFilterList();
