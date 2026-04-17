@@ -25,3 +25,7 @@ Thumbs.db
 # Project Specific
 backups/
 logs/
+server.log
+scratch/
+_scratch/
+*.log

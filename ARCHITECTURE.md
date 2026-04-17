@@ -1,54 +1,38 @@
 # 🏗️ Arquitectura Técnica - Sesame Premium Dashboard
 
-Este documento detalla los componentes técnicos, el flujo de datos y los algoritmos principales que hacen funcionar este dashboard.
+Este documento detalla la ingeniería detrás del dashboard, centrándose en la resiliencia y el procesamiento de datos.
 
-## 1. Diseño de Arquitectura
+## 1. Estrategia de Conectividad Híbrida (Doble Servidor)
 
-El sistema utiliza un patrón de **Proxy Local**. Dado que la API de Sesame HR tiene restricciones de CORS (Cross-Origin Resource Sharing) estrictas para navegadores, este proyecto utiliza un servidor Python intermedio.
+Para garantizar que el dashboard funcione incluso en entornos corporativos restrictivos o ante cambios en la API de Sesame, hemos implementado una **lógica de failover automático**:
 
-### Flujo de Datos
-1. **Cliente (JS)**: Solicita datos a `/sesame-api/v3/attendance/...`
-2. **Servidor (Python)**: Recibe la petición, adjunta las cookies de sesión guardadas en `config.json` y la reenvía a `back-eu1.sesametime.com`.
-3. **API Sesame**: Responde al servidor Python.
-4. **Servidor (Python)**: Devuelve la respuesta íntegra al Cliente.
+- **Capa Primaria (Directa)**: Intenta conectar directamente con `api.sesametime.com` o `back-eu1.sesametime.com` usando cabeceras de navegador.
+- **Capa Secundaria (Proxy)**: Si la primaria falla (error 403, CORS o red), la aplicación desvía la petición al servidor local `server.py`.
+- **Ventaja**: Máxima velocidad cuando es posible, y fiabilidad total cuando es necesario.
 
-## 2. Gestión de Estado (Frontend)
+## 2. Motor de Procesamiento de Datos (Normalization Layer)
 
-La aplicación es una **SPA (Single Page Application)** escrita en Vanilla Javascript. El estado global se centraliza en el objeto `STATE` dentro de `app.js`:
+La API de Sesame devuelve datos en múltiples formatos (REST estándar y BI Engine). El dashboard utiliza una capa de normalización que:
+1. **Unifica**: Convierte estructuras anidadas de "Work Entries" en un modelo plano de `Signings`.
+2. **Cruce (Smart Match)**: Cruza el calendario de ausencias (módulo `schedule/v1`) con los fichajes (`work-entries/v3`) en tiempo real.
+3. **Validación**: Detecta inconsistencias (fichajes en días de vacaciones, falta de marcaje de salida) antes de renderizar la UI.
 
-```javascript
-const STATE = {
-  currentDate: new Date(),
-  companies: [],
-  companyId: null,
-  theme: 'dark',
-  // ... otros datos de vista
-};
-```
+## 3. Monitorización de Presencia en Vivo (Radar)
 
-## 3. Algoritmo de Smart Match (Fichajes y Ausencias)
+El radar de disponibilidad funciona mediante un sondeo optimizado a la ruta `/api/v3/work-entries/presence`:
+- **Estado Local**: La aplicación mantiene un mapa de IDs de empleados vinculados a sus fotos y nombres.
+- **Difusión**: El estado se propaga a tres puntos de la interfaz simultáneamente: la barra lateral, el resumen de cabecera y el panel de fichajes.
 
-Una de las funcionalidades más avanzadas es el cruce automático de datos. El algoritmo reside en la función `parseRealSignings`.
+## 4. Seguridad y Persistencia
 
-### Proceso:
-1. **Recolección**: Se obtienen los `entries` (fichajes reales) y los `absenceSegments` (segmentos de ausencia del calendario) para un empleado y día concreto.
-2. **Cruze Temporal**: Para cada tramo de fichaje (Entrada -> Salida), el sistema comprueba si existe una ausencia en el calendario que se solape en ese rango horario.
-3. **Etiquetado Inteligente**: 
-    - Si hay solapamiento, el tramo de "Trabajo" se reclasifica automáticamente con el motivo de la ausencia (ej: "Gestión Privada").
-    - Se calcula la duración exacta entre cada entrada y salida técnica.
-4. **Renderizado**: Los datos procesados alimentan tanto la línea de tiempo (`timeline-bar`) como la tabla de detalles técnicos.
+- **Gestión de Cookies**: El servidor Python (`server.py`) encapsula la lógica de autenticación para que el frontend no tenga que manejar datos sensibles directamente.
+- **Configuración Segura**: Los parámetros volátiles (Tokens, IDs de empresa) se extraen de `config.json`, que está excluido del control de versiones (`.gitignore`).
 
-## 4. Motor de Temas Dinámico
+## 5. Visual Stack
 
-El sistema de temas utiliza **Variables CSS** nativas. El cambio de tema se aplica mediante el atributo `data-theme` en el elemento raíz:
-
-- **Estrategia**: Todas las capas de color (fondos, bordes, sombras) están vinculadas a variables como `--bg-card` o `--text-primary`.
-- **Sincronización**: Al cambiar el tema, se disparan eventos de re-renderizado para los componentes que dependen de cálculos de color dinámicos (como gráficos o sombras dinámicas).
-
-## 5. Almacenamiento y Seguridad
-
-- **Configuración**: Las credenciales se almacenan localmente en `config.json`.
-- **Sesión**: El sistema gestiona las cookies de sesión de forma transparente a través de los scripts `get-token.py` (para login interactivo) y `server.py` (para persistencia).
+- **Motor UI**: Vanilla Javascript (ES6+). Sin frameworks pesados para garantizar una carga instantánea.
+- **Diseño**: CSS3 moderno con variables dinámicas, Flexbox y Grid Layout de alta densidad.
+- **Componentes**: Arquitectura basada en módulos (`FichajesModule`, `VacacionesModule`) para facilitar la mantenibilidad.
 
 ---
-*Para desarrolladores: Se recomienda mantener la estructura de módulos (`MODULES.vacaciones`, `MODULES.fichajes`) para futuras expansiones de la interfaz.*
+*Este proyecto demuestra cómo extender una plataforma SaaS cerrada mediante ingeniería inversa y capas de valor añadido sobre su API.*
