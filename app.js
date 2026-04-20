@@ -2860,62 +2860,8 @@ const FichajesModule = {
   },
 
   updateAnalyticsWidgets() {
-    const pw = document.getElementById('patterns-widget');
-    const rw = document.getElementById('radar-widget');
-    if (!pw || !rw) return;
-
-    pw.style.display = 'block';
-    rw.style.display = 'block';
-
-    // 1. Calcular Patrones (Ahora se hace en renderOperationalInsights para ser reactivo)
-
-    // 2. Calcular Radar (Compañeros trabajando AHORA) leyendo de la caché global (más seguro)
-    const radarList = document.getElementById('radar-list');
-    radarList.innerHTML = '';
-
-    const allEmps = Array.from(STATE.allEmployees.values());
-    
-    // Filtrar los que están en 'work' o 'pause', excluyendo al usuario actual
-    const activePeers = allEmps
-      .filter(emp => emp.id && String(emp.id) !== meId && (emp.status === 'work' || emp.status === 'pause'))
-      // Ordenar por estado (trabajando primero) y luego por nombre
-      .sort((a, b) => {
-        if (a.status === 'work' && b.status !== 'work') return -1;
-        if (a.status !== 'work' && b.status === 'work') return 1;
-        return (a.firstName || '').localeCompare(b.firstName || '');
-      });
-
-    if (activePeers.length === 0) {
-      radarList.innerHTML = '<div style="color:var(--text-muted); font-size:0.75rem; text-align:center; padding: 10px 0;">Nadie conectado en la empresa.</div>';
-    } else {
-      // Mostrar top 5 disponibles
-      activePeers.slice(0, 5).forEach(emp => {
-        const name = `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || 'Compañero';
-        const initials = name.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2);
-        const isWorking = emp.status === 'work';
-        const dotColor = isWorking ? '#22c55e' : '#f59e0b'; // Verde o Naranja
-        const statusText = isWorking ? 'Trabajando' : 'En pausa';
-        
-        const avatar = emp.imageProfileURL 
-          ? `<img src="${emp.imageProfileURL}" style="width: 24px; height: 24px; border-radius: 50%; object-fit: cover;">`
-          : `<div style="width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: white; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">${initials}</div>`;
-
-        radarList.innerHTML += `
-          <div style="display: flex; align-items: center; justify-content: space-between; padding: 4px 0;">
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <div style="position: relative;">
-                ${avatar}
-                <div style="position: absolute; bottom: -2px; right: -2px; width: 10px; height: 10px; background: ${dotColor}; border-radius: 50%; border: 2px solid var(--bg-surface);"></div>
-              </div>
-              <div style="font-size: 0.75rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 110px;">
-                ${name}
-              </div>
-            </div>
-            <span style="font-size: 0.65rem; color: var(--text-muted);">${statusText}</span>
-          </div>
-        `;
-      });
-    }
+    // Esta función ha sido sustituida por renderOperationalInsights,
+    // que es reactiva al cambio de empleado en el desplegable.
   },
 
   setupAutoRefresh() {
