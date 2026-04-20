@@ -1,15 +1,20 @@
 {
+  "activeId": "19d31e8d-70a3-4a2b-97e3-3790c71059fb",
+  "companyId": "19d31e8d-70a3-4a2b-97e3-3790c71059fb",
   "companies": [
     {
-      "name": "FIBERCOM, S.L.",
-      "token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJpYXQiOjE3NzQwMTUwNDIsIm5iZiI6MTc3NDAxNTA0MiwiYXV0aENsYXNzIjoiU2VzYW1lXFxEZGRcXEluZnJhc3RydWN0dXJlXFxTZXNzaW9uXFxTaW1wbGVBdXRoIiwiYXV0aERhdGEiOnsicmVnaW9uIjoiRVUxIiwiZW50aXR5X3R5cGUiOiJ1c2VyIiwiZW50aXR5X2lkIjoiYWZiNGIxMmMtMmI5YS00Y2Y2LWEwNzMtNjNhMDFjMmQ0NzExIn0sInZlcnNpb24iOiJ2MS4wLjAiLCJjcmVhdGVkQXQiOjE3NzQwMTUwNDI0NDgsImlkIjoiMmFmZTZmNjYtZjdhMC00ZjE2LWJmZGItNDdlOGZlNjhhZTVlIn0.vcq-stWqwbCqTl2E3SHyaL1BPSnTNDivqV6xiNGo7dHlQPupGxflRI-ZX_qKlPSyd-ZUAOIHpQYNNBfYWEeLE2BI7UhXWDRXi3I1roPrToJWA_bcKjFYcYdeB2Lc6hWvnVssuhuYie87LHJt0GenaMV-KOij06WajwFp6Mk356xyqjWGmpEnnVLoiAEKCyuMx117OjE06s-54fS5tOjGAt0BxbUHFIKfpYhceHt796k_1tWNrCOm-7Hq3sJiXaK3dG6tKfW2Mo31NMYrVOsTmy2HOcq8hXD2Cf2tQq7-lPk1Bl6Pg4ed0SfK1BqPsgh-MsA03RaKDZgD7dbrQ_yldA",
+      "name": "FIBERCOM",
       "companyId": "19d31e8d-70a3-4a2b-97e3-3790c71059fb",
       "backendUrl": "https://back-eu1.sesametime.com",
-      "brandColor": null,
-      "logoUrl": null
+      "brandColor": "#031e68",
+      "logoUrl": "https://media.licdn.com/dms/image/v2/C4E03AQGzSqwb5gWJhg/profile-displayphoto-shrink_400_400/profile-displayphoto-shrink_400_400/0/1516456449522?e=2147483647&v=beta&t=-0_U51sWX5409BdMRoEQU6DJBrDwJXuPUzfWFFe2G7g"
+    },
+    {
+      "name": "ARAGONPHOTONICS",
+      "companyId": "293b4731-cfb5-43d5-bf8e-b4c0462a5ca7",
+      "backendUrl": "https://back-eu1.sesametime.com",
+      "brandColor": "#2f6f79",
+      "logoUrl": "https://aragonphotonics.com/wp-content/uploads/2024/05/cropped-isotipo-aragonphotonics.png"
     }
-  ],
-  "activeId": "19d31e8d-70a3-4a2b-97e3-3790c71059fb",
-  "token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJpYXQiOjE3NzQwMTUwNDIsIm5iZiI6MTc3NDAxNTA0MiwiYXV0aENsYXNzIjoiU2VzYW1lXFxEZGRcXEluZnJhc3RydWN0dXJlXFxTZXNzaW9uXFxTaW1wbGVBdXRoIiwiYXV0aERhdGEiOnsicmVnaW9uIjoiRVUxIiwiZW50aXR5X3R5cGUiOiJ1c2VyIiwiZW50aXR5X2lkIjoiYWZiNGIxMmMtMmI5YS00Y2Y2LWEwNzMtNjNhMDFjMmQ0NzExIn0sInZlcnNpb24iOiJ2MS4wLjAiLCJjcmVhdGVkQXQiOjE3NzQwMTUwNDI0NDgsImlkIjoiMmFmZTZmNjYtZjdhMC00ZjE2LWJmZGItNDdlOGZlNjhhZTVlIn0.vcq-stWqwbCqTl2E3SHyaL1BPSnTNDivqV6xiNGo7dHlQPupGxflRI-ZX_qKlPSyd-ZUAOIHpQYNNBfYWEeLE2BI7UhXWDRXi3I1roPrToJWA_bcKjFYcYdeB2Lc6hWvnVssuhuYie87LHJt0GenaMV-KOij06WajwFp6Mk356xyqjWGmpEnnVLoiAEKCyuMx117OjE06s-54fS5tOjGAt0BxbUHFIKfpYhceHt796k_1tWNrCOm-7Hq3sJiXaK3dG6tKfW2Mo31NMYrVOsTmy2HOcq8hXD2Cf2tQq7-lPk1Bl6Pg4ed0SfK1BqPsgh-MsA03RaKDZgD7dbrQ_yldA",
-  "companyId": "19d31e8d-70a3-4a2b-97e3-3790c71059fb"
+  ]
 }

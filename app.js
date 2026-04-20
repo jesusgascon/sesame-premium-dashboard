@@ -835,8 +835,21 @@ function switchCompany(cid) {
       body: JSON.stringify(next)
     });
   }
+
+  // Limpiamos el estado anterior antes de la carga completa
+  STATE.allEmployees.clear();
+  STATE.presenceMap.clear();
+  STATE.calendarData = {};
+  STATE.hiddenEmployeeIds.clear();
+
+  // Limpiamos datos del módulo de fichajes si existe
+  if (typeof FichajesModule !== 'undefined') {
+    FichajesModule.data = [];
+    if (FichajesModule.failedIds) FichajesModule.failedIds.clear();
+  }
   
-  loadData();
+  // Cargamos TODO de la nueva empresa (Metadatos + Calendario)
+  loadInitialData();
   startAutoRefresh();
 }
 
@@ -1336,6 +1349,10 @@ async function loadInitialData() {
   STATE.isLoading = true;
   showLoading(true);
   
+  // Limpieza preventiva de listas antes de la nueva carga
+  STATE.allEmployees.clear();
+  STATE.presenceMap.clear();
+  
   try {
     // 1. Parallel fetch of core metadata (siempre datos reales)
     const [absTypes, meData, teamEmps, presenceData] = await Promise.all([
@@ -1392,6 +1409,11 @@ async function loadInitialData() {
 
     // 5. Initial calendar load
     await loadDataInternal();
+
+    // 6. Sincronizar Módulo de Fichajes si está activo
+    if (typeof FichajesModule !== 'undefined' && FichajesModule.initialized) {
+      FichajesModule.loadData();
+    }
   } catch (e) {
     console.error('loadInitialData failed:', e);
     if (e.message.includes('401')) {
