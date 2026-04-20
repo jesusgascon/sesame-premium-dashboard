@@ -35,7 +35,10 @@
       <div class="setup-form">
         <div class="form-group">
           <label for="master-pass">CIF de la Compañía</label>
-          <input type="password" id="master-pass" placeholder="Introduce el CIF..." autocomplete="current-password" />
+          <div class="input-with-action">
+            <input type="password" id="master-pass" placeholder="Introduce el CIF..." autocomplete="current-password" />
+            <button type="button" class="btn-toggle-pass" onclick="togglePassword('master-pass')">👁️</button>
+          </div>
         </div>
 
         <div style="margin-top: 10px;">
@@ -64,7 +67,7 @@
     <div class="setup-card glass">
       <div class="setup-logo">
         <div class="logo-icon">🚀</div>
-        <h1>Configuración Inicial</h1>
+        <h1 id="setup-title" class="setup-title">Configuración Inicial</h1>
         <p>Configura tu conexión con Sesame HR para desplegar el panel de analítica avanzada.</p>
       </div>
 
@@ -73,7 +76,10 @@
         <div class="setup-section-inline">
           <div class="form-group">
             <label for="token-input">USID (Token de Sesión)</label>
-            <input type="password" id="token-input" placeholder="Pega tu cookie USID aquí..." />
+            <div class="input-with-action">
+              <input type="password" id="token-input" placeholder="Pega tu cookie USID aquí..." />
+              <button type="button" class="btn-toggle-pass" onclick="togglePassword('token-input')">👁️</button>
+            </div>
           </div>
 
           <div class="form-group">
@@ -104,10 +110,13 @@
           <input type="text" id="backend-input" value="https://back-eu1.sesametime.com" />
         </div>
 
-        <div style="margin-top: 20px;">
+        <div style="margin-top: 20px; display: flex; gap: 12px;">
+          <button id="cancel-setup-btn" class="btn-secondary full-width-btn hidden">
+            Cancelar
+          </button>
           <button id="connect-btn" class="btn-primary full-width-btn">
             <span class="btn-icon">⚡</span>
-            Sincronizar Panel
+            <span id="connect-btn-text">Sincronizar Panel</span>
           </button>
         </div>
 
@@ -145,13 +154,18 @@
 
       <div class="company-manager" style="padding: 0 16px; margin-bottom: 20px;">
         <span class="section-title">Empresa Activa</span>
-        <div class="company-control-row">
+        <div class="company-stack">
           <select id="company-select" class="company-dropdown-styled"></select>
-          <button id="add-company-btn" class="btn-round-action" title="Añadir otra empresa">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          </button>
-          <button id="delete-company-btn" class="btn-round-action delete" title="Eliminar empresa activa">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+          <div class="company-actions-row">
+            <button id="add-company-btn" class="btn-action-wide" title="Añadir otra empresa">
+              <span class="btn-icon-sm">➕</span> Añadir
+            </button>
+            <button id="edit-company-btn" class="btn-action-wide edit" title="Editar empresa activa">
+              <span class="btn-icon-sm">📝</span> Editar
+            </button>
+          </div>
+          <button id="delete-company-btn" class="btn-action-wide delete full-width-action" title="Eliminar empresa activa">
+            <span class="btn-icon-sm">🗑️</span> Borrar Empresa Activa
           </button>
         </div>
       </div>

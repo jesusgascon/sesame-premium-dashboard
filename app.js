@@ -5,6 +5,16 @@
 
 'use strict';
 
+// --- Global UI Helpers ---
+function togglePassword(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.type = el.type === 'password' ? 'text' : 'password';
+  
+  // Optional: Update icon if we had a class-based toggle, 
+  // but here we just use the emoji which stays the same.
+}
+
 const MASTER_PASSWORDS = ['B50449107', 'B99030074'];
 
 // Auto-detect if running via local proxy server (server.py)
@@ -1021,7 +1031,7 @@ async function startApp() {
         empSection.classList.remove('is-collapsed');
       }
       // Scroll suave hasta la lista de filtros
-      const empFilterList = $('employee-filter-list');
+      const empFilterList = $('employee-filters');
       if (empFilterList) {
         empFilterList.scrollIntoView({ behavior: 'smooth', block: 'center' });
         empFilterList.classList.add('highlight-flash');
@@ -1068,9 +1078,35 @@ async function startApp() {
     showSetup();
   });
 
+  const editCompanyBtn = $('edit-company-btn');
+  if (editCompanyBtn) editCompanyBtn.addEventListener('click', () => {
+    const selectedId = $('company-select')?.value;
+    const active = STATE.companies.find(c => String(c.companyId).trim() === String(STATE.companyId).trim())
+                || STATE.companies.find(c => String(c.companyId).trim() === String(selectedId).trim())
+                || STATE.companies[0];
+    
+    if (active) {
+      showSetup(active);
+    } else {
+      // Si no hay nada, al menos mostramos el setup vacío con opción de cancelar si hay empresas
+      showSetup();
+    }
+  });
+
   const deleteCompanyBtn = $('delete-company-btn');
   if (deleteCompanyBtn) {
     deleteCompanyBtn.addEventListener('click', handleDeleteCompany);
+  }
+
+  const cancelSetupBtn = $('cancel-setup-btn');
+  if (cancelSetupBtn) {
+    cancelSetupBtn.addEventListener('click', () => {
+      if (STATE.token && STATE.companyId) {
+        showApp();
+      } else {
+        showScreen('lock-screen');
+      }
+    });
   }
 
   $('modal-close').addEventListener('click', closeModal);
@@ -1117,13 +1153,45 @@ async function startApp() {
   }
 }
 
-function showSetup() {
+function showSetup(editData = null) {
   showScreen('setup-screen');
-  if ($('token-input')) $('token-input').value = '';
-  if ($('company-input')) $('company-input').value = '';
-  if ($('name-input')) $('name-input').value = '';
-  if ($('color-input')) $('color-input').value = '';
-  if ($('logo-input')) $('logo-input').value = '';
+  
+  // Si no nos pasan datos pero estamos logueados, intentamos recuperar la activa
+  if (!editData && STATE.companyId) {
+    editData = STATE.companies.find(c => String(c.companyId).trim() === String(STATE.companyId).trim());
+  }
+
+  const isEditing = !!editData;
+  
+  // Actualizar Título
+  const titleEl = $('setup-title');
+  if (titleEl) titleEl.textContent = (isEditing || STATE.token) ? 'Editar Configuración' : 'Configuración Inicial';
+
+  // Actualizar Texto Botón
+  const btnText = $('connect-btn-text');
+  if (btnText) btnText.textContent = (isEditing || STATE.token) ? 'Guardar Cambios' : 'Sincronizar Panel';
+  
+  // Mostrar/Ocultar Cancelar
+  const cancelBtn = $('cancel-setup-btn');
+  if (cancelBtn) {
+    // Si tenemos empresas O estamos logueados, permitimos cancelar siempre
+    const canCancel = (STATE.companies && STATE.companies.length > 0) || !!STATE.token;
+    cancelBtn.classList.toggle('hidden', !canCancel);
+  }
+
+  const fields = {
+    'token-input':   editData ? editData.token : '',
+    'company-input': editData ? editData.companyId : '',
+    'name-input':    editData ? editData.name : '',
+    'color-input':   editData ? editData.brandColor : '',
+    'logo-input':    editData ? editData.logoUrl : '',
+    'backend-input': editData ? editData.backendUrl : 'https://back-eu1.sesametime.com'
+  };
+
+  for (const [id, val] of Object.entries(fields)) {
+    const el = $(id);
+    if (el) el.value = val || '';
+  }
 }
 
 
@@ -2214,12 +2282,7 @@ function showApp() {
   $('app-screen').classList.add('active');
 }
 
-function showSetup() {
-  $('app-screen').classList.remove('active');
-  $('app-screen').classList.add('hidden');
-  $('setup-screen').classList.remove('hidden');
-  $('setup-screen').classList.add('active');
-}
+// NOTE: showSetup() is defined earlier in the file (with editData parameter support)
 
 function showLoading(show) {
   $('loading-overlay').classList.toggle('hidden', !show);

@@ -22,34 +22,78 @@ import datetime
 # --- CONFIGURACIÓN ---
 PORT = 8765 # Puerto donde correrá la web
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_FILE = os.path.join(BASE_DIR, 'config.json') # Almacén persistente de credenciales
+CONFIG_FILE   = os.path.join(BASE_DIR, 'config.json')         # Metadatos públicos
+SECRETS_FILE  = os.path.join(BASE_DIR, 'config.secrets.json') # Tokens sensibles (gitignored)
 
 
 def load_config():
+    """Carga config.json (metadatos) y config.secrets.json (tokens) y los fusiona."""
+    cfg = {"companies": [], "activeId": ""}
+
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE) as f:
-                data = json.load(f)
-                # Migración de formato antiguo si existe
-                if 'token' in data and 'companies' not in data:
-                    company = {
-                        "id": data.get("companyId", "empresa-1"),
-                        "name": "Empresa Actual",
-                        "token": data.get("token"),
-                        "companyId": data.get("companyId"),
-                        "backendUrl": data.get("backendUrl", "https://back-eu1.sesametime.com")
-                    }
-                    data = {"companies": [company], "activeId": company["id"]}
-                    save_config(data)
-                return data
+                cfg = json.load(f)
+            # Migración de formato antiguo (token en raíz)
+            if 'token' in cfg and 'companies' not in cfg:
+                company = {
+                    "name": "Empresa Actual",
+                    "companyId": cfg.get("companyId", "empresa-1"),
+                    "backendUrl": cfg.get("backendUrl", "https://back-eu1.sesametime.com"),
+                    "brandColor": None,
+                    "logoUrl": None,
+                }
+                cfg = {"companies": [company], "activeId": company["companyId"]}
+                save_config(cfg)
         except Exception as e:
             print(f"Error loading config: {e}")
-    return {"companies": [], "activeId": ""}
+
+    # Cargar tokens desde el archivo de secretos y fusionarlos
+    secrets = {}
+    if os.path.exists(SECRETS_FILE):
+        try:
+            with open(SECRETS_FILE) as f:
+                secrets = json.load(f).get("tokens", {})
+        except Exception as e:
+            print(f"Error loading secrets: {e}")
+
+    # Inyectar token en cada empresa (merge en memoria, nunca se guarda junto)
+    for company in cfg.get("companies", []):
+        cid = company.get("companyId", "")
+        if cid in secrets:
+            company["token"] = secrets[cid]
+
+    return cfg
 
 
 def save_config(data):
+    """Guarda metadatos en config.json y tokens en config.secrets.json por separado."""
+    # Extraer tokens antes de guardar metadatos públicos
+    secrets_tokens = {}
+    companies_clean = []
+    for company in data.get("companies", []):
+        token = company.pop("token", None)
+        if token and company.get("companyId"):
+            secrets_tokens[company["companyId"]] = token
+        companies_clean.append(company)
+
+    # Guardar metadatos sin tokens
+    public_data = {k: v for k, v in data.items() if k not in ("token", "companies")}
+    public_data["companies"] = companies_clean
     with open(CONFIG_FILE, 'w') as f:
-        json.dump(data, f, indent=2)
+        json.dump(public_data, f, indent=2)
+
+    # Actualizar config.secrets.json (merge: no borrar tokens existentes)
+    existing_secrets = {}
+    if os.path.exists(SECRETS_FILE):
+        try:
+            with open(SECRETS_FILE) as f:
+                existing_secrets = json.load(f).get("tokens", {})
+        except Exception:
+            pass
+    existing_secrets.update(secrets_tokens)
+    with open(SECRETS_FILE, 'w') as f:
+        json.dump({"tokens": existing_secrets}, f, indent=2)
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):

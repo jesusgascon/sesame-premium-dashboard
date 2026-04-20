@@ -1,0 +1,13 @@
+{
+  "_comment": "Copia este fichero a config.json y rellena tus datos (sin tokens).",
+  "companies": [
+    {
+      "name": "Mi Empresa",
+      "companyId": "00000000-0000-0000-0000-000000000000",
+      "backendUrl": "https://back-eu1.sesametime.com",
+      "brandColor": "#6C63FF",
+      "logoUrl": "https://tu-servidor.com/logo.png"
+    }
+  ],
+  "activeId": "00000000-0000-0000-0000-000000000000"
+}
