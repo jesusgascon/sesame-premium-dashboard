@@ -2478,6 +2478,9 @@ const FichajesModule = {
     document.getElementById('export-signings-csv')?.addEventListener('click', () => {
       this.exportToCSV();
     });
+    document.getElementById('export-signings-json')?.addEventListener('click', () => {
+      this.exportToJSON();
+    });
     
     // Filtro por Empleado
     document.getElementById('signings-employee-select')?.addEventListener('change', (e) => {
@@ -3300,18 +3303,34 @@ const FichajesModule = {
   },
 
   exportToCSV() {
-    if (!this.data || this.data.length === 0) return alert("No hay datos para exportar");
+    const visibleRows = this.getFilteredRows();
+    if (!visibleRows || visibleRows.length === 0) return alert("No hay datos visibles para exportar");
+    
     let csv = "Empleado;Fecha;Entrada;Salida;Duracion;Tipo;Localizacion\n";
-    this.data.forEach(row => {
+    visibleRows.forEach(row => {
       row.entries.forEach(e => {
         csv += `${row.employeeName};${row.date};${e.in};${e.out};${e.duration};${e.typeLabel};${e.loc}\n`;
       });
     });
+    
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `fichajes_${new Date().toISOString().split('T')[0]}.csv`;
+    link.download = `fichajes_sesame_${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+  },
+
+  exportToJSON() {
+    const visibleRows = this.getFilteredRows();
+    if (!visibleRows || visibleRows.length === 0) return alert("No hay datos visibles para exportar");
+    
+    const dataStr = JSON.stringify(visibleRows, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `fichajes_sesame_${new Date().toISOString().split('T')[0]}.json`;
     link.click();
   },
 
