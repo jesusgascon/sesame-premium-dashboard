@@ -177,6 +177,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             cfg["token"] = new_company.get("token")
             cfg["companyId"] = cid
             
+            # Config guardado silenciosamente
             save_config(cfg)
             
             self.send_response(200)
@@ -184,7 +185,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._cors_headers()
             self.end_headers()
             self.wfile.write(b'{"ok":true}')
-            print(f'  💾  Config guardado y sincronizado para empresa: {cid}')
         except Exception as e:
             self.send_response(400)
             self._cors_headers()
@@ -219,7 +219,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self._cors_headers()
                 self.end_headers()
                 self.wfile.write(b'{"ok":true}')
-                print(f'  🗑️  Empresa eliminada: {cid}')
+                # Empresa eliminada silenciosamente
             else:
                 self.send_response(404)
                 self._cors_headers()
@@ -239,7 +239,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._cors_headers()
             self.end_headers()
             self.wfile.write(b'{"ok":true}')
-            print('  🧹  Configuración completa eliminada por petición del usuario')
+            # Configuración eliminada silenciosamente
         except Exception as e:
             self.send_response(500)
             self._cors_headers()
@@ -371,28 +371,21 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             if hl_allowed or hl_sec or hl_x:
                 hdrs[h] = self.headers[h]
         
-        # Log de contexto para depuración de 403/404
-        has_auth = '✅' if 'Authorization' in hdrs else '❌'
-        cid_val = hdrs.get('csid') or hdrs.get('x-company-id') or '?'
-        print(f'  🌐 {method} {api_path.split("?")[0]} | Upstream: {backend} | Auth: {has_auth} | CSID: {cid_val}')
-
         # Ensure we always pass a realistic User-Agent if missing, otherwise WAF blocks us
         if 'User-Agent' not in hdrs:
             hdrs['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-
+        
         try:
             import time
             start = time.time()
             req = urllib.request.Request(target, data=body, headers=hdrs, method=method)
             with urllib.request.urlopen(req, timeout=20) as resp:
                 data = resp.read()
-                elapsed = (time.time() - start) * 1000
                 self.send_response(resp.status)
                 self.send_header('Content-Type', resp.headers.get('Content-Type', 'application/json'))
                 self._cors_headers()
                 self.end_headers()
                 self.wfile.write(data)
-                print(f'  ⚡  API {method} {api_path.split("?")[0]} - {resp.status} ({elapsed:.1f}ms)')
         except urllib.error.HTTPError as e:
             data = e.read()
             self.send_response(e.code)
@@ -421,6 +414,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                          'Authorization, csid, Content-Type, X-Backend-Url, Accept, x-company-id, X-Region')
 
     def log_message(self, fmt, *args):
+        # Silenciar logs si el status code es < 400 (exitosos)
+        try:
+            status_code = int(args[1])
+            if status_code < 400:
+                return
+        except (IndexError, ValueError):
+            pass
+
         msg = fmt % args
         if '/sesame-api/' in msg:
             print(f'  → API: {args[0] if args else msg}')

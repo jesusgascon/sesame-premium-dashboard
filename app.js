@@ -2170,7 +2170,9 @@ function openModal(dateStr, events) {
             : initials}
         </div>
         <div class="modal-emp-name">${name}</div>
-        ${emp.workStatus ? `<span class="pill" style="margin-left:auto">${emp.workStatus}</span>` : ''}
+        ${emp.workStatus 
+          ? `<span class="pill status-${emp.workStatus.toLowerCase().replace(/\s+/g, '-')}" style="margin-left:auto">${emp.workStatus}</span>` 
+          : ''}
       `;
       section.appendChild(row);
     });
