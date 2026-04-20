@@ -3573,6 +3573,7 @@ const FichajesModule = {
     if (elMax) elMax.textContent = maxDay;
 
     // --- CUERPOS DE INSIGHTS ---
+    setBody('insight-incidencias-body', incidents.length ? `
       ${incidents.slice(0, 4).map(item => `
         <div class="insight-line">
           <div><strong>${item.label}</strong><br><span>${item.employeeName}</span></div>
