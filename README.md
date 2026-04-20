@@ -208,6 +208,9 @@ Controlador principal del módulo de fichajes. Gestiona:
 
 ## 📝 Changelog
 
+### v1.2.1 — 2026-04-20
+- 🐛 **fix**: Cálculo del Resumen de Jornada ahora excluye correctamente las pausas. Solo se contabilizan los tramos de tipo "Trabajo" en el total diario.
+
 ### v1.2.0 — 2026-04-20
 - ✨ **feat**: Seguimiento de Origen de Fichajes (Device Tracking).
   - Nueva columna "ORIGEN" en el detalle expandible de fichajes.

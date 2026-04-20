@@ -3280,7 +3280,9 @@ const FichajesModule = {
          originOut: record.originOut || 'Oficina'
        });
       
-      grouped[key].totalWorkedSeconds += (record.secondsWorked || 0);
+       if (record.type === 'work') {
+         grouped[key].totalWorkedSeconds += (record.secondsWorked || 0);
+       }
     }
     
     // Transform groups to array format expected by renderTable
