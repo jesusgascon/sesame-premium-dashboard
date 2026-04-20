@@ -36,10 +36,12 @@ Un dashboard de alta fidelidad, inteligencia operativa y monitorización avanzad
 ### Requisitos previos
 - Python 3.8 o superior instalado.
 
-### Configuración
+### Configuración Segura
 1. Clona el repositorio.
-2. Crea un archivo `config.json` (usa el ejemplo proporcionado en la documentación interna).
-3. Asegúrate de tener tu Token de Sesión de Sesame configurado.
+2. **Estrategia de Dos Archivos**:
+   - `config.json`: Metadatos públicos de tus empresas (nombre, color, logo).
+   - `config.secrets.json`: Almacena los tokens sensibles (está ignorado por Git para tu seguridad).
+3. Usa los archivos `.example.json` como plantilla para empezar.
 
 ### Ejecución
 Usa el script de inicio:
