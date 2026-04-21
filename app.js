@@ -2824,10 +2824,16 @@ const FichajesModule = {
             {"field": "schedule_context_check.check_out_check_datetime", "alias": "checkOut"},
             {"field": "schedule_context_check.seconds_worked", "alias": "secondsWorked"},
             {"field": "schedule_context_check.type", "alias": "type"},
-            // {"field": "schedule_context_check.check_in_latitude", "alias": "checkInLat"},
-            // {"field": "schedule_context_check.check_in_longitude", "alias": "checkInLon"},
-            // {"field": "schedule_context_check.check_out_latitude", "alias": "checkOutLat"},
-            // {"field": "schedule_context_check.check_out_longitude", "alias": "checkOutLon"},
+            {"field": "schedule_context_check.check_in_latitude", "alias": "checkInLat"},
+            {"field": "schedule_context_check.check_in_longitude", "alias": "checkInLon"},
+            {"field": "schedule_context_check.check_out_latitude", "alias": "checkOutLat"},
+            {"field": "schedule_context_check.check_out_longitude", "alias": "checkOutLon"},
+            {"field": "schedule_context_check.latitude", "alias": "latitude"},
+            {"field": "schedule_context_check.longitude", "alias": "longitude"},
+            {"field": "schedule_context_check.location_latitude", "alias": "locLat"},
+            {"field": "schedule_context_check.location_longitude", "alias": "locLon"},
+            {"field": "schedule_context_check.check_in_address", "alias": "checkInAddr"},
+            {"field": "schedule_context_check.check_out_address", "alias": "checkOutAddr"},
             {"field": "schedule_context_check.origin", "alias": "origin"},
             {"field": "core_context_employee.name", "alias": "employeeName"},
             {"field": "core_context_employee.id", "alias": "employeeId"}
@@ -3137,13 +3143,32 @@ const FichajesModule = {
       const inStr = (c.checkIn && typeof c.checkIn === 'object') ? c.checkIn.date : c.checkIn;
       const outStr = (c.checkOut && typeof c.checkOut === 'object') ? c.checkOut.date : c.checkOut;
       
+      // Helper para extraer coordenadas de forma robusta
+      const extractCoord = (obj, field) => {
+        if (!obj || typeof obj !== 'object') return null;
+        if (obj[field] !== undefined) return obj[field];
+        if (obj.coordinates && obj.coordinates[field] !== undefined) return obj.coordinates[field];
+        // Aliases comunes
+        const altField = field === 'latitude' ? 'lat' : 'lon';
+        const altField2 = field === 'longitude' ? 'lng' : null;
+        if (obj[altField] !== undefined) return obj[altField];
+        if (altField2 && obj[altField2] !== undefined) return obj[altField2];
+        return null;
+      };
+
       return {
         ...c,
         date: c.date || (inStr || outStr || '').split('T')[0] || '1970-01-01',
         checkIn: inStr,
         checkOut: outStr,
-        originIn: (c.checkIn && c.checkIn.origin) || c.origin || '',
-        originOut: (c.checkOut && c.checkOut.origin) || c.origin || '',
+        checkInLat: c.checkInLat || extractCoord(c.checkIn, 'latitude') || c.latitude || c.locLat,
+        checkInLon: c.checkInLon || extractCoord(c.checkIn, 'longitude') || c.longitude || c.locLon,
+        checkOutLat: c.checkOutLat || extractCoord(c.checkOut, 'latitude'),
+        checkOutLon: c.checkOutLon || extractCoord(c.checkOut, 'longitude'),
+        checkInAddr: c.checkInAddr || (c.checkIn && c.checkIn.address),
+        checkOutAddr: c.checkOutAddr || (c.checkOut && c.checkOut.address),
+        originIn: (c.checkIn && c.checkIn.origin) || c.originIn || c.origin || '',
+        originOut: (c.checkOut && c.checkOut.origin) || c.originOut || c.origin || '',
         secondsWorked: c.secondsWorked || c.accumulatedSeconds || c.seconds || 0,
         type: (c.checkType || c.type || c.entryType || 'work').toLowerCase(),
         employeeName: c.employeeName || 
@@ -3277,7 +3302,13 @@ const FichajesModule = {
          type: typeClass,
          typeLabel: typeLabel,
          originIn: record.originIn || 'Oficina',
-         originOut: record.originOut || 'Oficina'
+         originOut: record.originOut || 'Oficina',
+         latIn: record.latIn || record.checkInLat,
+         lonIn: record.lonIn || record.checkInLon,
+         latOut: record.latOut || record.checkOutLat,
+         lonOut: record.lonOut || record.checkOutLon,
+         addrIn: record.checkInAddr,
+         addrOut: record.checkOutAddr
        });
       
        if (record.type === 'work') {
@@ -3459,11 +3490,15 @@ const FichajesModule = {
               <div class="details-layout-split">
                 <div class="signings-table-wrapper">
                   <table class="details-tech-table">
-                    <thead><tr><th>HORARIO</th><th>DURACIÓN</th><th>TIPO</th><th>ORIGEN</th></tr></thead>
+                    <thead><tr><th>HORARIO</th><th>DURACIÓN</th><th>TIPO</th><th>ORIGEN</th><th>UBICACIÓN</th></tr></thead>
                     <tbody>
                       ${(row.entries || []).map(e => {
                         const icon = e.type === 'work' ? '💼' : (e.type === 'pause' ? '☕' : '🚪');
                         const typeCls = e.type === 'work' ? 'type-work' : (e.type === 'pause' ? 'type-pause' : 'type-abs');
+                        
+                        const locIn = e.latIn ? `<a href="https://www.google.com/maps?q=${e.latIn},${e.lonIn}" target="_blank" title="Coordenadas entrada: ${e.latIn}, ${e.lonIn}" class="loc-link">📍 In</a>` : (e.addrIn ? `<span class="loc-addr" title="Dirección entrada: ${e.addrIn}">📍 ${e.addrIn}</span>` : '');
+                        const locOut = e.latOut ? `<a href="https://www.google.com/maps?q=${e.latOut},${e.lonOut}" target="_blank" title="Coordenadas salida: ${e.latOut}, ${e.lonOut}" class="loc-link">📍 Out</a>` : (e.addrOut ? `<span class="loc-addr" title="Dirección salida: ${e.addrOut}">📍 ${e.addrOut}</span>` : '');
+                        const locContent = (locIn || locOut) ? `<div class="td-loc-group">${locIn}${locOut}</div>` : `<span style="opacity:0.3" title="Sin datos de geolocalización en este fichaje">--</span>`;
                         
                         // Map origin to nice labels/icons
                         const getOInfo = (val) => {
@@ -3493,6 +3528,7 @@ const FichajesModule = {
                           <td><span class="td-duration">${e.duration || '--'}</span></td>
                           <td><span class="signing-type-badge ${typeCls}">${icon} ${e.typeLabel || 'Trabajo'}</span></td>
                           <td>${originContent}</td>
+                          <td>${locContent}</td>
                         </tr>`;
                       }).join('')}
                     </tbody>
