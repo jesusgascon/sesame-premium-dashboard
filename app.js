@@ -334,9 +334,13 @@ function upsertEmployee(emp) {
                 (emp.contract && emp.contract.startAt) || existing.hiringDate || ''
   };
 
-  // Enriquecer foto si está disponible
   const photo = emp.imageProfileURL || emp.imageProfile || emp.photoUrl || emp.photo || emp.avatarUrl || emp.avatar || '';
   updated.imageProfileURL = photo || existing.imageProfileURL || '';
+  
+  // Extraer balance acumulado si viene en el payload
+  if (typeof emp.accumulatedSeconds !== 'undefined') {
+    updated.accumulatedSeconds = emp.accumulatedSeconds;
+  }
   
   // Extraer horario teórico desde scheduleTemplateViews si viene en el payload
   if (emp.scheduleTemplateViews && emp.scheduleTemplateViews.length > 0) {
@@ -446,6 +450,19 @@ async function fetchPresence() {
     return [];
   } finally {
     AUDIT.isSearching = false;
+  }
+}
+
+/**
+ * Obtiene los calendarios detallados (incluyendo excepciones de jornada)
+ */
+async function fetchCalendarsRaw(from, to) {
+  try {
+    const data = await apiFetch(`/api/v3/companies/${STATE.companyId}/calendars?from=${from}&to=${to}`);
+    return data.data || data || [];
+  } catch (e) {
+    console.warn("Could not fetch raw calendars:", e);
+    return [];
   }
 }
 
@@ -592,6 +609,7 @@ async function fetchEmployees() {
                    (e.details && e.details.birthDate) || '',
         hiringDate: e.hiringDate || e.dateOfJoined || e.joinedDate || e.createdAt || '',
         workdays: workdays,
+        accumulatedSeconds: detail.accumulatedSeconds || 0,
         status: e.status 
       };
     });
@@ -2847,7 +2865,10 @@ const FichajesModule = {
       this.populateEmployeeSelect();
       
       let biData = [];
+      let biTheoreticMap = new Map(); // key: empId_date -> theoreticSeconds
+      
       try {
+        // 1. Obtener fichajes (Audit data)
         const res = await apiFetchBi({
           "from": "schedule_context_check",
           "select": [
@@ -2860,17 +2881,8 @@ const FichajesModule = {
             {"field": "schedule_context_check.check_in_longitude", "alias": "checkInLon"},
             {"field": "schedule_context_check.check_out_latitude", "alias": "checkOutLat"},
             {"field": "schedule_context_check.check_out_longitude", "alias": "checkOutLon"},
-            {"field": "schedule_context_check.latitude", "alias": "latitude"},
-            {"field": "schedule_context_check.longitude", "alias": "longitude"},
-            {"field": "schedule_context_check.location_latitude", "alias": "locLat"},
-            {"field": "schedule_context_check.location_longitude", "alias": "locLon"},
             {"field": "schedule_context_check.check_in_address", "alias": "checkInAddr"},
             {"field": "schedule_context_check.check_out_address", "alias": "checkOutAddr"},
-            {"field": "schedule_context_check.origin", "alias": "origin"},
-            {"field": "schedule_context_check.check_in_origin", "alias": "checkInOrigin"},
-            {"field": "schedule_context_check.check_out_origin", "alias": "checkOutOrigin"},
-            {"field": "schedule_context_check.created_at", "alias": "recordCreatedAt"},
-            {"field": "schedule_context_check.updated_at", "alias": "recordUpdatedAt"},
             {"field": "schedule_context_check.check_in_device_name", "alias": "deviceNameIn"},
             {"field": "schedule_context_check.check_out_device_name", "alias": "deviceNameOut"},
             {"field": "schedule_context_check.check_in_ip", "alias": "ipIn"},
@@ -2893,23 +2905,76 @@ const FichajesModule = {
           "limit": 5000
         });
         biData = res.data || res || [];
+        
+        // 2. Obtener JORNADA TEÓRICA REAL (La que manda sobre todo, festivos incluidos)
+        const resTheo = await apiFetchBi({
+           "from": "schedule_context_daily_computed",
+           "select": [
+              {"field": "schedule_context_daily_computed.date", "alias": "date"},
+              {"field": "schedule_context_daily_computed.employee_id", "alias": "employeeId"},
+              {"field": "schedule_context_daily_computed.theoretic_seconds", "alias": "theoreticSeconds"}
+           ],
+           "where": [
+              {"field": "schedule_context_daily_computed.date", "operator": ">=", "value": start},
+              {"field": "schedule_context_daily_computed.date", "operator": "<=", "value": end}
+           ],
+           "limit": 5000
+        });
+        const theoData = resTheo.data || resTheo || [];
+        theoData.forEach(row => {
+           if (row.employeeId && row.date) {
+             biTheoreticMap.set(`${row.employeeId}_${row.date}`, Number(row.theoreticSeconds));
+           }
+        });
+        this.biTheoreticMap = biTheoreticMap;
+
       } catch (biErr) {
-        console.warn("BI Engine failed (Expected 403):", biErr);
-        // Silenciamos para Auditoría
+        console.warn("BI Engine data fetch error:", biErr);
       }
       
-      // 2. Cargar ausencias/festivos en el mismo rango para ajustar jornada teórica
+      // 2. Cargar ausencias/festivos (vista agrupada)
       const absRes = await fetchCalendarGrouped(start, end, []);
       const localAbsences = {};
       absRes.forEach(dayObj => {
         if (dayObj.date) {
           localAbsences[dayObj.date] = dayObj.calendar_types || [];
-          // COSECHA INTELIGENTE: También extraemos perfiles desde aquí
           localAbsences[dayObj.date].forEach(ct => {
             (ct.employees || []).forEach(emp => upsertEmployee(emp));
           });
         }
       });
+
+      // 2.5 Cargar excepciones de jornada y remuneración (Calendario detallado)
+      const calendarsRaw = await fetchCalendarsRaw(start, end);
+      const dayOverrides = new Map(); // key: empId_date -> { workdayOverride, compensatedSeconds }
+      
+      calendarsRaw.forEach(cal => {
+        // Determinamos si este tipo de ausencia es retribuida
+        const isRemunerated = (cal.calendarType?.remuneratedType === 'remunerated') || 
+                             (cal.typeReference?.remuneratedType === 'remunerated');
+                             
+        const empId = cal.employee?.id || cal.entityReference?.id;
+        if (empId && cal.daysOff) {
+          cal.daysOff.forEach(doff => {
+            if (!doff.date) return;
+            const key = `${empId}_${doff.date}`;
+            const existing = dayOverrides.get(key) || { workdayOverride: null, compensatedSeconds: 0 };
+            
+            // Si es 'full_day', solemos usarlo para definir la jornada teórica (festivos, etc)
+            if (doff.dayOffTimeType === 'full_day' && typeof doff.seconds !== 'undefined') {
+              existing.workdayOverride = doff.seconds;
+            }
+            
+            // Si la ausencia es retribuida, sumamos sus segundos a la compensación del día
+            if (isRemunerated && typeof doff.seconds !== 'undefined') {
+              existing.compensatedSeconds += doff.seconds;
+            }
+            
+            dayOverrides.set(key, existing);
+          });
+        }
+      });
+      this.dayOverrides = dayOverrides;
 
       // 3. Carga en paralelo de Presencia Real-time para contadores
       const presenceRes = await fetchPresence();
@@ -3403,22 +3468,36 @@ const FichajesModule = {
       const isLive = g.date === todayStr && g.entries.some(e => (!e.outOriginal || e.out === "--:--"));
       
       // Recuperar la jornada teórica y datos extra del empleado
-      // Comparación robusta de IDs para asegurar el cruce con el directorio
       const emp = STATE.allEmployees.get(String(g.employeeId));
       
       // Forzar lectura en hora local para evitar desajustes de día de la semana
       const dObj = new Date(g.date + 'T00:00:00'); 
-      const dayOfWeek = dObj.getDay(); // 0: Domingo, 1: Lunes...
-      let theoreticSeconds = 28800; // 8h por defecto
+      const dayOfWeek = dObj.getDay(); 
       
-      if (emp && emp.workdays) {
-        theoreticSeconds = emp.workdays[dayOfWeek] ?? 28800;
+      // Prioridad 1: DATO MAESTRO DEL BI ENGINE (La verdad absoluta de Sesame)
+      // Prioridad 2: Excepción del Calendario (ej: jornada intensiva, víspera festivo)
+      // Prioridad 3: Plantilla Semanal del empleado
+      // Prioridad 4: 8h por defecto
+      let theoreticSeconds = 28800;
+      let compensatedSeconds = 0;
+      const overrideKey = `${g.employeeId}_${g.date}`;
+      
+      if (this.biTheoreticMap && this.biTheoreticMap.has(overrideKey)) {
+        // El BI Engine ya nos da la jornada teórica final calculada por Sesame
+        theoreticSeconds = this.biTheoreticMap.get(overrideKey);
+      } else if (this.dayOverrides && this.dayOverrides.has(overrideKey)) {
+        const override = this.dayOverrides.get(overrideKey);
+        if (override.workdayOverride !== null) {
+          theoreticSeconds = override.workdayOverride;
+        }
+        compensatedSeconds = override.compensatedSeconds || 0;
+      } else if (emp && emp.workdays && typeof emp.workdays[dayOfWeek] !== 'undefined') {
+        theoreticSeconds = emp.workdays[dayOfWeek];
       }
       
-      // Si hay ausencia (festivo, vacaciones), la jornada teórica suele ser 0
-      if (g.absenceLabel) {
-        theoreticSeconds = 0;
-      }
+      // IMPORTANTE: Ya no ponemos la jornada teórica a 0 si hay ausencia.
+      // Sesame sigue mostrando la jornada teórica (ej: 7h o 8h) aunque sea festivo/ausencia.
+      // Lo que hace es "compensar" las horas.
       
       // --- Computed enriched metrics for the detail panel ---
       const workEntries = g.entries.filter(e => e.type === 'work' || e.type === 'special' || e.type === 'private');
@@ -3437,7 +3516,9 @@ const FichajesModule = {
         return isThirdParty;
       });
       
-      const balanceSec = g.totalWorkedSeconds - theoreticSeconds;
+      // El total trabajado para el balance incluye lo fichado + lo compensado (permisos retribuidos)
+      const totalEquivalentSeconds = g.totalWorkedSeconds + compensatedSeconds;
+      const balanceSec = totalEquivalentSeconds - theoreticSeconds;
       const balanceH = Math.floor(Math.abs(balanceSec) / 3600);
       const balanceM = Math.floor((Math.abs(balanceSec) % 3600) / 60);
       const balanceLabel = (balanceSec >= 0 ? '+' : '-') + `${balanceH}h ${balanceM}m`;
@@ -3453,6 +3534,8 @@ const FichajesModule = {
         inTime: g.entries[0]?.in ?? "--:--",
         outTime: g.entries[g.entries.length - 1]?.out ?? "--:--",
         workedSeconds: g.totalWorkedSeconds,
+        compensatedSeconds: compensatedSeconds,
+        totalEquivalentSeconds: totalEquivalentSeconds,
         theoreticSeconds: theoreticSeconds,
         balanceSec: balanceSec,
         balanceLabel: balanceLabel,
@@ -3494,7 +3577,46 @@ const FichajesModule = {
   renderTable() {
     const tbody = document.getElementById('signings-tbody');
     if (!tbody) return;
+
+    // Actualizar el header de la tabla según la vista activa
+    const thead = document.querySelector('.signings-table thead');
+    if (thead) {
+      if (this.currentView === 'balance') {
+        thead.innerHTML = `
+          <tr>
+            <th class="col-employee" style="width:250px">Empleado</th>
+            <th class="text-center">Balance Mensual</th>
+            <th class="text-center">Balance Anual (Sesame)</th>
+            <th class="text-center">Estado</th>
+            <th style="min-width:150px">Visualización</th>
+          </tr>
+        `;
+      } else {
+        thead.innerHTML = `
+          <tr>
+            <th class="col-employee">Empleado</th>
+            <th class="col-date">Fecha</th>
+            <th class="col-hours text-center">Horas</th>
+            <th class="col-timeline">
+              <div class="timeline-header">
+                <span>0:00</span>
+                <span>6:00</span>
+                <span>12:00</span>
+                <span>18:00</span>
+                <span>24:00</span>
+              </div>
+            </th>
+          </tr>
+        `;
+      }
+    }
+
     tbody.innerHTML = '';
+    
+    if (this.currentView === 'balance') {
+      this.renderBalanceTable();
+      return;
+    }
     
     const myId = getCurrentEmployeeId();
     const isTeamView = !this.selectedEmployee || this.selectedEmployee === 'all';
@@ -3548,7 +3670,9 @@ const FichajesModule = {
     
     filtered.forEach((row, idx) => {
       try {
-        const worked = Number(row.workedSeconds || 0);
+        const realWorked = Number(row.workedSeconds || 0);
+        const compensated = Number(row.compensatedSeconds || 0);
+        const worked = realWorked + compensated; // El balance se basa en el total equivalente
         const theoretic = Number(row.theoreticSeconds || 0);
         totalWorked += worked;
         totalTheoretic += theoretic;
@@ -3616,7 +3740,12 @@ const FichajesModule = {
                    <div class="stats-bento-section">
                      <div class="info-title">📊 RESUMEN JORNADA</div>
                      <div class="stat-value">${workedH}h ${workedM}m</div>
-                     <div class="stat-subtext">Total trabajado en este día</div>
+                     <div class="stat-subtext">Real fichado</div>
+                     
+                     ${row.compensatedSeconds > 0 ? `
+                     <div class="stat-value" style="font-size: 1.1rem; color: var(--success); margin-top: 8px;">+ ${Math.floor(row.compensatedSeconds/3600)}h ${Math.round((row.compensatedSeconds%3600)/60)}m</div>
+                     <div class="stat-subtext">Compensado (Retribuido)</div>
+                     ` : ''}
                      
                      <div class="detail-divider"></div>
                      <div class="detail-meta-grid">
@@ -4290,6 +4419,84 @@ const FichajesModule = {
         </div>
       `).join('')}
     ` : `<div class="insight-empty">Sin ausencias próximas para este perfil.</div>`);
+  },
+
+  /**
+   * Renderiza una vista resumen de balances acumulados por empleado.
+   */
+  renderBalanceTable() {
+    const tbody = document.getElementById('signings-tbody');
+    if (!tbody) return;
+
+    // Agregamos por empleado ignorando el filtro de "selección individual" para mostrar a todos
+    // Pero respetando la búsqueda por nombre
+    const stats = new Map();
+    
+    this.data.forEach(row => {
+      const matchSearch = row.employeeName.toLowerCase().includes(this.searchQuery);
+      if (!matchSearch) return;
+
+      if (!stats.has(row.employeeId)) {
+        const empInfo = STATE.allEmployees.get(String(row.employeeId));
+        stats.set(row.employeeId, {
+          name: row.employeeName,
+          photo: row.photoUrl,
+          monthBalance: 0,
+          annualBalance: empInfo?.accumulatedSeconds || 0
+        });
+      }
+      stats.get(row.employeeId).monthBalance += row.balanceSec;
+    });
+
+    const rows = Array.from(stats.values());
+    
+    if (rows.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="text-center" style="padding: 40px; color: var(--text-muted);">No hay datos suficientes para calcular balances en este rango.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = rows.map(stat => {
+      const format = (sec) => {
+        const h = Math.floor(Math.abs(sec) / 3600);
+        const m = Math.floor((Math.abs(sec) % 3600) / 60);
+        return (sec >= 0 ? '+' : '-') + `${h}h ${m}m`;
+      };
+
+      const mColor = stat.monthBalance >= 0 ? '#4ade80' : '#f87171';
+      const aColor = stat.annualBalance >= 0 ? '#4ade80' : '#f87171';
+      
+      // Progresión visual (0.5 es neutro, escala +- 20h)
+      const progress = Math.min(100, Math.max(0, 50 + (stat.monthBalance / 72000) * 50));
+
+      return `
+        <tr class="balance-row">
+          <td>
+            <div class="user-chip-table" style="display:flex; align-items:center; gap:10px;">
+              <img src="${stat.photo || 'https://ui-avatars.com/api/?name='+encodeURIComponent(stat.name)}" style="width:32px; height:32px; border-radius:50%; object-fit:cover; border: 1px solid var(--border);" />
+              <span style="font-weight:600; font-size:0.9rem;">${stat.name}</span>
+            </div>
+          </td>
+          <td class="text-center">
+            <span style="font-size: 1.1rem; font-weight: 800; color: ${mColor}">${format(stat.monthBalance)}</span>
+          </td>
+          <td class="text-center">
+            <span style="font-size: 0.95rem; font-weight: 500; color: ${aColor}; opacity: 0.8">${format(stat.annualBalance)}</span>
+          </td>
+          <td class="text-center">
+             <div style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:20px; background:${mColor}15; border: 1px solid ${mColor}30; color:${mColor}; font-size:0.65rem; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">
+               <span style="width:6px; height:6px; border-radius:50%; background:${mColor}"></span>
+               ${stat.monthBalance >= 0 ? 'Superávit' : 'Déficit'}
+             </div>
+          </td>
+          <td style="vertical-align: middle;">
+            <div style="height:6px; width:100%; background:rgba(255,255,255,0.05); border-radius:3px; position:relative; overflow:hidden;">
+              <div style="position:absolute; left:0; top:0; height:100%; width:${progress}%; background:${mColor}; opacity:0.5; transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);"></div>
+              <div style="position:absolute; left:50%; top:0; height:100%; width:1px; background:rgba(255,255,255,0.2);"></div>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
   }
 };
 
