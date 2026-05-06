@@ -3385,13 +3385,10 @@ const FichajesModule = {
       const officesUsed = [...new Set(g.entries.map(e => e.officeNameIn).filter(Boolean))];
       const thirdPartyEdits = g.entries.filter(e => e.performedByNameIn && String(e.performedByIdIn) !== String(g.employeeId));
       const hasBeenEdited = g.entries.some(e => {
-        if (!e.recordCreatedAt || !e.recordUpdatedAt) return false;
-        const diff = Math.abs(new Date(e.recordUpdatedAt) - new Date(e.recordCreatedAt));
-        // Only consider it a human edit if diff > 30 mins OR there's a third-party name OR origin is a manual request
         const isThirdParty = (e.performedByNameIn && String(e.performedByIdIn) !== String(g.employeeId)) || 
                              e.originIn === 'request' || 
                              e.originOut === 'request';
-        return diff > 1800000 || isThirdParty;
+        return isThirdParty;
       });
       
       const balanceSec = g.totalWorkedSeconds - theoreticSeconds;
@@ -3733,6 +3730,7 @@ const FichajesModule = {
                         const getOInfo = (val) => {
                           const o = (val || '').toLowerCase();
                           if (o.includes('request')) return { label: 'Solicitud', icon: '📝' };
+                          if (o.includes('automatic_pause')) return { label: 'Auto Pausa', icon: '🤖' };
                           if (o.includes('web')) return { label: 'Web', icon: '🌐' };
                           if (o.includes('app') || o.includes('mobile')) return { label: 'App', icon: '📱' };
                           if (o.includes('wall') || o.includes('tablet')) return { label: 'Tablet', icon: '📟' };
