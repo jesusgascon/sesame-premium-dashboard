@@ -228,7 +228,7 @@ async function apiFetch(path, params = {}, isRetry = false) {
   
   // Añadimos parámetros de búsqueda si existen
   Object.entries(params).forEach(([k, v]) => {
-    if (k === 'method' || k === 'body') return;
+    if (k === 'method' || k === 'body' || k === 'overrideBackend' || k === 'headers') return;
     if (Array.isArray(v)) v.forEach(i => finalUrl.searchParams.append(k, i));
     else finalUrl.searchParams.set(k, v);
   });
@@ -241,7 +241,8 @@ async function apiFetch(path, params = {}, isRetry = false) {
     'x-company-id':  STATE.companyId || '',
     'csid':          STATE.companyId || '',
     'X-Sesame-Region': 'eu1',
-    'X-Backend-Url': sesameBaseUrl // El proxy leerá esto y sabrá a dónde ir
+    'X-Backend-Url': params.overrideBackend || sesameBaseUrl, // El proxy leerá esto y sabrá a dónde ir
+    ...(params.headers || {})
   };
 
   const fetchOptions = {
@@ -276,6 +277,7 @@ async function apiFetch(path, params = {}, isRetry = false) {
         throw new Error("Sesión caducada (401). Por favor vuelve a conectar.");
       }
       
+      let serverDetail = '';
       try {
         const errorJson = await res.json();
         serverDetail = `: ${JSON.stringify(errorJson)}`;
@@ -295,35 +297,19 @@ async function apiFetch(path, params = {}, isRetry = false) {
 }
 
 async function apiFetchBi(query) {
+  // Usamos apiFetch para pasar por el proxy local y evitar CORS
   const url = '/api/v3/analytics/report-query';
   
-  const headers = {
-    'Authorization': `Bearer ${STATE.token}`,
-    'Content-Type':  'application/json',
-    'csid':          STATE.companyId,
-    'x-company-id':  STATE.companyId,
-    'X-Region':      'EU1',
-    // Estas cabeceras son críticas para el WAF del bi-engine.
-    // El proxy las reenvía a Sesame tal cual.
-    'Origin':  'https://app.sesametime.com',
-    'Referer': 'https://app.sesametime.com/'
-  };
-
-  // Deshabilitado el proxy local para evitar el WAF de Python.
-  const bypassProxyUrl = 'https://bi-engine.sesametime.com/api/v3/analytics/report-query';
-
-  const res = await fetch(bypassProxyUrl, { 
+  return apiFetch(url, {
     method: 'POST',
-    headers,
-    body: JSON.stringify(query)
+    body: JSON.stringify(query),
+    // Forzamos el backend a bi-engine para esta llamada específica
+    overrideBackend: 'https://bi-engine.sesametime.com',
+    headers: {
+      'Origin': 'https://app.sesametime.com',
+      'Referer': 'https://app.sesametime.com/'
+    }
   });
-
-  if (!res.ok) {
-    AUDIT.lastBiStatus = res.status;
-    throw new Error(`BI API Error ${res.status} al consultar report-query`);
-  }
-  AUDIT.lastBiStatus = res.status;
-  return res.json();
 }
 
 /**
@@ -2835,6 +2821,21 @@ const FichajesModule = {
             {"field": "schedule_context_check.check_in_address", "alias": "checkInAddr"},
             {"field": "schedule_context_check.check_out_address", "alias": "checkOutAddr"},
             {"field": "schedule_context_check.origin", "alias": "origin"},
+            {"field": "schedule_context_check.check_in_origin", "alias": "checkInOrigin"},
+            {"field": "schedule_context_check.check_out_origin", "alias": "checkOutOrigin"},
+            {"field": "schedule_context_check.created_at", "alias": "recordCreatedAt"},
+            {"field": "schedule_context_check.updated_at", "alias": "recordUpdatedAt"},
+            {"field": "schedule_context_check.check_in_device_name", "alias": "deviceNameIn"},
+            {"field": "schedule_context_check.check_out_device_name", "alias": "deviceNameOut"},
+            {"field": "schedule_context_check.check_in_ip", "alias": "ipIn"},
+            {"field": "schedule_context_check.check_out_ip", "alias": "ipOut"},
+            {"field": "schedule_context_check.check_in_office_name", "alias": "officeNameIn"},
+            {"field": "schedule_context_check.check_out_office_name", "alias": "officeNameOut"},
+            {"field": "schedule_context_check.check_in_inside_office", "alias": "insideOfficeIn"},
+            {"field": "schedule_context_check.check_in_performed_by_employee_name", "alias": "performedByNameIn"},
+            {"field": "schedule_context_check.check_out_performed_by_employee_name", "alias": "performedByNameOut"},
+            {"field": "schedule_context_check.check_in_performed_by_employee_id", "alias": "performedByIdIn"},
+            {"field": "schedule_context_check.check_out_performed_by_employee_id", "alias": "performedByIdOut"},
             {"field": "core_context_employee.name", "alias": "employeeName"},
             {"field": "core_context_employee.id", "alias": "employeeId"}
           ],
@@ -3167,8 +3168,22 @@ const FichajesModule = {
         checkOutLon: c.checkOutLon || extractCoord(c.checkOut, 'longitude'),
         checkInAddr: c.checkInAddr || (c.checkIn && c.checkIn.address),
         checkOutAddr: c.checkOutAddr || (c.checkOut && c.checkOut.address),
-        originIn: (c.checkIn && c.checkIn.origin) || c.originIn || c.origin || '',
-        originOut: (c.checkOut && c.checkOut.origin) || c.originOut || c.origin || '',
+        originIn: (c.checkIn && c.checkIn.origin) || c.originIn || c.checkInOrigin || c.origin || '',
+        originOut: (c.checkOut && c.checkOut.origin) || c.originOut || c.checkOutOrigin || c.origin || '',
+        // Enriched audit metadata (BI Engine fields + REST API nested fallback)
+        recordCreatedAt: c.recordCreatedAt || c.createdAt || '',
+        recordUpdatedAt: c.recordUpdatedAt || c.updatedAt || '',
+        deviceNameIn: c.deviceNameIn || (c.checkIn && c.checkIn.deviceName) || (c.workEntryIn && c.workEntryIn.deviceName) || '',
+        deviceNameOut: c.deviceNameOut || (c.checkOut && c.checkOut.deviceName) || (c.workEntryOut && c.workEntryOut.deviceName) || '',
+        ipIn: c.ipIn || (c.checkIn && c.checkIn.ip) || '',
+        ipOut: c.ipOut || (c.checkOut && c.checkOut.ip) || '',
+        officeNameIn: c.officeNameIn || (c.checkIn && c.checkIn.officeName) || '',
+        officeNameOut: c.officeNameOut || (c.checkOut && c.checkOut.officeName) || '',
+        insideOfficeIn: c.insideOfficeIn ?? (c.checkIn ? c.checkIn.insideOffice : null) ?? null,
+        performedByNameIn: c.performedByNameIn || (c.checkIn && c.checkIn.performedByEmployeeName) || '',
+        performedByNameOut: c.performedByNameOut || (c.checkOut && c.checkOut.performedByEmployeeName) || '',
+        performedByIdIn: c.performedByIdIn || (c.checkIn && c.checkIn.performedByEmployeeId) || '',
+        performedByIdOut: c.performedByIdOut || (c.checkOut && c.checkOut.performedByEmployeeId) || '',
         secondsWorked: c.secondsWorked || c.accumulatedSeconds || c.seconds || 0,
         type: (c.checkType || c.type || c.entryType || 'work').toLowerCase(),
         employeeName: c.employeeName || 
@@ -3299,6 +3314,7 @@ const FichajesModule = {
          in: inTime,
          out: outTime,
          duration: durationLabel,
+         durationSec: durationSeconds,
          type: typeClass,
          typeLabel: typeLabel,
          originIn: record.originIn || 'Oficina',
@@ -3308,7 +3324,21 @@ const FichajesModule = {
          latOut: record.latOut || record.checkOutLat,
          lonOut: record.lonOut || record.checkOutLon,
          addrIn: record.checkInAddr,
-         addrOut: record.checkOutAddr
+         addrOut: record.checkOutAddr,
+         // Enriched audit data
+         deviceNameIn: record.deviceNameIn || '',
+         deviceNameOut: record.deviceNameOut || '',
+         ipIn: record.ipIn || '',
+         ipOut: record.ipOut || '',
+         officeNameIn: record.officeNameIn || '',
+         officeNameOut: record.officeNameOut || '',
+         insideOfficeIn: record.insideOfficeIn,
+         performedByNameIn: record.performedByNameIn || '',
+         performedByNameOut: record.performedByNameOut || '',
+         performedByIdIn: record.performedByIdIn || '',
+         performedByIdOut: record.performedByIdOut || '',
+         recordCreatedAt: record.recordCreatedAt || '',
+         recordUpdatedAt: record.recordUpdatedAt || ''
        });
       
        if (record.type === 'work') {
@@ -3344,11 +3374,36 @@ const FichajesModule = {
         theoreticSeconds = 0;
       }
       
+      // --- Computed enriched metrics for the detail panel ---
+      const workEntries = g.entries.filter(e => e.type === 'work' || e.type === 'special' || e.type === 'private');
+      const pauseEntries = g.entries.filter(e => e.type === 'pause');
+      const totalPauseSec = pauseEntries.reduce((sum, e) => sum + (e.durationSec || 0), 0);
+      const pauseH = Math.floor(totalPauseSec / 3600);
+      const pauseM = Math.round((totalPauseSec % 3600) / 60);
+      const originsUsed = [...new Set(g.entries.map(e => e.originIn).filter(o => o && o !== 'Oficina'))];
+      const devicesUsed = [...new Set(g.entries.map(e => e.deviceNameIn).filter(Boolean))];
+      const officesUsed = [...new Set(g.entries.map(e => e.officeNameIn).filter(Boolean))];
+      const thirdPartyEdits = g.entries.filter(e => e.performedByNameIn && String(e.performedByIdIn) !== String(g.employeeId));
+      const hasBeenEdited = g.entries.some(e => {
+        if (!e.recordCreatedAt || !e.recordUpdatedAt) return false;
+        const diff = Math.abs(new Date(e.recordUpdatedAt) - new Date(e.recordCreatedAt));
+        // Only consider it a human edit if diff > 30 mins OR there's a third-party name OR origin is a manual request
+        const isThirdParty = (e.performedByNameIn && String(e.performedByIdIn) !== String(g.employeeId)) || 
+                             e.originIn === 'request' || 
+                             e.originOut === 'request';
+        return diff > 1800000 || isThirdParty;
+      });
+      
+      const balanceSec = g.totalWorkedSeconds - theoreticSeconds;
+      const balanceH = Math.floor(Math.abs(balanceSec) / 3600);
+      const balanceM = Math.floor((Math.abs(balanceSec) % 3600) / 60);
+      const balanceLabel = (balanceSec >= 0 ? '+' : '-') + `${balanceH}h ${balanceM}m`;
+
       out.push({
         employeeId: g.employeeId,
         employeeName: g.employeeName,
         photoUrl: emp?.imageProfileURL || '',
-        jobTitle: emp?.jobTitle || '',
+        jobTitle: emp?.jobTitle || emp?.jobChargeName || '',
         date: g.date,
         dayName: g.dayName,
         absenceLabel: g.absenceLabel,
@@ -3356,11 +3411,36 @@ const FichajesModule = {
         outTime: g.entries[g.entries.length - 1]?.out ?? "--:--",
         workedSeconds: g.totalWorkedSeconds,
         theoreticSeconds: theoreticSeconds,
+        balanceSec: balanceSec,
+        balanceLabel: balanceLabel,
         absenceSegments: g.absenceSegments,
         isLive: isLive,
-        entries: g.entries
+        entries: g.entries,
+        // Enriched computed metrics
+        workSegments: workEntries.length,
+        pauseSegments: pauseEntries.length,
+        totalPauseSec: totalPauseSec,
+        pauseLabel: totalPauseSec > 0 ? `${pauseH > 0 ? pauseH + 'h ' : ''}${pauseM}m` : '--',
+        originsUsed: originsUsed,
+        devicesUsed: devicesUsed,
+        officesUsed: officesUsed,
+        thirdPartyEdits: thirdPartyEdits,
+        hasBeenEdited: hasBeenEdited
       });
     }
+
+    // Second pass: Cumulative weekly balance per employee in this view
+    const empWeeklyBalance = new Map();
+    out.sort((a,b) => a.date.localeCompare(b.date)).forEach(row => {
+      const current = empWeeklyBalance.get(row.employeeId) || 0;
+      const updated = current + row.balanceSec;
+      empWeeklyBalance.set(row.employeeId, updated);
+      row.weeklyBalanceSec = updated;
+      const wh = Math.floor(Math.abs(updated) / 3600);
+      const wm = Math.floor((Math.abs(updated) % 3600) / 60);
+      row.weeklyBalanceLabel = (updated >= 0 ? '+' : '-') + `${wh}h ${wm}m`;
+    });
+
     return out;
   },
 
@@ -3488,6 +3568,155 @@ const FichajesModule = {
           <td colspan="10">
             <div class="details-container">
               <div class="details-layout-split">
+                <div class="signings-stats-panel" id="stats-panel-${empId}-${row.date}">
+                   <!-- COL 1: OVERVIEW -->
+                   <div class="stats-bento-section">
+                     <div class="info-title">📊 RESUMEN JORNADA</div>
+                     <div class="stat-value">${workedH}h ${workedM}m</div>
+                     <div class="stat-subtext">Total trabajado en este día</div>
+                     
+                     <div class="detail-divider"></div>
+                     <div class="detail-meta-grid">
+                       <div class="detail-meta-item"><span class="detail-meta-label">Balance Día</span><span class="detail-meta-val" style="color: ${row.balanceSec >= 0 ? '#4ade80' : '#f87171'}">${row.balanceLabel}</span></div>
+                       <div class="detail-meta-item"><span class="detail-meta-label">Balance Sem.</span><span class="detail-meta-val" style="color: ${row.weeklyBalanceSec >= 0 ? '#4ade80' : '#f87171'}">${row.weeklyBalanceLabel}</span></div>
+                     </div>
+
+                     ${theoretic > 0 ? (() => {
+                       const pct = Math.min(Math.round((worked / theoretic) * 100), 150);
+                       const pctColor = pct >= 100 ? 'var(--success)' : (pct >= 80 ? 'var(--accent)' : 'var(--warn)');
+                       return `
+                       <div class="detail-divider"></div>
+                       <div class="detail-ratio-wrap">
+                         <div class="detail-ratio-bar"><div class="detail-ratio-fill" style="width: ${Math.min(pct, 100)}%; background: ${pctColor};"></div></div>
+                         <div class="stat-subtext">${pct}% de ${theoH}h teóricas</div>
+                       </div>`;
+                     })() : ''}
+                   </div>
+
+                   <!-- COL 2: ACTIVITY -->
+                   <div class="stats-bento-section">
+                     <div class="info-title">📈 LÍNEA DE ACTIVIDAD</div>
+                     <div class="detail-activity-timeline">
+                       ${(row.entries || []).map(e => {
+                         if (!e.in || !e.out || e.in === "--:--" || e.out === "--:--") return "";
+                         const [hIn, mIn] = e.in.split(':').map(Number);
+                         const [hOut, mOut] = e.out.split(':').map(Number);
+                         const start = ((hIn + (mIn||0)/60) / 24) * 100;
+                         const width = (((hOut + (mOut||0)/60) - (hIn + (mIn||0)/60)) / 24) * 100;
+                         return `<div class="mini-timeline-bar ${e.type || 'work'}" style="left: ${start}%; width: ${width}%;" title="${e.typeLabel}: ${e.in}-${e.out}"></div>`;
+                       }).join('')}
+                     </div>
+
+                     <div class="detail-meta-grid">
+                       <div class="detail-meta-item"><span class="detail-meta-label">Primera Entrada</span><span class="detail-meta-val">${row.inTime}</span></div>
+                       <div class="detail-meta-item"><span class="detail-meta-label">Última Salida</span><span class="detail-meta-val">${row.outTime}</span></div>
+                     </div>
+
+                     <div class="detail-divider"></div>
+                     <div class="detail-stat-row">
+                       <span class="detail-stat-val">💼 ${row.workSegments} tramos trabajo</span>
+                       <span class="detail-stat-badge">${(row.entries || []).length} total</span>
+                     </div>
+                     ${row.pauseSegments > 0 ? `
+                     <div class="detail-stat-row">
+                       <span class="detail-stat-val">☕ ${row.pauseLabel} pausas</span>
+                       <span class="detail-stat-badge">${row.pauseSegments} tramos</span>
+                     </div>
+                     ` : ''}
+                   </div>
+
+                   <!-- COL 3: AUDITORÍA -->
+                   <div class="stats-bento-section">
+                     <div class="info-title">🔍 AUTORÍA Y CONTROL</div>
+                     ${row.thirdPartyEdits.length > 0
+                       ? `<div class="detail-audit-alert">
+                           <span class="detail-audit-icon">✏️</span>
+                           <div class="detail-audit-text">
+                             <strong>Modificado por tercero</strong>
+                             <span>${[...new Set(row.thirdPartyEdits.map(e => e.performedByNameIn))].filter(Boolean).join(', ')}</span>
+                           </div>
+                         </div>`
+                       : (row.hasBeenEdited ? '<div class="detail-audit-warn"><span>⚠️</span> <span>Registro editado</span></div>' : '<div class="detail-audit-ok"><span>✅</span> <span>Registro original</span></div>')
+                     }
+
+                     <div class="detail-divider"></div>
+                     <div class="info-title" style="font-size:0.6rem; opacity:0.6">CANALES UTILIZADOS</div>
+                     <div class="detail-chips">
+                       ${row.originsUsed.map(o => {
+                         const ol = o.toLowerCase();
+                         const icon = ol.includes('web') ? '🌐' : (ol.includes('app') ? '📱' : (ol.includes('tablet') ? '📟' : '📍'));
+                         return '<span class="detail-chip">' + icon + ' ' + (ol.includes('web')?'Web':ol.includes('app')?'App':ol.includes('tablet')?'Tablet':o) + '</span>';
+                       }).join('')}
+                     </div>
+
+                     <div class="detail-divider"></div>
+                     <div class="info-title" style="font-size:0.6rem; opacity:0.6">DETALLES TÉCNICOS</div>
+                     <div class="detail-chips">
+                       ${row.devicesUsed.map(d => '<span class="detail-chip">💻 ' + d + '</span>').join('')}
+                       ${row.officesUsed.map(o => '<span class="detail-chip">🏢 ' + o + '</span>').join('')}
+                     </div>
+                   </div>
+                   <!-- COL 4: SEGURIDAD E HISTORIAL -->
+                   <div class="stats-bento-section" style="border-left: 1px solid var(--accent2)">
+                     <div class="info-title">🛡️ SEGURIDAD E HISTORIAL</div>
+                     <div class="detail-meta-grid" style="grid-template-columns: 1fr; gap: 4px;" id="audit-level-3-${empId}-${row.date}">
+                        ${(() => {
+                           let preAuditHTML = '';
+                           const seenEditors = new Set();
+                           
+                           row.entries.forEach(e => {
+                              const isEditedIn = e.performedByNameIn && String(e.performedByIdIn) !== String(row.employeeId);
+                              const isEditedOut = e.performedByNameOut && String(e.performedByIdOut) !== String(row.employeeId);
+                              
+                              if (isEditedIn && !seenEditors.has('in_'+e.performedByNameIn)) {
+                                 preAuditHTML += `<div class="detail-meta-item" style="flex-direction:row; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.03); padding:4px 8px; border-radius:4px; border:1px solid rgba(251,191,36,0.3)">
+                                    <span class="detail-meta-label" style="margin:0; font-size:0.6rem;">✏️ Edición In</span>
+                                    <span class="detail-meta-val" style="font-size:0.6rem; font-weight:600; color:var(--warn)">${e.performedByNameIn}</span>
+                                 </div>`;
+                                 seenEditors.add('in_'+e.performedByNameIn);
+                              }
+                              if (isEditedOut && !seenEditors.has('out_'+e.performedByNameOut)) {
+                                 preAuditHTML += `<div class="detail-meta-item" style="flex-direction:row; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.03); padding:4px 8px; border-radius:4px; border:1px solid rgba(251,191,36,0.3)">
+                                    <span class="detail-meta-label" style="margin:0; font-size:0.6rem;">✏️ Edición Out</span>
+                                    <span class="detail-meta-val" style="font-size:0.6rem; font-weight:600; color:var(--warn)">${e.performedByNameOut}</span>
+                                 </div>`;
+                                 seenEditors.add('out_'+e.performedByNameOut);
+                              }
+                              
+                              if (e.originIn === 'request' && !seenEditors.has('req_in')) {
+                                 preAuditHTML += `<div class="detail-meta-item" style="flex-direction:row; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.03); padding:4px 8px; border-radius:4px; border:1px solid rgba(251,191,36,0.3)">
+                                    <span class="detail-meta-label" style="margin:0; font-size:0.6rem;">📝 Origen Entrada</span>
+                                    <span class="detail-meta-val" style="font-size:0.6rem; font-weight:600; color:var(--warn)">Por Solicitud (Aprobada)</span>
+                                 </div>`;
+                                 seenEditors.add('req_in');
+                              }
+                              if (e.originOut === 'request' && !seenEditors.has('req_out')) {
+                                 preAuditHTML += `<div class="detail-meta-item" style="flex-direction:row; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.03); padding:4px 8px; border-radius:4px; border:1px solid rgba(251,191,36,0.3)">
+                                    <span class="detail-meta-label" style="margin:0; font-size:0.6rem;">📝 Origen Salida</span>
+                                    <span class="detail-meta-val" style="font-size:0.6rem; font-weight:600; color:var(--warn)">Por Solicitud (Aprobada)</span>
+                                 </div>`;
+                                 seenEditors.add('req_out');
+                              }
+                           });
+                           
+                           return preAuditHTML || '<div class="stat-subtext" style="font-style:italic">Cargando incidencias...</div>';
+                        })()}
+                     </div>
+
+                     ${row.absenceLabel ? `
+                     <div class="detail-divider"></div>
+                     <div class="info-title">📌 NOTA AUSENCIA</div>
+                     <div class="stat-subtext" style="color:var(--accent2); font-weight:600">${row.absenceLabel}</div>
+                     ` : ''}
+
+                     ${row.isLive ? `
+                     <div class="detail-divider"></div>
+                     <div class="detail-audit-ok" style="background:rgba(248, 113, 113, 0.1)"><span>🔴</span> <span>Jornada Activa</span></div>
+                     ` : ''}
+                   </div>
+                </div>
+
+                <!-- 2. Detailed Table (Bottom) -->
                 <div class="signings-table-wrapper">
                   <table class="details-tech-table">
                     <thead><tr><th>HORARIO</th><th>DURACIÓN</th><th>TIPO</th><th>ORIGEN</th><th>UBICACIÓN</th></tr></thead>
@@ -3503,6 +3732,7 @@ const FichajesModule = {
                         // Map origin to nice labels/icons
                         const getOInfo = (val) => {
                           const o = (val || '').toLowerCase();
+                          if (o.includes('request')) return { label: 'Solicitud', icon: '📝' };
                           if (o.includes('web')) return { label: 'Web', icon: '🌐' };
                           if (o.includes('app') || o.includes('mobile')) return { label: 'App', icon: '📱' };
                           if (o.includes('wall') || o.includes('tablet')) return { label: 'Tablet', icon: '📟' };
@@ -3512,19 +3742,40 @@ const FichajesModule = {
                         const oIn = getOInfo(e.originIn);
                         const oOut = getOInfo(e.originOut);
                         
-                        let originContent = `<span class="td-loc">${oIn.icon} ${oIn.label}</span>`;
-                        // If different, show "From -> To"
+                        const isEditedIn = (e.performedByNameIn && String(e.performedByIdIn) !== String(row.employeeId)) || e.originIn === 'request';
+                        const isEditedOut = (e.performedByNameOut && String(e.performedByIdOut) !== String(row.employeeId)) || e.originOut === 'request';
+                        
+                        // Human edit detection: Only if timestamps are > 30 mins apart or edited by someone else
+                        let isTimeEdited = false;
+                        if (e.recordCreatedAt && e.recordUpdatedAt) {
+                          const diff = Math.abs(new Date(e.recordUpdatedAt) - new Date(e.recordCreatedAt));
+                          if (diff > 1800000) isTimeEdited = true;
+                        }
+
+                        const auditTooltip = [
+                          e.recordCreatedAt ? `Creado: ${new Date(e.recordCreatedAt).toLocaleString('es-ES')}` : '',
+                          e.recordUpdatedAt && isTimeEdited ? `Modificado: ${new Date(e.recordUpdatedAt).toLocaleString('es-ES')}` : '',
+                          isEditedIn ? `Entrada por: ${e.performedByNameIn}` : '',
+                          isEditedOut ? `Salida por: ${e.performedByNameOut}` : '',
+                          e.ipIn ? `IP In: ${e.ipIn}` : '',
+                          e.deviceNameIn ? `Disp: ${e.deviceNameIn}` : ''
+                        ].filter(Boolean).join('\n');
+
+                        let originContent = `<span class="td-loc" title="${auditTooltip}">${oIn.icon} ${oIn.label}${isEditedIn ? ' ✏️' : ''}</span>`;
                         if (e.originIn !== e.originOut && e.originOut && e.out !== '--:--') {
-                           originContent = `<div class="td-loc-multi" title="${oIn.label} → ${oOut.label}">
-                             <span class="td-loc">${oIn.icon}</span>
+                           originContent = `<div class="td-loc-multi" title="${oIn.label}${isEditedIn ? ' (Editado por '+e.performedByNameIn+')' : ''} → ${oOut.label}${isEditedOut ? ' (Editado por '+e.performedByNameOut+')' : ''}\n${auditTooltip}">
+                             <span class="td-loc">${oIn.icon}${isEditedIn ? '✏️' : ''}</span>
                              <span style="opacity:0.5; font-size:0.7rem;">→</span>
-                             <span class="td-loc">${oOut.icon}</span>
+                             <span class="td-loc">${oOut.icon}${isEditedOut ? '✏️' : ''}</span>
                            </div>`;
                         }
 
+                        // Use a class that only applies if there is an explicit THIRD PARTY edit or request
+                        const highlightClass = (isEditedIn || isEditedOut) ? 'row-is-edited' : '';
+
                         return `
-                        <tr>
-                          <td><strong>${e.in} - ${e.out}</strong></td>
+                        <tr class="${highlightClass}">
+                          <td><strong title="${auditTooltip}">${e.in} - ${e.out}</strong></td>
                           <td><span class="td-duration">${e.duration || '--'}</span></td>
                           <td><span class="signing-type-badge ${typeCls}">${icon} ${e.typeLabel || 'Trabajo'}</span></td>
                           <td>${originContent}</td>
@@ -3534,22 +3785,18 @@ const FichajesModule = {
                     </tbody>
                   </table>
                 </div>
-                <div class="signings-stats-panel">
-                   <div class="info-title">📊 Resumen de Jornada</div>
-                   <div class="stat-value">${workedH}h ${workedM}m</div>
-                   <div class="stat-subtext">Total trabajado en este día</div>
-                   
-                   ${row.absenceLabel ? `
-                   <div class="info-title">📌 Nota</div>
-                   <div class="stat-subtext" style="color:var(--accent)">${row.absenceLabel}</div>
-                   ` : ''}
-                </div>
               </div>
             </div>
           </td>
         `;
 
-        tr.addEventListener('click', () => trDetails.classList.toggle('active'));
+        tr.addEventListener('click', () => {
+          const isOpening = !trDetails.classList.contains('active');
+          trDetails.classList.toggle('active');
+          if (isOpening) {
+            FichajesModule.loadDeepAudit(empId, row.date);
+          }
+        });
         tbody.appendChild(tr);
         tbody.appendChild(trDetails);
 
@@ -3566,14 +3813,13 @@ const FichajesModule = {
   renderPresenceSummaryOnly() {
     let currentlyWorking = 0;
     let currentlyPaused = 0;
-
-    if (this.realtimePresence && this.realtimePresence.length > 0) {
+    if (this.realtimePresence) {
       this.realtimePresence.forEach(p => {
-        if (p.status === 'work' || p.status === 'working') currentlyWorking++;
-        else if (p.status === 'pause' || p.status === 'paused') currentlyPaused++;
+        const s = String(p.status || '').toLowerCase();
+        if (s === 'work' || s === 'working') currentlyWorking++;
+        else if (s === 'pause' || s === 'paused') currentlyPaused++;
       });
     }
-
     const liveEl = document.getElementById('live-presence-summary');
     if (liveEl) {
       liveEl.style.display = (currentlyWorking > 0 || currentlyPaused > 0) ? 'flex' : 'none';
@@ -3581,6 +3827,114 @@ const FichajesModule = {
       const pEl = document.getElementById('live-count-paused');
       if (wEl) wEl.textContent = currentlyWorking;
       if (pEl) pEl.textContent = currentlyPaused;
+    }
+  },
+
+  async loadDeepAudit(employeeId, date) {
+    const container = document.querySelector(`#audit-level-3-${employeeId}-${date}`);
+    if (!container) return;
+    
+    try {
+      // Use the individual checks path as the default since it's the fallback that works
+      let wePath = `/api/v3/employees/${employeeId}/checks?from=${date}&to=${date}&includeOut=true`;
+      
+      // Only override if we have a proven working global path
+      if (DISCOVERY.workingChecks && !DISCOVERY.workingChecks.includes('DISABLED')) {
+        const base = DISCOVERY.workingChecks.split('?')[0];
+        wePath = `${base}?employeeId=${employeeId}&from=${date}&to=${date}`;
+      }
+
+      const [weRes, ciRes] = await Promise.allSettled([
+        apiFetch(wePath),
+        apiFetch(`/api/v3/check-incidences?employeeId=${employeeId}&fromDate[gte]=${date}&toDate[lte]=${date}`)
+      ]);
+
+      let workEntries = weRes.status === 'fulfilled' ? (weRes.value?.data || weRes.value?.items || weRes.value || []) : [];
+      let incidences = ciRes.status === 'fulfilled' ? (ciRes.value?.data || ciRes.value?.items || ciRes.value || []) : [];
+
+      if (!Array.isArray(workEntries)) workEntries = [];
+      if (!Array.isArray(incidences)) incidences = [];
+
+      const auditItems = [];
+      
+      incidences.forEach(ci => {
+        const check = ci.check || {};
+        const checkIn = check.checkIn || ci.checkIn || {};
+        if (ci.performedByEmployeeName) {
+          const img = ci.performedByEmployeeImageProfile 
+            ? `<img src="${ci.performedByEmployeeImageProfile}" style="width:14px;height:14px;border-radius:50%;margin-right:4px;vertical-align:middle;">` 
+            : '👤';
+          auditItems.push({icon: img, label: 'Autoría', value: ci.performedByEmployeeName});
+        }
+        if (checkIn.ip) auditItems.push({icon: '🌐', label: 'IP', value: checkIn.ip});
+        if (ci.insideOffice === true) auditItems.push({icon: '📍', label: 'GPS', value: 'En Oficina'});
+        else if (ci.insideOffice === false) auditItems.push({icon: '📍', label: 'GPS', value: 'Fuera Rango'});
+        if (ci.isSuprema) auditItems.push({icon: '📟', label: 'Terminal', value: 'Suprema (Bio)'});
+        if (ci.checkIncidenceStatus) auditItems.push({icon: '⚠️', label: 'Estado', value: ci.checkIncidenceStatus === 'pending' ? 'Pendiente' : 'Revisada'});
+        if (ci.canEdit === false) auditItems.push({icon: '🔒', label: 'Edición', value: 'Bloqueada'});
+        if (ci.incidence?.description) auditItems.push({icon: '💬', label: 'Nota', value: ci.incidence.description});
+      });
+
+      workEntries.forEach(we => {
+        if (we.comment) auditItems.push({icon: '📝', label: 'Coment.', value: we.comment});
+        
+        const extractEditor = (obj) => {
+          if (!obj) return null;
+          // Strategy 1: Direct name field
+          if (obj.performedByEmployeeName) return obj.performedByEmployeeName;
+          // Strategy 2: Nested employee object
+          const pEmp = obj.performedByEmployee || obj.performedBy;
+          if (pEmp && typeof pEmp === 'object') {
+            const name = [pEmp.firstName, pEmp.lastName].filter(Boolean).join(' ') || pEmp.name || pEmp.firstName;
+            if (name) return name;
+          }
+          return null;
+        };
+
+        const editorIn = extractEditor(we.workEntryIn);
+        const editorOut = extractEditor(we.workEntryOut);
+        
+        const pIdIn = we.workEntryIn?.performedByEmployeeId || we.workEntryIn?.performedByEmployee?.id || we.workEntryIn?.performedBy?.id;
+        const pIdOut = we.workEntryOut?.performedByEmployeeId || we.workEntryOut?.performedByEmployee?.id || we.workEntryOut?.performedBy?.id;
+
+        if (editorIn && String(pIdIn) !== String(employeeId)) {
+          auditItems.push({icon: '✏️', label: 'Editor Entrada', value: editorIn});
+        }
+        if (editorOut && String(pIdOut) !== String(employeeId)) {
+          auditItems.push({icon: '✏️', label: 'Editor Salida', value: editorOut});
+        }
+
+        if (we.workEntryIn?.realDate && we.workEntryIn?.date && we.workEntryIn.realDate !== we.workEntryIn.date) {
+          const h = new Date(we.workEntryIn.realDate).toLocaleTimeString('es-ES', {hour:'2-digit', minute:'2-digit'});
+          auditItems.push({icon: '⏰', label: 'Hora Real', value: h});
+        }
+      });
+
+      const seen = new Set();
+      const unique = auditItems.filter(a => { const k = a.label + a.value; if (seen.has(k)) return false; seen.add(k); return true; });
+
+      // Remove the "Cargando incidencias..." placeholder if it exists
+      if (container.innerHTML.includes('Cargando incidencias...')) {
+         container.innerHTML = '';
+      }
+
+      if (unique.length > 0) {
+        let html = '';
+        unique.forEach(a => {
+          html += `<div class="detail-meta-item" style="flex-direction:row; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.03); padding:4px 8px; border-radius:4px; border:1px solid rgba(255,255,255,0.05)">
+            <span class="detail-meta-label" style="margin:0; font-size:0.6rem;">${a.icon} ${a.label}</span>
+            <span class="detail-meta-val" style="font-size:0.6rem; font-weight:600">${a.value}</span>
+          </div>`;
+        });
+        container.insertAdjacentHTML('beforeend', html);
+      } else if (container.innerHTML.trim() === '') {
+        container.innerHTML = '<div class="stat-subtext">Sin incidencias técnicas extra.</div>';
+      }
+    } catch (err) {
+      console.error("Error Level 3:", err);
+      if (container.innerHTML.includes('Cargando incidencias...')) {
+         container.innerHTML = '<div class="stat-subtext" style="color:var(--danger)">Error al cargar metadatos.</div>';
+      }
     }
   },
 
