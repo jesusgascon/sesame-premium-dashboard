@@ -1,4 +1,4 @@
-# 🚀 Sesame Premium Dashboard
+# <img src="favicon.png" width="40" height="40" align="center" style="border-radius: 8px;"> Sesame Premium Dashboard
 
 **Sesame Premium Dashboard** es una plataforma de análisis y monitorización operativa de alta fidelidad, construida como una capa superior sobre el ecosistema de **Sesame HR**. Diseñado para directores de recursos humanos, managers operativos y administradores de sistemas, este dashboard extrae, cruza y visualiza datos que normalmente están fragmentados o son inaccesibles en la interfaz estándar.
 
