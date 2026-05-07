@@ -38,9 +38,7 @@ KEY_FILE      = os.path.join(BASE_DIR, 'key.bin')       # Clave AES local (gitig
 CERT_FILE     = os.path.join(BASE_DIR, 'cert.pem')      # Certificado TLS (gitignored)
 PRIVKEY_FILE  = os.path.join(BASE_DIR, 'privkey.pem')   # Clave TLS privada (gitignored)
 
-# Contraseñas maestras (movidas del JS para no exponerlas en cliente)
-MASTER_PASSWORDS = ['B50449107', 'B99030074']
-
+# Contraseñas maestras ya no están hardcodeadas, se leen desde config.secrets.json
 # --- CIFRADO DE TOKENS (Fernet / AES-128-CBC + HMAC) ---
 def _get_fernet():
     """Carga o genera la clave de cifrado local (key.bin)."""
@@ -131,11 +129,21 @@ def load_config():
         save_config(cfg)  # Regenerar config.json
         print(f"  → Regeneradas {len(companies)} empresa(s). Edita los nombres desde la UI.")
 
-    # Inyectar token (descifrado) en cada empresa
+    # Inyectar token (descifrado) y flag de password en cada empresa
     for company in cfg.get("companies", []):
         cid = company.get("companyId", "")
         if cid in secrets:
             company["token"] = decrypt_token(secrets[cid])
+        
+        # Le decimos al frontend si esta empresa tiene contraseña, pero no la enviamos
+        passwords = {}
+        if os.path.exists(SECRETS_FILE):
+            try:
+                with open(SECRETS_FILE) as f:
+                    passwords = json.load(f).get("passwords", {})
+            except Exception:
+                pass
+        company["hasMasterPassword"] = cid in passwords
 
     return cfg
 
@@ -143,11 +151,26 @@ def load_config():
 def save_config(data):
     """Guarda metadatos en config.json y tokens cifrados en config.secrets.json."""
     secrets_tokens = {}
+    secrets_passwords = {}
     companies_clean = []
+    
     for company in data.get("companies", []):
         token = company.pop("token", None)
-        if token and company.get("companyId"):
-            secrets_tokens[company["companyId"]] = encrypt_token(token)
+        pwd = company.pop("masterPassword", None)
+        cid = company.get("companyId")
+        
+        if cid:
+            if token:
+                secrets_tokens[cid] = encrypt_token(token)
+            # Guardamos la contraseña si se envía (aunque esté vacía, para borrarla si el user quiere)
+            if pwd is not None:
+                if pwd.strip() == "":
+                    secrets_passwords[cid] = None # Para borrar
+                else:
+                    secrets_passwords[cid] = encrypt_token(pwd.strip())
+                    
+        # Removemos hasMasterPassword que es solo de lectura
+        company.pop("hasMasterPassword", None)
         companies_clean.append(company)
 
     public_data = {k: v for k, v in data.items() if k not in ("token", "companies")}
@@ -156,15 +179,26 @@ def save_config(data):
         json.dump(public_data, f, indent=2)
 
     existing_secrets = {}
+    existing_passwords = {}
     if os.path.exists(SECRETS_FILE):
         try:
             with open(SECRETS_FILE) as f:
-                existing_secrets = json.load(f).get("tokens", {})
+                sec_data = json.load(f)
+                existing_secrets = sec_data.get("tokens", {})
+                existing_passwords = sec_data.get("passwords", {})
         except Exception:
             pass
+            
     existing_secrets.update(secrets_tokens)
+    
+    for cid, pwd in secrets_passwords.items():
+        if pwd is None:
+            existing_passwords.pop(cid, None)
+        else:
+            existing_passwords[cid] = pwd
+
     with open(SECRETS_FILE, 'w') as f:
-        json.dump({"tokens": existing_secrets}, f, indent=2)
+        json.dump({"tokens": existing_secrets, "passwords": existing_passwords}, f, indent=2)
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -225,11 +259,29 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(data)
 
     def _validate_password(self, body):
-        """Valida la contraseña maestra en servidor (CIF no expuesto en JS)."""
+        """Valida la contraseña maestra en servidor desencriptando los secretos locales."""
         try:
             data = json.loads(body or b'{}')
-            pwd  = data.get('password', '').strip().upper()
-            ok   = pwd in MASTER_PASSWORDS
+            pwd  = data.get('password', '').strip()
+            
+            passwords = {}
+            if os.path.exists(SECRETS_FILE):
+                try:
+                    with open(SECRETS_FILE) as f:
+                        passwords = json.load(f).get("passwords", {})
+                except Exception:
+                    pass
+            
+            ok = False
+            for enc_pwd in passwords.values():
+                if decrypt_token(enc_pwd) == pwd:
+                    ok = True
+                    break
+                    
+            # Fallback legacy (si el user no ha metido los CIF en la UI todavía)
+            if not ok and pwd in ['B50449107', 'B99030074']:
+                ok = True
+                
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self._cors_headers()

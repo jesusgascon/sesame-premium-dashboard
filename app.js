@@ -1382,12 +1382,20 @@ function showSetup(editData = null) {
     'name-input':    editData ? editData.name : '',
     'color-input':   editData ? editData.brandColor : '',
     'logo-input':    editData ? editData.logoUrl : '',
+    'masterpwd-input': '', // Siempre vacío por seguridad
     'backend-input': editData ? editData.backendUrl : 'https://back-eu1.sesametime.com'
   };
 
   for (const [id, val] of Object.entries(fields)) {
     const el = $(id);
     if (el) el.value = val || '';
+  }
+  
+  const pwdInput = $('masterpwd-input');
+  if (pwdInput && editData && editData.hasMasterPassword) {
+    pwdInput.placeholder = "Dejar en blanco para conservar la actual...";
+  } else if (pwdInput) {
+    pwdInput.placeholder = "Escribe una contraseña...";
   }
 }
 
@@ -1400,51 +1408,11 @@ async function handleConnect() {
   const manualName = $('name-input')?.value.trim();
   const manualColor = $('color-input')?.value.trim();
   const manualLogo = $('logo-input')?.value.trim();
+  const masterPassword = $('masterpwd-input')?.value.trim();
 
   const err = $('setup-error');
   err.textContent = '';
   err.classList.add('hidden');
-
-  // Acceso rápido por CIF: busca el token REAL guardado en config.json
-  const cifMap = {
-    'B50449107': 'Fibercom',
-    'B99030074': 'AragonPh'
-  };
-  const isBypassCIF = cifMap.hasOwnProperty(companyId);
-  if (isBypassCIF && !token) {
-    try {
-      const res = await fetch('/config');
-      if (res.ok) {
-        const cfg = await res.json();
-        const matchName = cifMap[companyId];
-        const saved = (cfg.companies || []).find(c => 
-          c.name && c.name.toUpperCase().includes(matchName.toUpperCase())
-        );
-        if (saved && saved.token) {
-          STATE.token = saved.token;
-          STATE.companyId = saved.companyId;
-          STATE.backendUrl = saved.backendUrl || 'https://back-eu1.sesametime.com';
-          saveCredentials();
-          showLoading(true);
-          try {
-            const meData = await fetchMe();
-            const companyData = meData.company || {};
-            STATE.currentUser = meData.employee || (Array.isArray(meData) ? meData[0] : meData);
-            await finalizeLogin(companyData);
-          } catch (e) {
-            showSetupError(`Token guardado caducado. Introduce un USID nuevo: ${e.message}`);
-            STATE.token = STATE.companyId = null;
-          } finally {
-            showLoading(false);
-          }
-          return;
-        }
-      }
-    } catch (e) {
-      console.warn("No se pudo leer config.json:", e);
-    }
-    return showSetupError('No hay token real guardado para este CIF. Introduce tu USID (Token) manualmente.');
-  }
 
   if (!token)     return showSetupError('Por favor introduce el token de sesión (USID).');
   if (!companyId) return showSetupError('Por favor introduce el Company ID.');
@@ -1477,10 +1445,11 @@ async function finalizeLogin(companyData = {}) {
   const companyName = manualName || companyData.name || 'Mi Empresa';
   const brandColor = manualColor || companyData.brandColor || null;
   const logoUrl = manualLogo || companyData.logo || null;
+  const masterPassword = $('masterpwd-input')?.value.trim();
 
   saveCredentials();
   if (typeof persistConfigToServer === 'function') {
-    await persistConfigToServer(companyName, brandColor, logoUrl);
+    await persistConfigToServer(companyName, brandColor, logoUrl, masterPassword);
   }
 
   // Guardar timestamp del token para el indicador de caducidad
@@ -1516,20 +1485,33 @@ function showSetupError(msg) {
 }
 
 // ── Save config to server when connected ────────────────────────────────────
-async function persistConfigToServer(name, brandColor, logoUrl) {
+async function persistConfigToServer(name, brandColor, logoUrl, masterPassword) {
   if (!isLocalProxy()) return;
   try {
-    await fetch('/save-config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    const payload = {
         name:       name || 'Mi Empresa',
         token:      STATE.token,
         companyId:  STATE.companyId,
         backendUrl: STATE.backendUrl,
         brandColor: brandColor,
         logoUrl:    logoUrl
-      }),
+    };
+    
+    // Si se escribió algo en masterPassword (incluso vacío explícitamente para borrar), lo enviamos
+    const pwdInput = $('masterpwd-input');
+    if (pwdInput && pwdInput.value !== undefined && pwdInput.value !== null) {
+      // Solo enviamos si el campo no está totalmente limpio al cargar
+      if (pwdInput.value !== '') {
+         payload.masterPassword = pwdInput.value;
+      }
+    }
+    // Si queremos borrarla, el usuario tendría que enviar un texto especial?
+    // Para no complicarlo, si masterPassword está definido, se envía.
+
+    await fetch('/save-config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
     });
   } catch (e) { /* non-critical */ }
 }

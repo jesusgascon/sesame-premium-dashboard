@@ -34,9 +34,9 @@
 
       <div class="setup-form">
         <div class="form-group">
-          <label for="master-pass">CIF de la Compañía</label>
+          <label for="master-pass">Contraseña Maestra</label>
           <div class="input-with-action">
-            <input type="password" id="master-pass" placeholder="Introduce el CIF..." autocomplete="current-password" />
+            <input type="password" id="master-pass" placeholder="Introduce la clave maestra..." autocomplete="current-password" />
             <button type="button" class="btn-toggle-pass" onclick="togglePassword('master-pass')">👁️</button>
           </div>
         </div>
@@ -97,6 +97,14 @@
           <div class="form-group">
             <label for="color-input">Color de Marca</label>
             <input type="text" id="color-input" placeholder="#hex o color" />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="masterpwd-input">Contraseña Maestra (Para proteger esta empresa)</label>
+          <div class="input-with-action">
+            <input type="password" id="masterpwd-input" placeholder="Dejar en blanco para no cambiar..." />
+            <button type="button" class="btn-toggle-pass" onclick="togglePassword('masterpwd-input')">👁️</button>
           </div>
         </div>
 
