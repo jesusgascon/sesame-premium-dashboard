@@ -10,6 +10,9 @@ ENV/
 # Sensitive Data
 config.json
 config.secrets.json
+key.bin
+cert.pem
+privkey.pem
 cookies.txt
 
 # OS

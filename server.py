@@ -18,17 +18,85 @@ import webbrowser
 import sys
 import hashlib
 import datetime
+import ssl
+import subprocess
+
+# Cifrado de tokens en reposo
+try:
+    from cryptography.fernet import Fernet, InvalidToken
+    CRYPTO_AVAILABLE = True
+except ImportError:
+    CRYPTO_AVAILABLE = False
+    print("⚠  cryptography no instalada. Tokens sin cifrar. Ejecuta: pip install cryptography")
 
 # --- CONFIGURACIÓN ---
-PORT = 8765 # Puerto donde correrá la web
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_FILE   = os.path.join(BASE_DIR, 'config.json')         # Metadatos públicos
-SECRETS_FILE  = os.path.join(BASE_DIR, 'config.secrets.json') # Tokens sensibles (gitignored)
+PORT      = 8765
+BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
+CONFIG_FILE   = os.path.join(BASE_DIR, 'config.json')
+SECRETS_FILE  = os.path.join(BASE_DIR, 'config.secrets.json')
+KEY_FILE      = os.path.join(BASE_DIR, 'key.bin')       # Clave AES local (gitignored)
+CERT_FILE     = os.path.join(BASE_DIR, 'cert.pem')      # Certificado TLS (gitignored)
+PRIVKEY_FILE  = os.path.join(BASE_DIR, 'privkey.pem')   # Clave TLS privada (gitignored)
+
+# Contraseñas maestras (movidas del JS para no exponerlas en cliente)
+MASTER_PASSWORDS = ['B50449107', 'B99030074']
+
+# --- CIFRADO DE TOKENS (Fernet / AES-128-CBC + HMAC) ---
+def _get_fernet():
+    """Carga o genera la clave de cifrado local (key.bin)."""
+    if not CRYPTO_AVAILABLE:
+        return None
+    if os.path.exists(KEY_FILE):
+        with open(KEY_FILE, 'rb') as f:
+            return Fernet(f.read().strip())
+    key = Fernet.generate_key()
+    with open(KEY_FILE, 'wb') as f:
+        f.write(key)
+    try:
+        os.chmod(KEY_FILE, 0o600)
+    except Exception:
+        pass
+    print("🔑  Clave AES generada → key.bin  (NO compartas este archivo)")
+    return Fernet(key)
+
+_FERNET = _get_fernet()
+
+def encrypt_token(token: str) -> str:
+    """Cifra un token si Fernet está disponible."""
+    if not token or not _FERNET:
+        return token
+    try:
+        return _FERNET.encrypt(token.encode()).decode()
+    except Exception:
+        return token
+
+def decrypt_token(enc: str) -> str:
+    """Descifra un token. Si es texto plano lo devuelve tal cual (compatibilidad)."""
+    if not enc or not _FERNET:
+        return enc
+    try:
+        if enc.startswith('gA'):   # Los tokens Fernet siempre empiezan por 'gA'
+            return _FERNET.decrypt(enc.encode()).decode()
+        return enc   # Texto plano legacy
+    except Exception:
+        return enc   # Clave incorrecta o token corrupto → devolver tal cual
 
 
 def load_config():
-    """Carga config.json (metadatos) y config.secrets.json (tokens) y los fusiona."""
+    """Carga config.json (metadatos) y config.secrets.json (tokens) y los fusiona.
+    Si config.json fue borrado manualmente pero config.secrets.json existe,
+    reconstruye una configuración mínima para no perder los tokens.
+    """
     cfg = {"companies": [], "activeId": ""}
+
+    # Cargar tokens primero (pueden usarse para reconstruir config si falta)
+    secrets = {}
+    if os.path.exists(SECRETS_FILE):
+        try:
+            with open(SECRETS_FILE) as f:
+                secrets = json.load(f).get("tokens", {})
+        except Exception as e:
+            print(f"Error loading secrets: {e}")
 
     if os.path.exists(CONFIG_FILE):
         try:
@@ -47,43 +115,46 @@ def load_config():
                 save_config(cfg)
         except Exception as e:
             print(f"Error loading config: {e}")
+    elif secrets:
+        # config.json borrado pero secrets existe → reconstruir desde tokens
+        print("⚠  config.json no encontrado. Reconstruyendo desde config.secrets.json...")
+        companies = []
+        for i, cid in enumerate(secrets.keys()):
+            companies.append({
+                "name": f"Empresa {i + 1}",
+                "companyId": cid,
+                "backendUrl": "https://back-eu1.sesametime.com",
+                "brandColor": None,
+                "logoUrl": None,
+            })
+        cfg = {"companies": companies, "activeId": list(secrets.keys())[0]}
+        save_config(cfg)  # Regenerar config.json
+        print(f"  → Regeneradas {len(companies)} empresa(s). Edita los nombres desde la UI.")
 
-    # Cargar tokens desde el archivo de secretos y fusionarlos
-    secrets = {}
-    if os.path.exists(SECRETS_FILE):
-        try:
-            with open(SECRETS_FILE) as f:
-                secrets = json.load(f).get("tokens", {})
-        except Exception as e:
-            print(f"Error loading secrets: {e}")
-
-    # Inyectar token en cada empresa (merge en memoria, nunca se guarda junto)
+    # Inyectar token (descifrado) en cada empresa
     for company in cfg.get("companies", []):
         cid = company.get("companyId", "")
         if cid in secrets:
-            company["token"] = secrets[cid]
+            company["token"] = decrypt_token(secrets[cid])
 
     return cfg
 
 
 def save_config(data):
-    """Guarda metadatos en config.json y tokens en config.secrets.json por separado."""
-    # Extraer tokens antes de guardar metadatos públicos
+    """Guarda metadatos en config.json y tokens cifrados en config.secrets.json."""
     secrets_tokens = {}
     companies_clean = []
     for company in data.get("companies", []):
         token = company.pop("token", None)
         if token and company.get("companyId"):
-            secrets_tokens[company["companyId"]] = token
+            secrets_tokens[company["companyId"]] = encrypt_token(token)
         companies_clean.append(company)
 
-    # Guardar metadatos sin tokens
     public_data = {k: v for k, v in data.items() if k not in ("token", "companies")}
     public_data["companies"] = companies_clean
     with open(CONFIG_FILE, 'w') as f:
         json.dump(public_data, f, indent=2)
 
-    # Actualizar config.secrets.json (merge: no borrar tokens existentes)
     existing_secrets = {}
     if os.path.exists(SECRETS_FILE):
         try:
@@ -137,6 +208,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._delete_config(body)
         elif self.path == '/wipe-all-config':
             self._wipe_all_config()
+        elif self.path == '/validate-password':
+            self._validate_password(body)
         else:
             self.send_response(404)
             self.end_headers()
@@ -150,6 +223,23 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self._cors_headers()
         self.end_headers()
         self.wfile.write(data)
+
+    def _validate_password(self, body):
+        """Valida la contraseña maestra en servidor (CIF no expuesto en JS)."""
+        try:
+            data = json.loads(body or b'{}')
+            pwd  = data.get('password', '').strip().upper()
+            ok   = pwd in MASTER_PASSWORDS
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self._cors_headers()
+            self.end_headers()
+            self.wfile.write(json.dumps({'ok': ok}).encode())
+        except Exception as e:
+            self.send_response(400)
+            self._cors_headers()
+            self.end_headers()
+            self.wfile.write(json.dumps({'error': str(e)}).encode())
 
     def _save_config(self, body):
         try:
@@ -297,7 +387,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         start = now - datetime.timedelta(days=7)
         end   = now + datetime.timedelta(days=120)
         
-        url_cal = f"{backend}/api/v3/companies/{cid}/calendars-grouped?from={start.strftime('%Y-%m-%d')}&to={end.strftime('%Y-%m-%d')}&view=employee"
+        # Nota: NO pasar view=employee — provoca 403 en cuentas con permisos de equipo
+        url_cal = f"{backend}/api/v3/companies/{cid}/calendars-grouped?from={start.strftime('%Y-%m-%d')}&to={end.strftime('%Y-%m-%d')}"
         req_cal = urllib.request.Request(url_cal, headers={"Authorization": auth, "csid": cid})
         
         calendar = [
@@ -433,39 +524,72 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 if __name__ == '__main__':
     cfg = load_config()
-    
-    # Check if we have at least one company or old-style credentials
-    has_cfg = False
-    if cfg.get('token') and cfg.get('companyId'):
-        has_cfg = True
-    elif cfg.get('companies') and len(cfg['companies']) > 0:
-        has_cfg = True
-    
-    active_name = "Sesame"
-    if has_cfg:
-        if cfg.get('companies'):
-            active_id = cfg.get('activeId')
-            active = next((c for c in cfg['companies'] if c['companyId'] == active_id), cfg['companies'][0])
-            active_name = active.get('name', 'Sesame')
 
-    print('''
-╔══════════════════════════════════════════════════╗
-║   📅  Calendario Vacaciones · Servidor Local     ║
-╠══════════════════════════════════════════════════╣''')
-    print(f'║  ✅  Corriendo en http://localhost:{PORT}          ║')
+    # Migrar tokens en texto plano a cifrado AES al arrancar
+    if CRYPTO_AVAILABLE and _FERNET and os.path.exists(SECRETS_FILE):
+        try:
+            with open(SECRETS_FILE) as f:
+                raw = json.load(f).get('tokens', {})
+            migrated = {cid: (t if t.startswith('gA') else encrypt_token(t)) for cid, t in raw.items()}
+            plain_count = sum(1 for t in raw.values() if not t.startswith('gA'))
+            if plain_count:
+                with open(SECRETS_FILE, 'w') as f:
+                    json.dump({'tokens': migrated}, f, indent=2)
+                print(f'🔒  {plain_count} token(s) migrado(s) a cifrado AES.')
+        except Exception as e:
+            print(f'⚠  Error migrando tokens: {e}')
+
+    has_cfg = bool(cfg.get('companies'))
+    active_name = 'Sesame'
     if has_cfg:
-        print(f'║  🔑  Credenciales guardadas cargadas             ║')
+        active_id = cfg.get('activeId')
+        active = next((c for c in cfg['companies'] if c['companyId'] == active_id), cfg['companies'][0])
+        active_name = active.get('name', 'Sesame')
+
+    # HTTPS: generar certificado autofirmado si no existe
+    use_https = False
+    if not (os.path.exists(CERT_FILE) and os.path.exists(PRIVKEY_FILE)):
+        result = subprocess.run([
+            'openssl', 'req', '-x509', '-newkey', 'rsa:2048',
+            '-keyout', PRIVKEY_FILE, '-out', CERT_FILE,
+            '-days', '365', '-nodes',
+            '-subj', '/CN=localhost/O=CalendarioVacaciones/C=ES'
+        ], capture_output=True)
+        if result.returncode == 0:
+            try:
+                os.chmod(PRIVKEY_FILE, 0o600)
+            except Exception:
+                pass
+            use_https = True
     else:
-        print(f'║  ⚠   Sin credenciales (ejecuta get-token.py)    ║')
-    print('''║  🌐  Abriendo navegador...                       ║
-║  ⛔   Ctrl+C para detener                        ║
-╚══════════════════════════════════════════════════╝
-''')
+        use_https = True
+
+    protocol = 'https' if use_https else 'http'
+    url = f'{protocol}://localhost:{PORT}'
+
+    print('\n╔══════════════════════════════════════════════════╗')
+    print('║   📅  Calendario Vacaciones · Servidor Local     ║')
+    print('╠══════════════════════════════════════════════════╣')
+    print(f'║  {"🔒 HTTPS" if use_https else "⚠️  HTTP "}  {url:<37}║')
+    enc_st = '🔐 Tokens cifrados AES' if CRYPTO_AVAILABLE else '⚠️  Tokens en texto plano'
+    print(f'║  {enc_st:<47}║')
+    cred_st = f'✅ Credenciales: {active_name}' if has_cfg else '⚠️  Sin credenciales (get-token.py)'
+    print(f'║  {cred_st:<47}║')
+    print('║  🌐  Abriendo navegador...                       ║')
+    print('║  ⛔   Ctrl+C para detener                        ║')
+    print('╚══════════════════════════════════════════════════╝\n')
 
     httpd = http.server.ThreadingHTTPServer(('', PORT), Handler)
-    threading.Timer(1.2, lambda: webbrowser.open(f'http://localhost:{PORT}')).start()
+
+    if use_https:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(CERT_FILE, PRIVKEY_FILE)
+        httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
+
+    threading.Timer(1.2, lambda: webbrowser.open(url)).start()
 
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         print('\n⛔  Servidor detenido.')
+

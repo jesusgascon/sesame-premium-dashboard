@@ -5,6 +5,20 @@
 
 'use strict';
 
+// ─── Debug Mode ───────────────────────────────────────────────────────────────
+// false en producción (silencia console.log/info/warn).
+// Cambiar a true para depurar. console.error siempre activo.
+const DEBUG_MODE = false;
+(function applyDebugMode() {
+  if (!DEBUG_MODE) {
+    const _noop = () => {};
+    console.log  = _noop;
+    console.info = _noop;
+    console.warn = _noop;
+    // console.error queda activo para errores críticos
+  }
+})();
+
 // --- Global UI Helpers ---
 function togglePassword(id) {
   const el = document.getElementById(id);
@@ -15,7 +29,7 @@ function togglePassword(id) {
   // but here we just use the emoji which stays the same.
 }
 
-const MASTER_PASSWORDS = ['B50449107', 'B99030074'];
+// Las contraseñas maestras (CIF) se validan en server.py — no están expuestas en el cliente.
 
 // Auto-detect if running via local proxy server (server.py)
 function isLocalProxy() {
@@ -62,7 +76,14 @@ const STATE = {
   allEmployees:  new Map(), // Todos los empleados detectados
   hiddenEmployeeIds: new Set(), // Empleados ocultos en el filtro
   calendarData: {},     // 'YYYY-MM-DD' → [{type, employees}]
-  currentDate:  new Date(),
+  currentDate:  (function() {
+    const saved = sessionStorage.getItem('ssm_current_date');
+    if (saved) {
+      const d = new Date(saved);
+      if (!isNaN(d.getTime())) return d;
+    }
+    return new Date();
+  })(),
   calView:      'month', // 'month' | 'week'
   activeView:   'calendar',
   isLoading:    false,  // Guard to prevent redundant loads
@@ -123,6 +144,79 @@ const AUDIT = {
 function getCurrentEmployeeId() {
   if (!STATE.currentUser) return null;
   return String(STATE.currentUser.id || STATE.currentUser.employeeId || '');
+}
+
+// ─── Company Mode (employee vs full) con TTL de 24h ──────────────────────────
+const COMPANY_MODE_TTL_MS = 24 * 60 * 60 * 1000;
+
+function getCompanyMode(key) {
+  const mode = localStorage.getItem(key);
+  if (mode !== 'employee') return mode; // 'full', null, o undefined
+  // Verificar caducidad del modo empleado
+  const ts = parseInt(localStorage.getItem(key + '_ts') || '0');
+  if (ts && Date.now() - ts > COMPANY_MODE_TTL_MS) {
+    localStorage.removeItem(key);
+    localStorage.removeItem(key + '_ts');
+    return null; // Forzar re-detección
+  }
+  return 'employee';
+}
+
+function setCompanyMode(key, mode) {
+  if (mode) {
+    localStorage.setItem(key, mode);
+    localStorage.setItem(key + '_ts', Date.now().toString());
+  } else {
+    localStorage.removeItem(key);
+    localStorage.removeItem(key + '_ts');
+  }
+}
+
+// ─── Token Timestamp ─────────────────────────────────────────────────────────
+function saveTokenTimestamp(companyId) {
+  if (companyId) {
+    localStorage.setItem(`ssm_token_ts_${companyId}`, Date.now().toString());
+  }
+}
+
+function renderTokenStatus() {
+  const bar = document.getElementById('token-status-bar');
+  if (!bar || !STATE.companyId) return;
+
+  const ts = parseInt(localStorage.getItem(`ssm_token_ts_${STATE.companyId}`) || '0');
+  if (!ts) { bar.style.display = 'none'; return; }
+
+  const days = Math.floor((Date.now() - ts) / (1000 * 60 * 60 * 24));
+
+  if (days < 7) {
+    bar.style.display = 'none'; // Token reciente
+    return;
+  }
+
+  const isCritical = days >= 14;
+  const color      = isCritical ? '#ef4444' : '#fb923c';
+  const bgAlpha    = isCritical ? '0.15' : '0.12';
+  bar.style.cssText = [
+    'display:flex', 'align-items:center', 'gap:8px',
+    'padding:6px 14px', 'margin:4px 8px', 'border-radius:8px',
+    `background:linear-gradient(90deg,rgba(${isCritical?'239,68,68':'251,146,60'},${bgAlpha}),transparent)`,
+    `border:1px solid rgba(${isCritical?'239,68,68':'251,146,60'},0.3)`,
+    'font-size:0.72rem'
+  ].join(';');
+
+  bar.innerHTML = `
+    <span>${isCritical ? '🔴' : '🟡'}</span>
+    <span style="color:var(--text-muted)">
+      Token <strong style="color:${color}">${days}d</strong>
+      ${isCritical ? '— Renueva ya' : '— Caduca pronto'}
+    </span>
+    <button
+      onclick="showSetup(STATE.companies.find(c=>c.companyId===STATE.companyId))"
+      style="margin-left:auto;font-size:0.65rem;padding:2px 8px;border-radius:5px;
+             background:rgba(255,255,255,0.07);border:1px solid var(--border);
+             color:var(--text-muted);cursor:pointer;">
+      Renovar
+    </button>`;
 }
 
 const DISCOVERY = {
@@ -771,7 +865,10 @@ function applyCompanyBranding(company) {
   const nameDisplay = $('company-name-display');
   
   const name = company.name || 'Pruebas';
-  if (nameDisplay) nameDisplay.textContent = name;
+  if (nameDisplay) {
+    nameDisplay.textContent = name;
+    nameDisplay.title = name; // Tooltip para nombres largos
+  }
   
   // Custom Branding Logic
   let brandColor = company.brandColor;
@@ -780,19 +877,25 @@ function applyCompanyBranding(company) {
   // Fallback to corporate defaults if no manual color is provided
   if (!brandColor) {
     if (name.toUpperCase().includes('FIBERCOM')) {
-      brandColor = '#e63946'; // Rojo corporativo
+      brandColor = '#e63946';
     } else if (name.toUpperCase().includes('ARAGON')) {
-      brandColor = '#1d3557'; // Azul marino corporativo
+      brandColor = '#1d3557';
     } else {
-      brandColor = '#60A5FA'; // Default blue
+      brandColor = '#60A5FA';
     }
   }
 
   if (logoContainer) {
     if (logoUrl) {
-      logoContainer.innerHTML = `<img src="${logoUrl}" style="width:24px;height:24px;object-fit:contain;border-radius:4px;" onerror="this.outerHTML='📅'">`;
+      logoContainer.innerHTML = `<img src="${logoUrl}" style="width:24px;height:24px;object-fit:contain;border-radius:4px;" onerror="this.innerHTML='📅'">`;
     } else {
-      logoContainer.innerHTML = '📅';
+      // Avatar con iniciales si no hay logo
+      const initials = name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+      logoContainer.innerHTML = `
+        <div style="width:24px; height:24px; background:${brandColor}; color:white; border-radius:4px; 
+                    display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:800;">
+          ${initials}
+        </div>`;
     }
   }
 
@@ -956,17 +1059,28 @@ async function init() {
       const val = passInput.value.trim().toUpperCase();
       const errEl = $('lock-error');
       errEl.classList.add('hidden');
-      
-      if (MASTER_PASSWORDS.includes(val)) {
+
+      // Validación server-side: el CIF no viaja en el JS del cliente
+      let ok = false;
+      try {
+        const res = await fetch('/validate-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: val })
+        });
+        const data = await res.json();
+        ok = data.ok === true;
+      } catch {
+        // Fallback offline: solo si el servidor no está disponible
+        ok = false;
+      }
+
+      if (ok) {
         try {
           unlockBtn.disabled = true;
           unlockBtn.innerHTML = '<span class="spinner-sm"></span> Verificando...';
-          
           sessionStorage.setItem('ssm_unlocked', 'true');
-          
-          // Ejecutamos el arranque y esperamos
           await startApp();
-          
           lockScreen.classList.remove('active');
           lockScreen.classList.add('hidden');
         } catch (err) {
@@ -1367,6 +1481,9 @@ async function finalizeLogin(companyData = {}) {
     await persistConfigToServer(companyName, brandColor, logoUrl);
   }
 
+  // Guardar timestamp del token para el indicador de caducidad
+  saveTokenTimestamp(STATE.companyId);
+
   // Recargar la lista de empresas guardadas y actualizar el selector inmediatamente
   await loadConfig();
   renderCompanySelector();
@@ -1380,6 +1497,7 @@ async function finalizeLogin(companyData = {}) {
 
   showApp();
   await loadInitialData();
+  renderTokenStatus(); // Mostrar banner si el token es antiguo
   startAutoRefresh();
   loadWeather();
 }
@@ -2426,6 +2544,10 @@ function shiftPeriod(dir) {
   } else {
     STATE.currentDate.setMonth(STATE.currentDate.getMonth() + dir);
   }
+  
+  // Persistir fecha para que no se resetee al cambiar de módulo
+  sessionStorage.setItem('ssm_current_date', STATE.currentDate.toISOString());
+  
   loadData();
 }
 
@@ -2644,7 +2766,7 @@ const FichajesModule = {
 
     // Refresh btn
     document.getElementById('refresh-signings-btn')?.addEventListener('click', () => {
-      this.loadData();
+      this.loadData(true);
     });
 
     // Sidebar toggle (needed for this module too)
@@ -2930,7 +3052,7 @@ const FichajesModule = {
     `;
   },
   
-  async loadData() {
+  async loadData(ignoreCache = false) {
     let startDate = new Date(this.currentDate);
     let endDate = new Date(this.currentDate);
     
@@ -2951,6 +3073,25 @@ const FichajesModule = {
     
     
     try {
+      // 0. Cache check: Si ya tenemos los datos en esta sesión, mostrarlos inmediatamente
+      const cacheKey = `ssm_fichajes_cache_${STATE.companyId}_${this.currentView}_${start}_${end}`;
+      const cached = sessionStorage.getItem(cacheKey);
+      if (cached && !ignoreCache) {
+        try {
+          const parsed = JSON.parse(cached);
+          this.data = parsed.data || [];
+          this.realSignings = parsed.realSignings || [];
+          // Map no se serializa a JSON: hay que reconstruirlo
+          if (parsed.biTheoreticMap) {
+            this.biTheoreticMap = new Map(Object.entries(parsed.biTheoreticMap));
+          }
+          this.render();
+          console.info(`Fichajes: Cache hits for ${start}/${end} (${this.data.length} registros).`);
+        } catch (e) {
+          console.warn("Fichajes cache parse error:", e);
+        }
+      }
+
       this.renderSkeletons();
       
       // RESTAURACIÓN DEL SELECTOR: Cargamos el desplegable nada más empezar
@@ -3189,7 +3330,7 @@ const FichajesModule = {
       // detectamos "modo empleado" y usamos endpoints personales en su lugar.
       const localAbsences = {};
       let _coreApiIs403 = false;
-      let _employeeMode = localStorage.getItem(COMPANY_MODE_KEY) === 'employee';
+      let _employeeMode = getCompanyMode(COMPANY_MODE_KEY) === 'employee';
 
       if (!_employeeMode) {
         try {
@@ -3203,20 +3344,20 @@ const FichajesModule = {
             }
           });
           // Si llegó aquí, tenemos acceso de equipo
-          if (localStorage.getItem(COMPANY_MODE_KEY) !== 'full') {
-            localStorage.setItem(COMPANY_MODE_KEY, 'full');
+          if (getCompanyMode(COMPANY_MODE_KEY) !== 'full') {
+            setCompanyMode(COMPANY_MODE_KEY, 'full');
           }
         } catch (absErr) {
           const is403 = absErr.message.includes('403') || absErr.message.includes('401');
           if (is403 && STATE.currentUser) {
             // 403 con token válido = sin permisos de equipo = modo empleado
             _employeeMode = true;
-            localStorage.setItem(COMPANY_MODE_KEY, 'employee');
-            console.info(`Empresa ${STATE.companyId.substring(0,8)}: Sin permisos de equipo. Activando modo empleado.`);
+            setCompanyMode(COMPANY_MODE_KEY, 'employee');
+            console.error(`Empresa ${STATE.companyId.substring(0,8)}: Sin permisos de equipo. Activando modo empleado.`);
           } else if (is403) {
             _coreApiIs403 = true;
           } else {
-            console.warn('fetchCalendarGrouped falló (no crítico):', absErr.message);
+            console.error('fetchCalendarGrouped falló (no crítico):', absErr.message);
           }
         }
       }
@@ -3425,9 +3566,18 @@ const FichajesModule = {
             const rawData = [];
             const targetIds = allIds.slice(0, 100);
 
-            // OPTIMIZACIÓN: No reintentar IDs que ya sabemos que dan 403 en esta sesión
+            // Barra de progreso visible
+            const progressBar = $('signings-progress-bar');
+            const progressContainer = $('signings-progress-container');
+            if (progressContainer) progressContainer.classList.remove('hidden');
 
             for (let i = 0; i < targetIds.length; i += 8) {
+               // Actualizar barra de progreso
+               if (progressBar) {
+                  const pct = Math.round((i / targetIds.length) * 100);
+                  progressBar.style.width = `${pct}%`;
+               }
+
                const chunk = targetIds.slice(i, i + 8).filter(id => !this.failedIds.has(id));
                if (chunk.length === 0) continue;
 
@@ -3454,6 +3604,13 @@ const FichajesModule = {
                  }
                });
             }
+
+            // Ocultar barra de progreso
+            if (progressBar) progressBar.style.width = '100%';
+            setTimeout(() => {
+                if (progressContainer) progressContainer.classList.add('hidden');
+                if (progressBar) progressBar.style.width = '0%';
+            }, 600);
 
             if (rawData.length > 0) {
                this.data = this.parseRealSignings(rawData, localAbsences);
@@ -3520,6 +3677,13 @@ const FichajesModule = {
       // REFRESCAR BARRA LATERAL: Para que los puntos de estado se vean al instante tras la carga
       renderEmployeeFilterList();
       
+      // GUARDAR EN CACHÉ
+      sessionStorage.setItem(cacheKey, JSON.stringify({
+        data: this.data,
+        realSignings: this.realSignings,
+        biTheoreticMap: Object.fromEntries(this.biTheoreticMap || new Map())
+      }));
+
       // WIDGETS AVANZADOS: Mostrar patrones de trabajo y radar
       if (document.getElementById('patterns-widget')) {
         this.updateAnalyticsWidgets();
