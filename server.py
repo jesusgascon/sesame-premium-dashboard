@@ -146,8 +146,11 @@ def load_config():
                 
         # Auto-migración temporal si no hay contraseña guardada pero conocemos la empresa
         if cid not in passwords:
-            if cid == 'B50449107' or cid == 'B99030074':
-                company["masterPassword"] = cid
+            c_name = company.get("name", "").lower()
+            if "fibercom" in c_name:
+                company["masterPassword"] = "B50449107"
+            elif "aragonph" in c_name:
+                company["masterPassword"] = "B99030074"
         else:
             company["masterPassword"] = decrypt_token(passwords[cid])
 
