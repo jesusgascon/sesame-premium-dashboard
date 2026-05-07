@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-server.py — Servidor proxy local para Calendario Vacaciones Sesame HR
+server.py — Servidor proxy local para Sesame Premium Dashboard
 Uso: python3 server.py
 
 - Sirve la web en http://localhost:8765
@@ -553,7 +553,7 @@ if __name__ == '__main__':
             'openssl', 'req', '-x509', '-newkey', 'rsa:2048',
             '-keyout', PRIVKEY_FILE, '-out', CERT_FILE,
             '-days', '365', '-nodes',
-            '-subj', '/CN=localhost/O=CalendarioVacaciones/C=ES'
+            '-subj', '/CN=localhost/O=SesamePremiumDashboard/C=ES'
         ], capture_output=True)
         if result.returncode == 0:
             try:
@@ -568,7 +568,7 @@ if __name__ == '__main__':
     url = f'{protocol}://localhost:{PORT}'
 
     print('\n╔══════════════════════════════════════════════════╗')
-    print('║   📅  Calendario Vacaciones · Servidor Local     ║')
+    print('║   🚀  Sesame Premium Dashboard · Servidor Local  ║')
     print('╠══════════════════════════════════════════════════╣')
     print(f'║  {"🔒 HTTPS" if use_https else "⚠️  HTTP "}  {url:<37}║')
     enc_st = '🔐 Tokens cifrados AES' if CRYPTO_AVAILABLE else '⚠️  Tokens en texto plano'
