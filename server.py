@@ -135,7 +135,7 @@ def load_config():
         if cid in secrets:
             company["token"] = decrypt_token(secrets[cid])
         
-        # Le decimos al frontend si esta empresa tiene contraseña, pero no la enviamos
+        # Devolver la contraseña al frontend para que el usuario pueda verla y editarla
         passwords = {}
         if os.path.exists(SECRETS_FILE):
             try:
@@ -143,7 +143,13 @@ def load_config():
                     passwords = json.load(f).get("passwords", {})
             except Exception:
                 pass
-        company["hasMasterPassword"] = cid in passwords
+                
+        # Auto-migración temporal si no hay contraseña guardada pero conocemos la empresa
+        if cid not in passwords:
+            if cid == 'B50449107' or cid == 'B99030074':
+                company["masterPassword"] = cid
+        else:
+            company["masterPassword"] = decrypt_token(passwords[cid])
 
     return cfg
 
@@ -162,15 +168,11 @@ def save_config(data):
         if cid:
             if token:
                 secrets_tokens[cid] = encrypt_token(token)
-            # Guardamos la contraseña si se envía (aunque esté vacía, para borrarla si el user quiere)
-            if pwd is not None:
-                if pwd.strip() == "":
-                    secrets_passwords[cid] = None # Para borrar
-                else:
-                    secrets_passwords[cid] = encrypt_token(pwd.strip())
+            if pwd and pwd.strip() != "":
+                secrets_passwords[cid] = encrypt_token(pwd.strip())
                     
-        # Removemos hasMasterPassword que es solo de lectura
-        company.pop("hasMasterPassword", None)
+        # Removemos masterPassword para que no se guarde en config.json (público)
+        company.pop("masterPassword", None)
         companies_clean.append(company)
 
     public_data = {k: v for k, v in data.items() if k not in ("token", "companies")}

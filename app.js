@@ -1382,20 +1382,13 @@ function showSetup(editData = null) {
     'name-input':    editData ? editData.name : '',
     'color-input':   editData ? editData.brandColor : '',
     'logo-input':    editData ? editData.logoUrl : '',
-    'masterpwd-input': '', // Siempre vacío por seguridad
+    'masterpwd-input': editData ? (editData.masterPassword || '') : '',
     'backend-input': editData ? editData.backendUrl : 'https://back-eu1.sesametime.com'
   };
 
   for (const [id, val] of Object.entries(fields)) {
     const el = $(id);
     if (el) el.value = val || '';
-  }
-  
-  const pwdInput = $('masterpwd-input');
-  if (pwdInput && editData && editData.hasMasterPassword) {
-    pwdInput.placeholder = "Dejar en blanco para conservar la actual...";
-  } else if (pwdInput) {
-    pwdInput.placeholder = "Escribe una contraseña...";
   }
 }
 
@@ -1414,8 +1407,9 @@ async function handleConnect() {
   err.textContent = '';
   err.classList.add('hidden');
 
-  if (!token)     return showSetupError('Por favor introduce el token de sesión (USID).');
-  if (!companyId) return showSetupError('Por favor introduce el Company ID.');
+  if (!token)          return showSetupError('Por favor introduce el token de sesión (USID).');
+  if (!companyId)      return showSetupError('Por favor introduce el Company ID.');
+  if (!masterPassword) return showSetupError('Por favor introduce una Contraseña Maestra obligatoria.');
 
   STATE.token     = token;
   STATE.companyId = companyId;
@@ -1494,19 +1488,9 @@ async function persistConfigToServer(name, brandColor, logoUrl, masterPassword) 
         companyId:  STATE.companyId,
         backendUrl: STATE.backendUrl,
         brandColor: brandColor,
-        logoUrl:    logoUrl
+        logoUrl:    logoUrl,
+        masterPassword: masterPassword
     };
-    
-    // Si se escribió algo en masterPassword (incluso vacío explícitamente para borrar), lo enviamos
-    const pwdInput = $('masterpwd-input');
-    if (pwdInput && pwdInput.value !== undefined && pwdInput.value !== null) {
-      // Solo enviamos si el campo no está totalmente limpio al cargar
-      if (pwdInput.value !== '') {
-         payload.masterPassword = pwdInput.value;
-      }
-    }
-    // Si queremos borrarla, el usuario tendría que enviar un texto especial?
-    // Para no complicarlo, si masterPassword está definido, se envía.
 
     await fetch('/save-config', {
       method: 'POST',
