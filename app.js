@@ -901,7 +901,16 @@ function switchCompany(cid) {
   if (typeof FichajesModule !== 'undefined') {
     FichajesModule.data = [];
     if (FichajesModule.failedIds) FichajesModule.failedIds.clear();
+    FichajesModule.biSchemaFields = null;
   }
+
+  // Limpiar caché de rutas y modo de empresa (cada empresa puede tener permisos distintos)
+  DISCOVERY.workingPresence = null;
+  DISCOVERY.workingChecks   = null;
+  localStorage.removeItem('ssm_path_presence');
+  localStorage.removeItem('ssm_path_checks');
+  // Nota: NO borramos ssm_company_mode ni ssm_bi_waf porque son correctos por empresa
+  // Solo los borramos si el admin cambió el rol del usuario en Sesame.
   
   // Cargamos TODO de la nueva empresa (Metadatos + Calendario)
   loadInitialData();
@@ -1223,7 +1232,11 @@ async function startApp() {
 
 function showSetup(editData = null) {
   showScreen('setup-screen');
-  
+
+  // Limpiar cualquier error previo (no mostrar errores de sesiones anteriores)
+  const prevErr = $('setup-error');
+  if (prevErr) { prevErr.textContent = ''; prevErr.classList.add('hidden'); }
+
   // Si no nos pasan datos pero estamos logueados, intentamos recuperar la activa
   if (!editData && STATE.companyId) {
     editData = STATE.companies.find(c => String(c.companyId).trim() === String(STATE.companyId).trim());
@@ -1508,7 +1521,73 @@ async function loadDataInternal() {
     toDate.setDate(toDate.getDate() + 7);
 
     const typeIds = [...STATE.activeFilters];
-    const rawData = await fetchCalendarGrouped(fmtDate(fromDate), fmtDate(toDate), typeIds);
+    let rawData = [];
+    let employeeMode = false;
+
+    try {
+      rawData = await fetchCalendarGrouped(fmtDate(fromDate), fmtDate(toDate), typeIds);
+    } catch (calErr) {
+      const is403 = calErr.message.includes('403') || calErr.message.includes('401');
+      if (is403 && STATE.currentUser) {
+        // Modo empleado: usar calendario personal
+        employeeMode = true;
+        const myId = getCurrentEmployeeId();
+        if (myId) {
+          try {
+            const personal = await apiFetch(
+              `/api/v3/employees/${myId}/calendars?from=${fmtDate(fromDate)}&to=${fmtDate(toDate)}`
+            );
+            const items = personal?.data || (Array.isArray(personal) ? personal : []);
+            // La estructura real es: item.calendarType + item.daysOff[].date
+            items.forEach(item => {
+              const calType = item.calendarType || {};
+              const typeName = calType.name || 'Ausencia';
+              const typeColor = calType.color || 'ssmv2-purple';
+              const typeId = calType.id || 'personal';
+
+              (item.daysOff || []).forEach(dayOff => {
+                const date = dayOff.date;
+                if (!date) return;
+                // Si ya existe ese día, añadir el tipo de ausencia al array existente
+                const existing = rawData.find(d => d.date === date);
+                const calEntry = {
+                  calendar_type: { id: typeId, name: typeName, color: typeColor },
+                  employees: [STATE.currentUser || { id: myId }],
+                  num_employees: 1
+                };
+                if (existing) {
+                  existing.calendar_types.push(calEntry);
+                } else {
+                  rawData.push({ date, calendar_types: [calEntry] });
+                }
+              });
+            });
+            console.info(`Modo empleado: ${items.length} calendarios → ${rawData.length} días con ausencias`);
+
+            // Registrar los tipos de ausencia personal en STATE para que pasen el filtro del renderer
+            items.forEach(item => {
+              const calType = item.calendarType || {};
+              if (!calType.id) return;
+              // Añadir al catálogo de tipos si no existe ya
+              if (!STATE.absenceTypes.find(t => t.id === calType.id)) {
+                STATE.absenceTypes.push({
+                  id: calType.id,
+                  name: calType.name || 'Ausencia',
+                  color: calType.color || 'ssmv2-purple',
+                  category: calType.category || 'vacation'
+                });
+              }
+              // Activar el filtro para que se muestre (no oculto por defecto)
+              STATE.activeFilters.add(calType.id);
+            });
+          } catch (pe) {
+            console.warn('Personal calendar fetch failed:', pe.message);
+          }
+        }
+      } else {
+        console.error('Calendar fetch failed (non-permission error):', calErr.message);
+      }
+    }
 
     // Index by date and extract all employees seen
     STATE.calendarData = {};
@@ -1518,7 +1597,6 @@ async function loadDataInternal() {
       STATE.calendarData[date] = (dayObj.calendar_types || []).map(ct => {
         const emps = ct.employees || [];
         emps.forEach(e => {
-          // Cruce con perfiles locales
           const emp = STATE.allEmployees.get(String(e.id));
           if (emp) { /* enriquecimiento opcional */ }
         });
@@ -1539,10 +1617,18 @@ async function loadDataInternal() {
     });
 
     updateMonthLabel();
+    // Añadir nota de modo empleado en el label del mes si aplica
+    if (employeeMode) {
+      const lbl = $('absence-count-label');
+      if (lbl) { lbl.textContent = '👤 Solo tus datos'; lbl.title = 'Esta cuenta no tiene acceso al calendario del equipo'; }
+    }
     refreshAllViews();
   } catch(e) {
     console.error('Internal data fetch failed:', e);
-    throw e;
+    // Siempre renderizar aunque sea vacío — no dejar el calendario bloqueado
+    STATE.calendarData = STATE.calendarData || {};
+    updateMonthLabel();
+    refreshAllViews();
   }
 }
 
@@ -2470,7 +2556,10 @@ const FichajesModule = {
   presenceFilter: 'all', // 'all', 'working', 'paused'
   kioskoMode: false,
   failedIds: new Set(),
-  
+  biSchemaFields: null,  // { companyId, aliases[] } — esquema BI descubierto para la empresa activa
+  biTheoreticMap: null,
+  dayOverrides: null,
+  realtimePresence: [],
   init() {
     if (this.initialized) return;
     this.initialized = true;
@@ -2864,47 +2953,194 @@ const FichajesModule = {
       // para que el usuario pueda filtrar aunque la carga de datos falle.
       this.populateEmployeeSelect();
       
+      // Claves de configuración por empresa (scope externo para ser accesibles en todo loadData)
+      const BI_SCHEMA_CACHE_KEY = `ssm_bi_schema_${STATE.companyId}`;
+      const BI_WAF_KEY          = `ssm_bi_waf_${STATE.companyId}`;
+      const COMPANY_MODE_KEY    = `ssm_company_mode_${STATE.companyId}`;
+      const biWafBlocked        = localStorage.getItem(BI_WAF_KEY) === 'blocked';
+
       let biData = [];
-      let biTheoreticMap = new Map(); // key: empId_date -> theoreticSeconds
-      
+      let biTheoreticMap = new Map();
+
       try {
-        // 1. Obtener fichajes (Audit data)
-        const res = await apiFetchBi({
-          "from": "schedule_context_check",
-          "select": [
-            {"field": "schedule_context_check.date", "alias": "date"},
-            {"field": "schedule_context_check.check_in_check_datetime", "alias": "checkIn"},
-            {"field": "schedule_context_check.check_out_check_datetime", "alias": "checkOut"},
-            {"field": "schedule_context_check.seconds_worked", "alias": "secondsWorked"},
-            {"field": "schedule_context_check.type", "alias": "type"},
-            {"field": "schedule_context_check.check_in_latitude", "alias": "checkInLat"},
-            {"field": "schedule_context_check.check_in_longitude", "alias": "checkInLon"},
-            {"field": "schedule_context_check.check_out_latitude", "alias": "checkOutLat"},
-            {"field": "schedule_context_check.check_out_longitude", "alias": "checkOutLon"},
-            {"field": "schedule_context_check.check_in_address", "alias": "checkInAddr"},
-            {"field": "schedule_context_check.check_out_address", "alias": "checkOutAddr"},
-            {"field": "schedule_context_check.check_in_device_name", "alias": "deviceNameIn"},
-            {"field": "schedule_context_check.check_out_device_name", "alias": "deviceNameOut"},
-            {"field": "schedule_context_check.check_in_ip", "alias": "ipIn"},
-            {"field": "schedule_context_check.check_out_ip", "alias": "ipOut"},
-            {"field": "schedule_context_check.check_in_office_name", "alias": "officeNameIn"},
-            {"field": "schedule_context_check.check_out_office_name", "alias": "officeNameOut"},
-            {"field": "schedule_context_check.check_in_inside_office", "alias": "insideOfficeIn"},
-            {"field": "schedule_context_check.check_in_performed_by_employee_name", "alias": "performedByNameIn"},
-            {"field": "schedule_context_check.check_out_performed_by_employee_name", "alias": "performedByNameOut"},
-            {"field": "schedule_context_check.check_in_performed_by_employee_id", "alias": "performedByIdIn"},
-            {"field": "schedule_context_check.check_out_performed_by_employee_id", "alias": "performedByIdOut"},
-            {"field": "core_context_employee.name", "alias": "employeeName"},
-            {"field": "core_context_employee.id", "alias": "employeeId"}
-          ],
-          "where": [
-            {"field": "schedule_context_check.date", "operator": ">=", "value": start},
-            {"field": "schedule_context_check.date", "operator": "<=", "value": end}
-          ],
-          "order_by": [{"field": "date", "direction": "DESC"}],
-          "limit": 5000
-        });
-        biData = res.data || res || [];
+        // ── ESQUEMA BI POR EMPRESA ─────────────────────────────────────────
+
+        const BI_CORE_SELECT = [
+          {"field": "schedule_context_check.date", "alias": "date"},
+          {"field": "schedule_context_check.check_in_check_datetime", "alias": "checkIn"},
+          {"field": "schedule_context_check.check_out_check_datetime", "alias": "checkOut"},
+          {"field": "schedule_context_check.seconds_worked", "alias": "secondsWorked"},
+          {"field": "schedule_context_check.type", "alias": "type"},
+          {"field": "core_context_employee.name", "alias": "employeeName"},
+          {"field": "core_context_employee.id", "alias": "employeeId"}
+        ];
+
+        const BI_ENRICHMENT_SELECT = [
+          {"field": "schedule_context_check.check_in_latitude", "alias": "checkInLat"},
+          {"field": "schedule_context_check.check_in_longitude", "alias": "checkInLon"},
+          {"field": "schedule_context_check.check_out_latitude", "alias": "checkOutLat"},
+          {"field": "schedule_context_check.check_out_longitude", "alias": "checkOutLon"},
+          {"field": "schedule_context_check.check_in_address", "alias": "checkInAddr"},
+          {"field": "schedule_context_check.check_out_address", "alias": "checkOutAddr"},
+          {"field": "schedule_context_check.check_in_device_name", "alias": "deviceNameIn"},
+          {"field": "schedule_context_check.check_out_device_name", "alias": "deviceNameOut"},
+          {"field": "schedule_context_check.check_in_ip", "alias": "ipIn"},
+          {"field": "schedule_context_check.check_out_ip", "alias": "ipOut"},
+          {"field": "schedule_context_check.check_in_office_name", "alias": "officeNameIn"},
+          {"field": "schedule_context_check.check_out_office_name", "alias": "officeNameOut"},
+          {"field": "schedule_context_check.check_in_inside_office", "alias": "insideOfficeIn"},
+          {"field": "schedule_context_check.check_in_performed_by_employee_name", "alias": "performedByNameIn"},
+          {"field": "schedule_context_check.check_out_performed_by_employee_name", "alias": "performedByNameOut"},
+          {"field": "schedule_context_check.check_in_performed_by_employee_id", "alias": "performedByIdIn"},
+          {"field": "schedule_context_check.check_out_performed_by_employee_id", "alias": "performedByIdOut"}
+        ];
+
+        const BI_WHERE = [
+          {"field": "schedule_context_check.date", "operator": ">=", "value": start},
+          {"field": "schedule_context_check.date", "operator": "<=", "value": end}
+        ];
+
+        // Leer el esquema cacheado para esta empresa
+        let cachedSchemaAliases = null;
+        if (!biWafBlocked) {
+          try {
+            const raw = localStorage.getItem(BI_SCHEMA_CACHE_KEY);
+            if (raw) cachedSchemaAliases = JSON.parse(raw);
+          } catch (e) { cachedSchemaAliases = null; }
+
+          if (this.biSchemaFields && this.biSchemaFields.companyId === STATE.companyId) {
+            cachedSchemaAliases = this.biSchemaFields.aliases;
+          }
+        } else {
+          console.info(`BI Engine [${STATE.companyId.substring(0,8)}]: Bloqueado por WAF (cachéd) — saltando al fallback REST.`);
+        }
+
+        let enrichmentOk = false;
+        let activeEnrichmentFields = BI_ENRICHMENT_SELECT;
+
+        // Si el caché dice que esta empresa tiene esquema reducido, usarlo directamente
+        if (cachedSchemaAliases !== null) {
+          activeEnrichmentFields = BI_ENRICHMENT_SELECT.filter(f => cachedSchemaAliases.includes(f.alias));
+          if (activeEnrichmentFields.length === 0) {
+            // Esta empresa no tiene ningún campo de enriquecimiento: usar sólo core
+            try {
+              const res = await apiFetchBi({
+                "from": "schedule_context_check",
+                "select": BI_CORE_SELECT,
+                "where": BI_WHERE,
+                "order_by": [{"field": "date", "direction": "DESC"}],
+                "limit": 5000
+              });
+              biData = res.data || res || [];
+            } catch (coreErr) {
+              console.error("BI Engine [cached-core]: Query failed.", coreErr.message);
+            }
+          } else {
+            // Empresa con enriquecimiento parcial cacheado
+            try {
+              const res = await apiFetchBi({
+                "from": "schedule_context_check",
+                "select": [...BI_CORE_SELECT, ...activeEnrichmentFields],
+                "where": BI_WHERE,
+                "order_by": [{"field": "date", "direction": "DESC"}],
+                "limit": 5000
+              });
+              biData = res.data || res || [];
+              enrichmentOk = true;
+            } catch (e) {
+              // El caché puede haberse quedado obsoleto: forzar re-descubrimiento
+              console.warn("BI Engine [cached]: Query failed, clearing schema cache and retrying.", e.message);
+              localStorage.removeItem(BI_SCHEMA_CACHE_KEY);
+              this.biSchemaFields = null;
+              cachedSchemaAliases = null;
+            }
+          }
+        }
+
+        // Sin caché (primera vez con esta empresa) o caché invalidado: descubrimiento completo
+        if (cachedSchemaAliases === null && !biWafBlocked) {
+          try {
+            // Intento 1: Query completa (más eficiente si el esquema BI está al día)
+            const res = await apiFetchBi({
+              "from": "schedule_context_check",
+              "select": [...BI_CORE_SELECT, ...BI_ENRICHMENT_SELECT],
+              "where": BI_WHERE,
+              "order_by": [{"field": "date", "direction": "DESC"}],
+              "limit": 5000
+            });
+            biData = res.data || res || [];
+            enrichmentOk = true;
+            // Guardar el esquema completo para esta empresa
+            const allAliases = BI_ENRICHMENT_SELECT.map(f => f.alias);
+            localStorage.setItem(BI_SCHEMA_CACHE_KEY, JSON.stringify(allAliases));
+            this.biSchemaFields = { companyId: STATE.companyId, aliases: allAliases };
+          } catch (fullQueryErr) {
+            // ¿Es un bloqueo WAF (HTML 403) o un error de esquema?
+            const isWafBlock = fullQueryErr.message.includes('administrative rules') ||
+                               (fullQueryErr.message.includes('403') && !fullQueryErr.message.includes('{'));
+            if (isWafBlock) {
+              localStorage.setItem(BI_WAF_KEY, 'blocked');
+              console.warn(`BI Engine [${STATE.companyId.substring(0,8)}]: Bloqueado por WAF. Cacheando para futuras cargas.`);
+            } else {
+              // Intento 2: Sólo campos core (solo si no es WAF)
+              console.warn(`BI Engine [${STATE.companyId.substring(0,8)}]: Esquema completo no disponible. Descubriendo campos activos...`, fullQueryErr.message);
+              try {
+                const resFallback = await apiFetchBi({
+                  "from": "schedule_context_check",
+                  "select": BI_CORE_SELECT,
+                  "where": BI_WHERE,
+                  "order_by": [{"field": "date", "direction": "DESC"}],
+                  "limit": 5000
+                });
+                biData = resFallback.data || resFallback || [];
+
+                // Intento 3: Descubrir campo a campo cuáles están activos en esta empresa
+                const workingAliases = [];
+                const workingEnrichmentFields = [];
+                const probeWhere = [{ "field": "schedule_context_check.date", "operator": ">=", "value": end }];
+                for (const fieldDef of BI_ENRICHMENT_SELECT) {
+                  try {
+                    await apiFetchBi({
+                      "from": "schedule_context_check",
+                      "select": [BI_CORE_SELECT[6], fieldDef],
+                      "where": probeWhere,
+                      "limit": 1
+                    });
+                    workingAliases.push(fieldDef.alias);
+                    workingEnrichmentFields.push(fieldDef);
+                  } catch (fieldErr) {
+                    console.warn(`BI Engine [${STATE.companyId.substring(0,8)}]: Campo no disponible → ${fieldDef.alias}`);
+                  }
+                }
+
+                // Guardar el esquema descubierto (puede ser vacío = sólo core)
+                localStorage.setItem(BI_SCHEMA_CACHE_KEY, JSON.stringify(workingAliases));
+                this.biSchemaFields = { companyId: STATE.companyId, aliases: workingAliases };
+
+                if (workingEnrichmentFields.length > 0) {
+                  try {
+                    const resEnrich = await apiFetchBi({
+                      "from": "schedule_context_check",
+                      "select": [...BI_CORE_SELECT, ...workingEnrichmentFields],
+                      "where": BI_WHERE,
+                      "order_by": [{"field": "date", "direction": "DESC"}],
+                      "limit": 5000
+                    });
+                    biData = resEnrich.data || resEnrich || [];
+                    enrichmentOk = true;
+                    console.info(`BI Engine [${STATE.companyId.substring(0,8)}]: Enriquecimiento parcial OK — ${workingEnrichmentFields.length}/${BI_ENRICHMENT_SELECT.length} campos activos.`);
+                  } catch (e2) { /* usamos biData del core fallback */ }
+                }
+              } catch (coreErr) {
+                console.error(`BI Engine [${STATE.companyId.substring(0,8)}]: Core query también falló.`, coreErr.message);
+              }
+            } // end else (not WAF block)
+          }
+        }
+
+        if (!enrichmentOk && biData.length > 0) {
+          console.info(`BI Engine [${STATE.companyId.substring(0,8)}]: Fichajes OK · Sin geolocalización/IP (campos eliminados del esquema BI de esta empresa).`);
+        }
         
         // --- FALLBACK: Escaneo de metadatos de fichajes para encontrar jornada teórica ---
         // A veces Sesame inyecta el dato en cada fichaje aunque no lo pidamos explícitamente
@@ -2944,53 +3180,128 @@ const FichajesModule = {
         console.warn("BI Engine data fetch error:", biErr);
       }
       
-      // 2. Cargar ausencias/festivos (vista agrupada)
-      const absRes = await fetchCalendarGrouped(start, end, []);
+      // 2. Cargar ausencias/festivos
+      // Envuelto en try/catch: si el token no tiene permisos de equipo (403 permisos)
+      // detectamos "modo empleado" y usamos endpoints personales en su lugar.
       const localAbsences = {};
-      absRes.forEach(dayObj => {
-        if (dayObj.date) {
-          localAbsences[dayObj.date] = dayObj.calendar_types || [];
-          localAbsences[dayObj.date].forEach(ct => {
-            (ct.employees || []).forEach(emp => upsertEmployee(emp));
-          });
-        }
-      });
+      let _coreApiIs403 = false;
+      let _employeeMode = localStorage.getItem(COMPANY_MODE_KEY) === 'employee';
 
-      // 2.5 Cargar excepciones de jornada y remuneración (Calendario detallado)
-      const calendarsRaw = await fetchCalendarsRaw(start, end);
-      const dayOverrides = new Map(); // key: empId_date -> { workdayOverride, compensatedSeconds }
-      
-      calendarsRaw.forEach(cal => {
-        // Determinamos si este tipo de ausencia es retribuida
-        const isRemunerated = (cal.calendarType?.remuneratedType === 'remunerated') || 
-                             (cal.typeReference?.remuneratedType === 'remunerated');
-                             
-        const empId = cal.employee?.id || cal.entityReference?.id;
-        if (empId && cal.daysOff) {
-          cal.daysOff.forEach(doff => {
-            if (!doff.date) return;
-            const key = `${empId}_${doff.date}`;
-            const existing = dayOverrides.get(key) || { workdayOverride: null, compensatedSeconds: 0 };
-            
-            // Si es 'full_day', solemos usarlo para definir la jornada teórica (festivos, etc)
-            if (doff.dayOffTimeType === 'full_day' && typeof doff.seconds !== 'undefined') {
-              existing.workdayOverride = doff.seconds;
+      if (!_employeeMode) {
+        try {
+          const absRes = await fetchCalendarGrouped(start, end, []);
+          absRes.forEach(dayObj => {
+            if (dayObj.date) {
+              localAbsences[dayObj.date] = dayObj.calendar_types || [];
+              localAbsences[dayObj.date].forEach(ct => {
+                (ct.employees || []).forEach(emp => upsertEmployee(emp));
+              });
             }
-            
-            // Si la ausencia es retribuida, sumamos sus segundos a la compensación del día
-            if (isRemunerated && typeof doff.seconds !== 'undefined') {
-              existing.compensatedSeconds += doff.seconds;
-            }
-            
-            dayOverrides.set(key, existing);
           });
+          // Si llegó aquí, tenemos acceso de equipo
+          if (localStorage.getItem(COMPANY_MODE_KEY) !== 'full') {
+            localStorage.setItem(COMPANY_MODE_KEY, 'full');
+          }
+        } catch (absErr) {
+          const is403 = absErr.message.includes('403') || absErr.message.includes('401');
+          if (is403 && STATE.currentUser) {
+            // 403 con token válido = sin permisos de equipo = modo empleado
+            _employeeMode = true;
+            localStorage.setItem(COMPANY_MODE_KEY, 'employee');
+            console.info(`Empresa ${STATE.companyId.substring(0,8)}: Sin permisos de equipo. Activando modo empleado.`);
+          } else if (is403) {
+            _coreApiIs403 = true;
+          } else {
+            console.warn('fetchCalendarGrouped falló (no crítico):', absErr.message);
+          }
         }
-      });
+      }
+
+      // En modo empleado: cargar solo el calendario personal
+      if (_employeeMode) {
+        const myId = getCurrentEmployeeId();
+        if (myId) {
+          try {
+            const personalCal = await apiFetch(`/api/v3/employees/${myId}/calendars?from=${start}&to=${end}`);
+            const calItems = Array.isArray(personalCal?.data) ? personalCal.data : (Array.isArray(personalCal) ? personalCal : []);
+            calItems.forEach(item => {
+              const date = item.date || item.startDate?.split('T')[0];
+              if (date) {
+                if (!localAbsences[date]) localAbsences[date] = [];
+                localAbsences[date].push(item);
+              }
+            });
+          } catch (e) {
+            console.warn('Personal calendar fetch failed:', e.message);
+          }
+        }
+      }
+
+      // 2.5 Excepciones de jornada
+      const dayOverrides = new Map();
+      if (!_coreApiIs403 && !_employeeMode) {
+        try {
+          const calendarsRaw = await fetchCalendarsRaw(start, end);
+          calendarsRaw.forEach(cal => {
+            const isRemunerated = (cal.calendarType?.remuneratedType === 'remunerated') ||
+                                   (cal.typeReference?.remuneratedType === 'remunerated');
+            const empId = cal.employee?.id || cal.entityReference?.id;
+            if (empId && cal.daysOff) {
+              cal.daysOff.forEach(doff => {
+                if (!doff.date) return;
+                const key = `${empId}_${doff.date}`;
+                const existing = dayOverrides.get(key) || { workdayOverride: null, compensatedSeconds: 0 };
+                if (doff.dayOffTimeType === 'full_day' && typeof doff.seconds !== 'undefined') {
+                  existing.workdayOverride = doff.seconds;
+                }
+                if (isRemunerated && typeof doff.seconds !== 'undefined') {
+                  existing.compensatedSeconds += doff.seconds;
+                }
+                dayOverrides.set(key, existing);
+              });
+            }
+          });
+        } catch (calErr) {
+          console.warn('fetchCalendarsRaw falló (no crítico):', calErr.message);
+        }
+      }
       this.dayOverrides = dayOverrides;
 
-      // 3. Carga en paralelo de Presencia Real-time para contadores
-      const presenceRes = await fetchPresence();
+      // Si el token está realmente caducado (no es modo empleado), mostrar aviso
+      if (_coreApiIs403 && !STATE.currentUser) {
+        const company = STATE.companies.find(c => c.companyId === STATE.companyId);
+        const companyName = company?.name || STATE.companyId?.substring(0, 8) || 'Esta empresa';
+        document.getElementById('signings-tbody').innerHTML = `
+          <tr><td colspan="4" style="text-align:center; padding: 50px 30px;">
+            <div style="font-size:2rem; margin-bottom:12px;">🔑</div>
+            <div style="font-size:1.1rem; font-weight:600; color:var(--warn); margin-bottom:8px;">Token de ${companyName} caducado</div>
+            <div style="font-size:0.85rem; color:var(--text-muted); max-width:480px; margin:0 auto 20px;">
+              Sesame ha rechazado el acceso (403 Forbidden).<br>El token necesita renovarse.
+            </div>
+            <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
+              <button class="btn-primary" onclick="window.open('https://app.sesametime.com','_blank')" style="font-size:0.8rem;">🌐 Abrir Sesame</button>
+              <button class="btn-secondary" onclick="FichajesModule.loadData()" style="font-size:0.8rem;">🔄 Reintentar</button>
+            </div>
+            <div style="font-size:0.75rem; color:var(--text-muted); margin-top:12px; opacity:0.6;">Terminal: <code>python3 get-token.py</code></div>
+          </td></tr>`;
+        return;
+      }
+
+      // 3. Presencia Real-time (solo en modo equipo)
+      let presenceRes = [];
+      if (!_employeeMode) {
+        try {
+          presenceRes = await fetchPresence();
+        } catch (presErr) {
+          console.warn('fetchPresence falló (no crítico):', presErr.message);
+        }
+      }
       this.realtimePresence = presenceRes;
+
+      // Mostrar banner de modo empleado si aplica
+      const modeBar = document.getElementById('employee-mode-bar');
+      if (modeBar) modeBar.style.display = _employeeMode ? 'flex' : 'none';
+
       
       // Sincronizar perfiles desde presencia (a veces trae fotos que otros no)
       presenceRes.forEach(p => {
@@ -2999,12 +3310,33 @@ const FichajesModule = {
 
       this.data = this.parseRealSignings(biData, localAbsences);
 
-      // SUPER FALLBACK: Si no hay datos en BI, pedimos los fichajes emp a emp (Nuevo API Sesame 2026)
+      // SUPER FALLBACK: Si no hay datos en BI, pedimos los fichajes emp a emp
       if (this.data.length === 0) {
-        console.warn("BI Engine failed. Trying Global Search Discovery...");
         AUDIT.isSearching = true;
         try {
-          // 1. Intentar Búsqueda por Estadísticas Diarias o Búsqueda Global (Manager View)
+
+          // ── MODO EMPLEADO: ir directo al endpoint personal (sin probar endpoints de equipo) ──
+          if (_employeeMode) {
+            const myId = getCurrentEmployeeId();
+            if (myId) {
+              try {
+                const myChecks = await apiFetch(
+                  `/api/v3/employees/${myId}/checks?from=${start}&to=${end}&includeOut=true`,
+                  { method: 'GET' }
+                );
+                const records = myChecks?.data || (Array.isArray(myChecks) ? myChecks : []);
+                if (records.length > 0) {
+                  const rawData = records.map(c => ({ ...c, employeeId: myId }));
+                  this.data = this.parseRealSignings(rawData, localAbsences);
+                  console.info(`Modo empleado: ${records.length} fichajes cargados desde endpoint personal.`);
+                }
+              } catch (e) {
+                console.warn('Employee mode personal checks failed:', e.message);
+              }
+            }
+          } else {
+
+          // 1. Intentar Búsqueda Global (Manager View) — solo en modo equipo
           let globalData = null;
           
           if (DISCOVERY.workingChecks !== 'DISABLED') {
@@ -3123,6 +3455,7 @@ const FichajesModule = {
                this.data = this.parseRealSignings(rawData, localAbsences);
             }
           }
+          } // end else (modo equipo)
         } catch (err) {
           console.error("Master Fallback (Checks) failed:", err);
         } finally {
@@ -3190,7 +3523,44 @@ const FichajesModule = {
 
     } catch (err) {
       console.error("Error al cargar fichajes:", err);
-      document.getElementById('signings-tbody').innerHTML = `<tr><td colspan="4" style="text-align:center; padding: 40px; color: #ff5555;">Error al conectar con Sesame: ${err.message}</td></tr>`;
+      const is403 = err.message.includes('403') || err.message.includes('Forbidden');
+      const is401 = err.message.includes('401') || err.message.includes('caducada');
+      const company = STATE.companies.find(c => c.companyId === STATE.companyId);
+      const companyName = company?.name || 'Esta empresa';
+
+      if (is403 || is401) {
+        document.getElementById('signings-tbody').innerHTML = `
+          <tr><td colspan="4" style="text-align:center; padding: 50px 30px;">
+            <div style="font-size:2rem; margin-bottom:12px;">🔑</div>
+            <div style="font-size:1.1rem; font-weight:600; color:var(--warn); margin-bottom:8px;">
+              Token de ${companyName} caducado
+            </div>
+            <div style="font-size:0.85rem; color:var(--text-muted); max-width:480px; margin:0 auto 20px;">
+              Sesame rechaza el acceso con el token guardado (${is401 ? '401 Unauthorized' : '403 Forbidden'}).<br>
+              Los tokens de sesión caducan periódicamente y necesitan renovarse.
+            </div>
+            <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
+              <button class="btn-primary" onclick="window.open('https://app.sesametime.com','_blank')" style="font-size:0.8rem;">
+                🌐 Abrir Sesame (renovar token)
+              </button>
+              <button class="btn-secondary" onclick="showSetup()" style="font-size:0.8rem;">
+                ✏️ Editar credenciales
+              </button>
+              <button class="btn-secondary" onclick="FichajesModule.loadData()" style="font-size:0.8rem;">
+                🔄 Reintentar
+              </button>
+            </div>
+            <div style="font-size:0.75rem; color:var(--text-muted); margin-top:16px; opacity:0.6;">
+              En terminal: <code>python3 get-token.py</code> → renovación automática del token
+            </div>
+          </td></tr>`;
+      } else {
+        document.getElementById('signings-tbody').innerHTML = `
+          <tr><td colspan="4" style="text-align:center; padding: 40px; color: #ff5555;">
+            Error al conectar con Sesame: ${err.message}
+            <br><button class="btn-secondary" onclick="FichajesModule.loadData()" style="margin-top:12px; font-size:0.75rem;">🔄 Reintentar</button>
+          </td></tr>`;
+      }
     } finally {
       // Finalizado
     }

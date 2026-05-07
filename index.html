@@ -473,6 +473,13 @@
           </div>
         </section>
 
+        <!-- Banner: Modo Empleado (visible solo cuando no hay permisos de equipo) -->
+        <div id="employee-mode-bar" style="display:none; align-items:center; gap:12px; padding:10px 20px; margin: 0 0 4px 0; background: linear-gradient(90deg, rgba(255,170,0,0.12), rgba(255,170,0,0.04)); border-bottom: 1px solid rgba(255,170,0,0.25); font-size:0.82rem; color:var(--text-muted);">
+          <span style="font-size:1.1rem;">👤</span>
+          <span><strong style="color:var(--warn);">Modo Empleado</strong> — Esta cuenta no tiene acceso a datos del equipo en Sesame. Se muestran solo tus fichajes personales.</span>
+          <button onclick="localStorage.removeItem('ssm_company_mode_'+STATE.companyId); FichajesModule.loadData();" style="margin-left:auto; font-size:0.72rem; padding:3px 10px; border-radius:6px; background:rgba(255,170,0,0.15); border:1px solid rgba(255,170,0,0.3); color:var(--warn); cursor:pointer;" title="Fuerza re-detección de permisos (útil si el admin te asignó rol manager)">🔄 Re-verificar permisos</button>
+        </div>
+
         <div class="signings-table-container">
           <table class="signings-table">
             <thead>
