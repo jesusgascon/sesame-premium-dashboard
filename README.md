@@ -1,119 +1,139 @@
-# 🗓️ Sesame Premium Dashboard
+# 🚀 Sesame Premium Dashboard
 
-Un dashboard de alta fidelidad, inteligencia operativa y monitorización avanzada para **Sesame HR**. Centraliza la gestión de vacaciones, ausencias, registros de actividad, cumpleaños del equipo y presencia en tiempo real en una interfaz panorámica y profesional.
+**Sesame Premium Dashboard** es una plataforma de análisis y monitorización operativa de alta fidelidad, construida como una capa superior sobre el ecosistema de **Sesame HR**. Diseñado para directores de recursos humanos, managers operativos y administradores de sistemas, este dashboard extrae, cruza y visualiza datos que normalmente están fragmentados o son inaccesibles en la interfaz estándar.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Frontend](https://img.shields.io/badge/frontend-JS%20Vanilla-yellow.svg)
+![Frontend](https://img.shields.io/badge/frontend-Vanilla%20JS%20(ES6+)-yellow.svg)
 ![Backend](https://img.shields.io/badge/backend-Python%20Proxy-green.svg)
 ![Version](https://img.shields.io/badge/version-1.4.0-success.svg)
-![Status](https://img.shields.io/badge/status-Stable-success.svg)
+![Status](https://img.shields.io/badge/status-Production%20Ready-success.svg)
 
 ---
 
 ## 📋 Índice
 
-- [Características Principales](#-características-principales)
-- [Inteligencia de Datos](#-inteligencia-de-datos)
-- [Capturas de Pantalla](#-capturas-de-pantalla)
-- [Instalación Rápida](#-instalación-rápida)
-- [Configuración](#-configuración)
+- [Visión del Proyecto](#-visión-del-proyecto)
+- [Módulos Principales](#-módulos-principales)
+  - [1. Fichajes Avanzados e Insights](#1-fichajes-avanzados-e-insights)
+  - [2. Radar de Presencia en Vivo](#2-radar-de-presencia-en-vivo)
+  - [3. Deep Birthday Harvest](#3-deep-birthday-harvest)
+  - [4. Calendario Híbrido](#4-calendario-híbrido)
+- [Inteligencia Analítica y Auditoría](#-inteligencia-analítica-y-auditoría)
+- [Stack Tecnológico](#-stack-tecnológico)
+- [Guía de Instalación Rápida](#-guía-de-instalación-rápida)
 - [Arquitectura Técnica](#️-arquitectura-técnica)
-- [Seguridad y Privacidad](#-seguridad-y-privacidad)
-- [Changelog](#-changelog)
+- [Changelog Detallado](#-changelog-detallado)
 - [Licencia](#-licencia)
 
 ---
 
-## ✨ Características Principales
+## 🎯 Visión del Proyecto
 
-### 🧠 Operational Insights & Auditoría
-- **Detección de Incidencias**: Identificación automática de salidas no registradas, jornadas incompletas o posibles horas extra.
-- **Validaciones Sugeridas**: Alertas sobre registros que requieren revisión humana (múltiples tramos, solapamientos).
-- **Detección de Cambios Pendientes**: Motor de triple cruce que detecta solicitudes de borrado o edición en tiempo real desde la REST API (`check-incidences`, `work-entry-requests`), marcando los registros como `⏳ PENDIENTE`.
-
-### 📊 Módulo de Fichajes (Avanzado)
-- **Análisis Semanal ("Mis Patrones")**: Media de entrada/salida y detección de jornada más productiva.
-- **Cruce Inteligente (Smart Match)**: Vincula fichajes reales con ausencias del calendario en una línea de tiempo unificada.
-- **Rastreo de Origen & Geolocation**: Identificación del dispositivo (Web, App, Tablet), IP de conexión y coordenadas con enlace directo a **Google Maps**.
-- **Audit Metadata**: Visualiza quién realizó el fichaje (el empleado o un administrador) y desde qué oficina.
-
-### 🎂 Deep Birthday Harvest
-- **Escaneo Dual**: Combina consultas masivas al motor de BI con un escáner serial de perfiles individuales para descubrir fechas de nacimiento ocultas.
-- **Vista Anual Completa**: Cumpleaños agrupados por mes con resaltado de eventos actuales y aniversarios de empresa.
-
-### 📡 Radar de Disponibilidad (Live Presence)
-- **Monitorización en Tiempo Real**: Visualiza quién está trabajando, en pausa o ausente mediante semáforos de estado sincronizados en todo el dashboard.
+El objetivo de este proyecto es transformar los datos crudos de recursos humanos en **inteligencia operativa accionable**. Mientras que Sesame HR proporciona una excelente base de datos de control horario, este dashboard cruza esas bases de datos en tiempo real (REST API vs BI Analytics Engine) para revelar patrones ocultos, detectar anomalías automáticamente y ofrecer una experiencia de usuario (UX) inmersiva y ultrarrápida.
 
 ---
 
-## 🧠 Inteligencia de Datos
+## 🧩 Módulos Principales
 
-Este dashboard no es solo una interfaz; incluye lógica de procesamiento avanzada:
+### 1. Fichajes Avanzados e Insights
+Un panel forense para auditar el control horario de toda la plantilla.
+- **Smart Match Geométrico**: Superpone los fichajes reales sobre las ausencias programadas. Si un empleado ficha en un día festivo o de vacaciones, el sistema lo resalta gráficamente.
+- **Auditoría de Dispositivos**: Muestra desde qué dispositivo se realizó el fichaje (Web, App iOS/Android, Tablet Kiosko), la dirección IP y el nombre de la red u oficina.
+- **Geolocalización Inyectada**: Convierte las coordenadas crudas en enlaces interactivos a Google Maps para verificar fichajes remotos.
+- **Patrones de Productividad**: Calcula automáticamente la media semanal de la hora de entrada y salida, e identifica el "Día más productivo" del equipo.
 
-- **Descubrimiento de Esquema BI**: Proba dinámicamente qué campos de auditoría (GPS, IPs, Dispositivos) tiene habilitados la empresa para evitar errores de consulta y optimizar el rendimiento.
-- **Failover Automático**: Si el motor de BI de Sesame está bloqueado por WAF o mantenimiento, el sistema conmuta automáticamente a la API REST v3 para reconstruir la jornada.
-- **Normalización Universal**: Capa intermedia que unifica más de 5 formatos distintos de respuesta de Sesame (BI, REST v1, v3, Me, Presence) en un modelo de datos coherente.
-- **Persistencia Inteligente**: Recuerda tu tema (Dark/Light), el módulo activo (Vacaciones/Fichajes) y el estado de la barra lateral mediante `localStorage`.
+### 2. Radar de Presencia en Vivo
+- **Sincronización Total**: Un semáforo de estado (Trabajando, En Pausa, Ausente) que se propaga por toda la interfaz (Barra lateral, cabecera, tabla de empleados).
+- **Filtros Smart**: Permite filtrar la tabla de fichajes instantáneamente para ver "Sólo quién está trabajando ahora".
+- **Kiosko Mode**: Un modo de pantalla completa a prueba de distracciones, ideal para proyectar en pantallas de oficinas, que oculta menús y maximiza los datos en tiempo real.
 
----
+### 3. Deep Birthday Harvest
+- **Motor de Extracción Dual**: Dado que las APIs públicas de Sesame censuran las fechas de nacimiento, el dashboard inyecta consultas directas al motor de Business Intelligence (BI). Si falla, ejecuta un escáner secundario perfil a perfil.
+- **Timeline Anual**: Agrupa los cumpleaños por mes, destacando con insignias pulsantes a los cumpleañeros del día y generando un calendario visual hermoso.
 
-## 🚀 Instalación Rápida
-
-### Requisitos previos
-- Python 3.8 o superior instalado.
-- Cuenta activa en Sesame HR con permisos de acceso a la API.
-
-### 1. Clonar el repositorio
-```bash
-git clone https://github.com/jesusgascon/calendario-vacaciones.git
-cd calendario-vacaciones
-```
-
-### 2. Configurar credenciales
-```bash
-cp config.example.json config.json
-cp config.secrets.example.json config.secrets.json
-```
-Edita `config.secrets.json` con tus tokens de Sesame HR.
-
-### 3. Iniciar
-```bash
-bash start.sh
-```
-Accede en: **`http://localhost:8765`**
+### 4. Calendario Híbrido
+- **Visión Panorámica**: Muestra meses completos o semanas, permitiendo cruzar de un vistazo qué equipos están mermados por vacaciones o bajas médicas.
+- **Soporte Multi-Festivos**: Soporte para inyección de calendarios laborales locales (ej. festivos de Zaragoza, Madrid, etc.) para cálculo preciso de jornadas teóricas.
 
 ---
 
-## 🛠️ Arquitectura Técnica
+## 🧠 Inteligencia Analítica y Auditoría
 
-La aplicación utiliza una **Estrategia de Doble Servidor**:
-1. **Frontend (Navegador)**: Gestiona la lógica de UI, el estado global (`STATE`) y el filtrado reactivo.
-2. **Backend (Python Proxy)**: Actúa como puente para inyectar cabeceras de seguridad, gestionar la autenticación multi-empresa y evitar bloqueos de CORS.
+La verdadera magia ocurre en segundo plano (Backend/JS Engine):
 
-Para detalles profundos sobre el pipeline de datos, consulta [ARCHITECTURE.md](./ARCHITECTURE.md).
+- **Incidence Detection Engine (NUEVO)**: Monitoriza las colas de peticiones de RRHH. Si un empleado solicita borrar un fichaje erróneo, pero RRHH aún no lo ha aprobado, el dashboard lo detecta y lo marca como `⏳ PENDIENTE`, excluyéndolo del cómputo total de horas para evitar desviaciones.
+- **BI Schema Discovery**: Un algoritmo que escanea la licencia de la empresa en Sesame y autoconfigura el esquema de datos, activando o desactivando llamadas a campos GPS/IP para evitar bloqueos del WAF corporativo.
+- **Domain Flipping**: Si la API principal de Sesame cae, el sistema conmuta instantáneamente entre los subdominios `api-` y `back-` para asegurar el 100% de *Uptime*.
 
 ---
 
-## 📝 Changelog
+## 🛠️ Stack Tecnológico
 
-### v1.4.0 — 2026-05-07
-- ✨ **UX**: El sistema ahora recuerda el módulo activo (Fichajes/Vacaciones) tras refrescar.
-- ✨ **Audit**: Motor de detección de **Solicitudes de Borrado/Edición** pendientes de aprobación.
-- 🎨 **UI**: Rediseño de espaciado en sidebar y fixes de contraste en Tema Oscuro.
-- 🐛 **Fix**: Corregido error en edición de perfiles de empresa (`loadSavedConfig`).
+- **Frontend**: `HTML5` semántico, `CSS3` (Vanilla con diseño basado en Glassmorphism, CSS Variables para theming dinámico) y `Javascript ES6+` puro. 0 KB de librerías externas (sin React ni Vue) para máximo rendimiento.
+- **Backend / Proxy**: Servidor local escrito en `Python 3` (módulos `http.server`, `urllib`). Maneja la superación de bloqueos CORS, inyección de certificados SSL locales (HTTPS) y cifrado AES de credenciales.
+- **Seguridad**: Los tokens de API se guardan cifrados (`Fernet/AES-128-CBC`) en el disco duro.
 
-### v1.3.0 — 2026-05-06
-- ✨ **Data**: Implementación de **BI Schema Discovery**. Detección automática de campos GPS e IPs disponibles.
-- ✨ **UI**: Edición completa de metadatos de empresa (Nombre, Logo, Color) desde el Dashboard.
+---
 
-### v1.2.0 — 2026-04-20
-- ✨ **feat**: Seguimiento de Origen de Fichajes y Device Tracking (Web/App/Tablet).
-- 🎨 **style**: Rediseño del panel de detalle con glassmorphism y temas duales mejorados.
+## 🚀 Guía de Instalación Rápida
+
+### Requisitos
+- **Python 3.8+** (Para ejecutar el proxy local).
+- **Credenciales**: Usuario y contraseña de Sesame HR con permisos de Administrador/Manager.
+
+### Pasos
+1. **Clonar**:
+   ```bash
+   git clone https://github.com/jesusgascon/calendario-vacaciones.git
+   cd calendario-vacaciones
+   ```
+2. **Preparar Configuración**:
+   Copia las plantillas y rellena `config.secrets.json` con tus tokens de Sesame.
+   ```bash
+   cp config.example.json config.json
+   cp config.secrets.example.json config.secrets.json
+   ```
+3. **Lanzar el Servidor**:
+   El script generará certificados locales y lanzará el dashboard.
+   ```bash
+   bash start.sh
+   ```
+4. **Disfrutar**: El navegador se abrirá automáticamente en `https://localhost:8765`.
+
+---
+
+## 🏗️ Arquitectura Técnica
+
+Para una inmersión profunda en los algoritmos de cruce de datos, heurísticas de red y topología del estado local, dirígete a nuestro documento técnico detallado:
+👉 **[Leer ARCHITECTURE.md](./ARCHITECTURE.md)**
+
+---
+
+## 📜 Changelog Detallado
+
+### [v1.4.0] — 2026-05-07 | *The Persistence & Audit Update*
+- **Añadido**: Nuevo motor `Incidence Detection Engine`. Detecta en tiempo real solicitudes de borrado o edición pendientes cruzando la REST API con el BI Engine.
+- **Añadido**: UX Memory. El sistema guarda en `localStorage` si estabas en Fichajes o Vacaciones; un `F5` ya no interrumpe el flujo.
+- **Mejorado**: El espaciado de la barra lateral (Sidebar) se ha recalibrado para mayor respiro visual bajo el logo de la empresa.
+- **Corregido**: En el Modo Oscuro, el selector de empleados (`<select>`) presentaba problemas de contraste (texto blanco sobre fondo blanco nativo); arreglado con estilos dedicados.
+- **Corregido**: Bug crítico al guardar ediciones en el panel de configuración de empresas (`loadSavedConfig` vs `loadConfig`).
+- **Seguridad**: Limpieza profunda del repositorio. Eliminadas todas las carpetas `_scratch` y `scratch` del índice de Git para proteger datos de prueba y privacidad de empleados.
+
+### [v1.3.0] — 2026-05-06 | *The Intelligence Update*
+- **Añadido**: **BI Schema Discovery**. Detección automática y *auto-tuning* de campos GPS e IPs disponibles por licencia de empresa.
+- **Añadido**: Edición completa de metadatos de empresa (Nombre, Logo, Color corporativo) directamente desde el Dashboard.
+- **Mejorado**: Cálculo de horas teóricas cruzando calendarios locales e integrando el *Smart Match* de ausencias.
+
+### [v1.2.0] — 2026-04-20 | *The Forensics & Glass Update*
+- **Añadido**: Seguimiento forense del origen de los fichajes (Web/App/Tablet) y Device Tracking.
+- **Añadido**: Integración dinámica con **Google Maps** en las coordenadas de check-in/out.
+- **Diseño**: Refactorización del panel de detalles hacia una arquitectura "Bento-Box" usando Glassmorphism (efectos translúcidos y blur).
 
 ---
 
 ## 📄 Licencia
-Este proyecto está bajo la licencia **MIT**.
+
+Este proyecto se distribuye bajo la licencia **MIT**. Eres libre de usarlo, modificarlo y distribuirlo comercialmente.
 
 ---
-*Desarrollado para optimizar la visibilidad y el control operativo en entornos Sesame HR.*
+*Diseñado y desarrollado por Jesús Gascón para optimizar la toma de decisiones en entornos operativos de Sesame HR.*
