@@ -82,11 +82,11 @@ La verdadera magia ocurre en segundo plano (Backend/JS Engine):
 - **Credenciales**: Usuario y contraseña de Sesame HR con permisos de Administrador/Manager.
 
 ### Pasos
-1. **Clonar**:
-   ```bash
-   git clone https://github.com/jesusgascon/calendario-vacaciones.git
-   cd calendario-vacaciones
-   ```
+### 1. Clonar el repositorio
+```bash
+git clone https://github.com/jesusgascon/sesame-premium-dashboard.git
+cd sesame-premium-dashboard
+```
 2. **Preparar Configuración**:
    Copia las plantillas y rellena `config.secrets.json` con tus tokens de Sesame.
    ```bash
