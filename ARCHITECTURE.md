@@ -1,48 +1,65 @@
 # 🏗️ Arquitectura Técnica - Sesame Premium Dashboard
 
-Este documento detalla la ingeniería detrás del dashboard, centrándose en la resiliencia y el procesamiento de datos.
-
-## 1. Estrategia de Conectividad Híbrida (Doble Servidor)
-
-Para garantizar que el dashboard funcione incluso en entornos corporativos restrictivos o ante cambios en la API de Sesame, hemos implementado una **lógica de failover automático**:
-
-- **Capa Primaria (Directa)**: Intenta conectar directamente con `api.sesametime.com` o `back-eu1.sesametime.com` usando cabeceras de navegador.
-- **Capa Secundaria (Proxy)**: Si la primaria falla (error 403, CORS o red), la aplicación desvía la petición al servidor local `server.py`.
-- **Ventaja**: Máxima velocidad cuando es posible, y fiabilidad total cuando es necesario.
-
-## 2. Motor de Procesamiento de Datos (Normalization Layer)
-
-La API de Sesame devuelve datos en múltiples formatos (REST estándar y BI Engine). El dashboard utiliza una capa de normalización que:
-1. **Unifica**: Convierte estructuras anidadas de "Work Entries" en un modelo plano de `Signings`.
-2. **Cruce (Smart Match)**: Cruza el calendario de ausencias (módulo `schedule/v1`) con los fichajes (`work-entries/v3`) en tiempo real.
-3. **Rastreo de Origen (Device Context)**: Extrae y correlaciona metadatos de dispositivo (`origin`) desde el motor BI y objetos `checkIn/checkOut` para monitorizar el canal de entrada (Web, Móvil, Tablet).
-4. **Validación**: Detecta inconsistencias (fichajes en días de vacaciones, falta de marcaje de salida) antes de renderizar la UI.
-5. **Incidence Detection Engine (v1.4.0)**: Capa de auditoría que realiza peticiones paralelas a los endpoints de la REST API (`/api/v3/check-incidences`, `/api/v3/work-entry-requests`) para interceptar solicitudes de borrado o edición que el motor de BI aún no ha consolidado. Realiza un *fuzzy match* por ID y timestamp para garantizar la integridad de los balances horarios.
-
-## 3. Monitorización de Presencia en Vivo (Radar)
-
-El radar de disponibilidad funciona mediante un sondeo optimizado a la ruta `/api/v3/work-entries/presence`:
-- **Estado Local**: La aplicación mantiene un mapa de IDs de empleados vinculados a sus fotos y nombres.
-- **Difusión**: El estado se propaga a tres puntos de la interfaz simultáneamente: la barra lateral, el resumen de cabecera y el panel de fichajes.
-
-## 4. Seguridad y Persistencia
-
-- **Configuración Segura (Split Strategy)**: Implementamos una arquitectura de dos archivos para proteger los datos:
-  - `config.json`: Metadatos públicos de empresas.
-  - `config.secrets.json`: Tokens USID y secretos de autenticación (ignorado por Git).
-- **Fusión en Memoria**: El servidor Python (`server.py`) fusiona ambos archivos en tiempo de ejecución, proporcionando una vista unificada al frontend sin exponer secretos en el repositorio.
-
-## 5. Capa de Persistencia y UX
-
-La aplicación minimiza la fricción del usuario mediante una gestión de estado persistente:
-- **LocalStorage**: Almacena el tema (Light/Dark), el estado de colapso de la sidebar y, desde la v1.4.0, el **módulo activo**.
-- **SessionStorage**: Mantiene la fecha de navegación actual para que el usuario no pierda el contexto temporal al navegar entre vistas.
-
-## 6. Visual Stack
-
-- **Motor UI**: Vanilla Javascript (ES6+). Sin frameworks pesados para garantizar una carga instantánea.
-- **Diseño**: CSS3 moderno con variables dinámicas, Flexbox y Grid Layout de alta densidad.
-- **Componentes**: Arquitectura basada en módulos (`FichajesModule`, `VacacionesModule`) para facilitar la mantenibilidad.
+Este documento detalla la ingeniería y los patrones de diseño implementados para garantizar la resiliencia y la precisión en la visualización de datos de Sesame HR.
 
 ---
-*Este proyecto demuestra cómo extender una plataforma SaaS cerrada mediante ingeniería inversa y capas de valor añadido sobre su API.*
+
+## 1. Pipeline de Normalización de Datos
+
+El dashboard enfrenta el reto de consumir APIs de Sesame que devuelven estructuras inconsistentes según el endpoint (REST v1, v3 o BI Engine). Para resolverlo, implementamos un pipeline de tres etapas:
+
+1.  **Ingesta Multi-fuente**: Se lanzan peticiones paralelas (usando `Promise.allSettled`) a:
+    *   **BI Engine**: Proporciona el grueso de los datos históricos y auditoría (GPS, IP).
+    *   **REST v3 (Checks)**: Backup en caso de fallo del BI.
+    *   **REST v3 (Incidences/Requests)**: Identifica acciones pendientes de aprobación que el BI aún no conoce.
+2.  **Normalización Universal (`upsertEmployee`)**: Convierte cualquier objeto de empleado (parcial o completo) a un modelo estándar, deduciendo fechas de nacimiento y fotos desde campos anidados.
+3.  **Cruce de Datos (Smart Match)**: El motor de `parseRealSignings` proyecta los fichajes sobre el mapa de ausencias, detectando solapamientos y asignando etiquetas de "Vacaciones" o "Permiso" a los tramos de trabajo realizados en esos periodos.
+
+---
+
+## 2. Estrategia de Resiliencia y Redundancia
+
+### Failover de Servidores (Domain Flipping)
+La función `apiFetch` implementa una lógica de reintento que, ante un fallo de red o error de servidor (5xx), conmuta automáticamente el subdominio de Sesame entre `back-eu1` y `api-eu1`, garantizando disponibilidad continua.
+
+### BI Discovery & WAF Protection
+Debido a que algunas empresas tienen restringido el motor de BI o carecen de ciertos permisos de auditoría, el sistema:
+- Realiza una **query de prueba** al iniciar para descubrir qué campos (`latitude`, `ip`, `deviceName`) son accesibles.
+- Si el BI devuelve un error 403 persistente, el sistema marca la empresa como "BI Blocked" en `localStorage` y redirige todas las consultas futuras a la API REST v3 de forma transparente.
+
+---
+
+## 3. Gestión de Estado y Persistencia
+
+El dashboard utiliza un modelo de estado centralizado (`STATE`) que se sincroniza con el almacenamiento del navegador:
+
+- **LocalStorage**: Almacena preferencias persistentes como el tema (Dark/Light), el estado de colapso de la sidebar y la configuración de las empresas (tokens, colores, logos).
+- **SessionStorage**: Mantiene el estado de la sesión actual, como el "Desbloqueo por CIF", la fecha de navegación y el **módulo activo**, evitando que el usuario pierda su trabajo al refrescar la página.
+
+---
+
+## 4. Deep Birthday Harvest (Motor de Descubrimiento)
+
+Dado que la API de Sesame no suele devolver la fecha de nacimiento en los listados generales, implementamos un motor de dos niveles:
+1.  **Nivel BI**: Intenta obtener todas las fechas mediante una query agregada al motor de Analytics.
+2.  **Nivel Serial**: Para los empleados que faltan, inicia un escáner en segundo plano que consulta los perfiles individuales de forma secuencial (para evitar bloqueos por Rate Limit) hasta completar el mapa de cumpleaños del equipo.
+
+---
+
+## 5. Visual Stack & Diseño
+
+- **Arquitectura**: Vanilla Javascript (ES6+) organizado en módulos lógicos (`FichajesModule`, `VacacionesModule`).
+- **Sistema de Diseño**: Basado en variables CSS dinámicas que permiten el cambio de tema instantáneo y la aplicación de la identidad corporativa de cada empresa (branding dinámico).
+- **Componentes**: Uso de *Skeleton Screens* para mejorar la percepción de velocidad durante la carga de datos masivos.
+
+---
+
+## 6. Auditoría y Geolocation
+
+Cada fichaje se enriquece con metadatos de contexto:
+- **GPS**: Si las coordenadas están disponibles, se genera un enlace dinámico a Google Maps.
+- **Origen**: Identificación visual del canal (Web, App, Tablet).
+- **Audit**: Rastro de quién creó o modificó el registro y desde qué dirección IP.
+
+---
+*Este proyecto demuestra cómo extender una plataforma SaaS mediante capas de valor añadido, transformando datos crudos en inteligencia operativa.*
