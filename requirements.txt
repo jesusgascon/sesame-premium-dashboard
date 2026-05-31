@@ -1,6 +1,6 @@
 # Dependencias del servidor proxy de Sesame HR
-# Nota: El servidor actualmente utiliza librerías estándar, no requiere paquetes externos.
-# Se incluye este archivo para seguir los estándares de proyectos Python en GitHub.
+# cryptography permite cifrar tokens y contraseñas maestras en reposo con Fernet.
+cryptography>=42.0.0
 
 # Si en el futuro se desea usar requests o flask:
 # requests>=2.31.0

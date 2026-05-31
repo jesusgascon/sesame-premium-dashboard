@@ -1,0 +1,22 @@
+model = "gpt-5.5"
+approval_policy = "never"
+sandbox_mode = "workspace-write"
+web_search = "live"
+model_reasoning_effort = "high"
+project_doc_max_bytes = 65536
+
+[sandbox_workspace_write]
+network_access = true
+exclude_slash_tmp = true
+exclude_tmpdir_env_var = true
+
+[features]
+multi_agent = true
+shell_snapshot = true
+undo = true
+codex_git_commit = false
+
+[agents]
+max_threads = 6
+max_depth = 1
+job_max_runtime_seconds = 3600
