@@ -17,6 +17,7 @@ import time
 PORT = 8766
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(BASE_DIR, 'config.json')
+SECRETS_FILE = os.path.join(BASE_DIR, 'config.secrets.json')
 
 received = {}
 event = threading.Event()
@@ -127,20 +128,59 @@ def main():
 
     print('✅  ¡Credenciales recibidas!')
     print()
-    print(f'  Token     : {token[:55]}...')
+    print('  Token     : recibido y guardado en almacén local de secretos')
     print(f'  Company ID: {csid}')
     print()
 
-    # Guardar config.json
-    config = {
-        'token':      token,
-        'companyId':  csid,
-        'backendUrl': 'https://back-eu1.sesametime.com',
-    }
+    # Guardar metadatos públicos en config.json sin borrar otras empresas existentes.
+    config = {'companies': [], 'activeId': csid}
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE) as f:
+                config = json.load(f)
+        except Exception:
+            config = {'companies': [], 'activeId': csid}
+
+    companies = config.get('companies', [])
+    company = next((c for c in companies if c.get('companyId') == csid), None)
+    if company:
+        company.setdefault('name', 'Empresa Actual')
+        company.setdefault('backendUrl', 'https://back-eu1.sesametime.com')
+        company.setdefault('brandColor', None)
+        company.setdefault('logoUrl', None)
+    else:
+        companies.append({
+            'name': 'Empresa Actual',
+            'companyId': csid,
+            'backendUrl': 'https://back-eu1.sesametime.com',
+            'brandColor': None,
+            'logoUrl': None,
+        })
+
+    config['companies'] = companies
+    config['activeId'] = csid
     with open(CONFIG_FILE, 'w') as f:
         json.dump(config, f, indent=2)
 
-    print(f'  💾  Guardado en: {CONFIG_FILE}')
+    secrets = {'tokens': {}, 'passwords': {}}
+    if os.path.exists(SECRETS_FILE):
+        try:
+            with open(SECRETS_FILE) as f:
+                existing = json.load(f)
+                secrets['tokens'] = existing.get('tokens', {})
+                secrets['passwords'] = existing.get('passwords', {})
+        except Exception:
+            pass
+    secrets['tokens'][csid] = token
+    with open(SECRETS_FILE, 'w') as f:
+        json.dump(secrets, f, indent=2)
+    try:
+        os.chmod(SECRETS_FILE, 0o600)
+    except Exception:
+        pass
+
+    print(f'  💾  Metadatos guardados en: {CONFIG_FILE}')
+    print(f'  🔐  Token guardado en: {SECRETS_FILE}')
     print()
     print('─' * 65)
     print('  Ahora inicia el servidor con:')

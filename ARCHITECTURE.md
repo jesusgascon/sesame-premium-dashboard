@@ -6,13 +6,15 @@ Este documento sirve como el manual de ingeniería definitivo para el **Sesame P
 
 ## 1. Topología del Sistema y Estrategia de Red
 
-El sistema opera en una arquitectura híbrida cliente-servidor diseñada para sortear restricciones corporativas (CORS, firewalls) y optimizar el rendimiento.
+El sistema opera en una arquitectura híbrida cliente-servidor local diseñada para compatibilizar la ejecución en navegador con las APIs de Sesame HR, evitando exponer credenciales en el código cliente.
 
 ### 1.1. El Proxy Híbrido (`server.py`)
 Dado que las APIs de Sesame imponen políticas estrictas de CORS (Cross-Origin Resource Sharing) que impiden a un navegador hacer peticiones directas desde `localhost` o dominios no autorizados, el proyecto incluye un micro-servidor proxy escrito en Python puro (sin dependencias externas pesadas).
-- **Inyección de Cabeceras**: Intercepta las peticiones del frontend y añade dinámicamente las cabeceras necesarias (`Origin: https://app.sesametime.com`, `Referer`, etc.) para emular tráfico legítimo de la aplicación oficial.
+- **Inyección controlada de cabeceras**: Intercepta las peticiones del frontend y añade únicamente las cabeceras necesarias para compatibilidad con la API de Sesame.
 - **Enrutamiento Dinámico**: Utiliza la cabecera personalizada `X-Backend-Url` enviada por el frontend para saber si debe enrutar la petición hacia `api-eu1`, `back-eu1` o `bi-engine`.
-- **Fusión de Secretos**: Lee `config.json` (público) y `config.secrets.json` (privado), fusionándolos en memoria. El frontend solo recibe los tokens si pasa por el proxy, evitando exponer secretos estáticos en el código cliente.
+- **Gestión de secretos**: Lee `config.json` (público) y `config.secrets.json` (privado), fusionándolos en memoria solo en el servidor. El endpoint `/config` entrega metadatos sin tokens ni contraseñas; el proxy inyecta `Authorization` desde el almacén local de secretos.
+- **Límite de exposición**: `server.py` puede escuchar en `127.0.0.1` o en `0.0.0.0`. El lanzador `start.sh` arranca en modo LAN por defecto para facilitar uso interno, mientras `bash start.sh local` limita el acceso al equipo actual. En ambos casos se bloquean rutas sensibles como `config.secrets.json`, claves TLS, claves de cifrado y carpetas internas.
+- **Sesión local de desbloqueo**: La pantalla de contraseña ya no es solo una barrera visual. Cuando `/validate-password` valida la clave maestra, el servidor emite una cookie `HttpOnly` y de corta duración; el proxy exige esa sesión antes de inyectar tokens guardados o aceptar mutaciones de configuración. La conexión inicial con un token recién pegado puede seguir validando `/me` sin sesión porque todavía no usa secretos guardados.
 
 ### 1.2. Resiliencia y Domain Flipping (Failover)
 La función `apiFetch` en `app.js` es el núcleo de la comunicación. Implementa una heurística de recuperación de errores:
@@ -55,7 +57,7 @@ El objeto "Empleado" difiere drásticamente si viene del endpoint `/me`, de `/em
 Dado que la lista general de empleados de Sesame censura las fechas de nacimiento por privacidad por defecto, el sistema implementa una táctica de extracción en dos fases para popular el panel de cumpleaños:
 
 1. **Nivel 1 (BI Query)**: Intenta inyectar una consulta al motor de Analytics solicitando el campo `core_context_employee.birthDate`. Si el WAF (Web Application Firewall) lo permite, extrae el 100% de las fechas en una sola llamada de 200ms.
-2. **Nivel 2 (Serial Profiling Fallback)**: Si el BI falla o censura los datos, el dashboard inicia una rutina en background (`startSerialBirthdayScan`). Esta rutina encola peticiones a la ruta individual `/api/v3/employees/{id}` de cada miembro del equipo con un *delay* programado para eludir las reglas de *Rate Limiting*. La interfaz (UI) se va actualizando progresivamente a medida que "descubre" nuevos cumpleaños, mostrando una barra de progreso sutil.
+2. **Nivel 2 (Serial Profiling Fallback)**: Si el BI no devuelve datos, el dashboard puede iniciar una rutina en background (`startSerialBirthdayScan`) sobre perfiles accesibles por la cuenta autenticada. Esta capacidad debe usarse solo cuando exista permiso y finalidad legítima para tratar cumpleaños; la interfaz se actualiza progresivamente con una barra de progreso sutil.
 
 ---
 
@@ -77,9 +79,10 @@ La aplicación implementa un patrón similar a Redux pero en Vanilla JS puro, ge
   - `ssm_current_module`: El último módulo abierto (Fichajes o Vacaciones), asegurando que un F5 no te expulse de tu flujo de trabajo.
   - `ssm_sidebar_collapsed`: Estado de contracción del menú lateral.
   - Estados de colapso individuales de sub-secciones del menú.
+  - Identificador de empresa activa y endpoint backend. Los tokens no se persisten en `localStorage` cuando se usa el proxy local.
 - **Session Storage (Memoria Corta)**:
   - `ssm_current_date`: La fecha o periodo temporal que el usuario estaba analizando.
-  - `ssm_unlocked`: Estado de autenticación del "Master Password" para la sesión actual del navegador.
+  - `ssm_unlocked`: Estado visual de desbloqueo para la sesión actual del navegador. La autorización real de proxy se valida en servidor mediante cookie `HttpOnly`.
   - `ssm_fichajes_cache`: Caché efímera de grandes bloques de datos JSON para que navegar atrás/adelante sea instantáneo.
 
 ---

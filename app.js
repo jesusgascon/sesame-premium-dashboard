@@ -23,10 +23,14 @@ const DEBUG_MODE = false;
 function togglePassword(id) {
   const el = document.getElementById(id);
   if (!el) return;
-  el.type = el.type === 'password' ? 'text' : 'password';
-  
-  // Optional: Update icon if we had a class-based toggle, 
-  // but here we just use the emoji which stays the same.
+  const isHidden = el.type === 'password';
+  el.type = isHidden ? 'text' : 'password';
+  const btn = document.querySelector(`.btn-toggle-pass[onclick="togglePassword('${id}')"]`);
+  if (btn) {
+    btn.textContent = isHidden ? '🙈' : '👁️';
+    btn.setAttribute('aria-pressed', String(isHidden));
+    btn.setAttribute('aria-label', `${isHidden ? 'Ocultar' : 'Mostrar'} ${id === 'token-input' ? 'token' : 'contraseña'}`);
+  }
 }
 
 // Las contraseñas maestras (CIF) se validan en server.py — no están expuestas en el cliente.
@@ -76,6 +80,8 @@ const STATE = {
   allEmployees:  new Map(), // Todos los empleados detectados
   hiddenEmployeeIds: new Set(), // Empleados ocultos en el filtro
   calendarData: {},     // 'YYYY-MM-DD' → [{type, employees}]
+  absenceTypes: [],
+  activeFilters: new Set(),
   currentDate:  (function() {
     const saved = sessionStorage.getItem('ssm_current_date');
     if (saved) {
@@ -97,6 +103,9 @@ const STATE = {
 };
 
 let REFRESH_TIMER = null;
+let APP_BOOTSTRAPPED = false;
+let APP_LISTENERS_WIRED = false;
+let SETUP_EDITING_COMPANY_ID = null;
 
 // ── Utils ───────────────────────────────────────────────────────────────────
 function toggleSection(sectionId) {
@@ -117,14 +126,53 @@ function toggleSection(sectionId) {
 const $  = id => document.getElementById(id);
 const $$ = sel => document.querySelectorAll(sel);
 
+function escapeHTML(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[ch]));
+}
+
+function getInitials(name) {
+  return String(name || '')
+    .trim()
+    .split(/\s+/)
+    .map(part => part[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2) || '?';
+}
+
+function renderLocalAvatar(name, photoUrl, className = '', extraStyle = '') {
+  const safeName = escapeHTML(name);
+  const safePhoto = isSafeHttpUrl(photoUrl) ? escapeHTML(photoUrl) : '';
+  const initials = escapeHTML(getInitials(name));
+  if (safePhoto) {
+    return `<img src="${safePhoto}" alt="${safeName}" class="${className}" style="${extraStyle}" referrerpolicy="no-referrer" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'local-avatar-fallback ${className}',textContent:'${initials}'}))">`;
+  }
+  return `<span class="local-avatar-fallback ${className}" style="${extraStyle}" aria-hidden="true">${initials}</span>`;
+}
+
+function hasProxyUnlockSession() {
+  return isLocalProxy() && sessionStorage.getItem('ssm_unlocked') === 'true';
+}
+
 // ── STORAGE helpers ────────────────────────────────────────────────────────
 function saveCredentials() {
-  localStorage.setItem('ssm_token',      STATE.token);
   localStorage.setItem('ssm_companyId',  STATE.companyId);
   localStorage.setItem('ssm_backendUrl', STATE.backendUrl);
+  if (isLocalProxy()) {
+    localStorage.removeItem('ssm_token');
+  } else if (STATE.token) {
+    localStorage.setItem('ssm_token', STATE.token);
+  }
 }
 function loadCredentials() {
-  STATE.token     = localStorage.getItem('ssm_token')      || null;
+  STATE.token     = isLocalProxy() ? null : (localStorage.getItem('ssm_token') || null);
+  if (isLocalProxy()) localStorage.removeItem('ssm_token');
   STATE.companyId = localStorage.getItem('ssm_companyId')  || null;
   STATE.backendUrl= localStorage.getItem('ssm_backendUrl') || 'https://back-eu1.sesametime.com';
 }
@@ -329,7 +377,6 @@ async function apiFetch(path, params = {}, isRetry = false) {
 
   // 3. Cabeceras que el proxy necesita reenviar a Sesame
   const headers = {
-    'Authorization': `Bearer ${STATE.token}`,
     'Content-Type':  'application/json',
     'Accept':        'application/json',
     'x-company-id':  STATE.companyId || '',
@@ -338,6 +385,7 @@ async function apiFetch(path, params = {}, isRetry = false) {
     'X-Backend-Url': params.overrideBackend || sesameBaseUrl, // El proxy leerá esto y sabrá a dónde ir
     ...(params.headers || {})
   };
+  if (STATE.token) headers.Authorization = `Bearer ${STATE.token}`;
 
   const fetchOptions = {
     method: params.method || 'GET',
@@ -367,6 +415,9 @@ async function apiFetch(path, params = {}, isRetry = false) {
     // Solo reintentamos en errores de red reales (502, 503), no en rutas inexistentes.
 
     if (!res.ok) {
+      if (!isRetry && (res.status === 502 || res.status === 503 || res.status === 504)) {
+        return apiFetch(path, params, true);
+      }
       if (res.status === 401) {
         throw new Error("Sesión caducada (401). Por favor vuelve a conectar.");
       }
@@ -383,6 +434,9 @@ async function apiFetch(path, params = {}, isRetry = false) {
     return await res.json();
   } catch (err) {
     // Si el error es "Failed to fetch", probablemente el servidor local python3 server.py no está corriendo
+    if (!isRetry && (err instanceof TypeError || err.message === 'Failed to fetch')) {
+      return apiFetch(path, params, true);
+    }
     if (err.message === 'Failed to fetch') {
        throw new Error("Error de Red: El puente local (servidor Python) no responde. ¿Está iniciado?");
     }
@@ -817,6 +871,16 @@ function getOriginIcon(origin) {
   return '📍';
 }
 
+function isSafeHttpUrl(value) {
+  if (!value) return false;
+  try {
+    const url = new URL(value, window.location.origin);
+    return url.protocol === 'https:' || url.protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
 
 // ── Multi-Company Config ───────────────────────────────────────────────────
 async function loadSavedConfig() {
@@ -832,7 +896,7 @@ async function loadSavedConfig() {
     if (STATE.companies.length > 0) {
       const active = STATE.companies.find(c => c.companyId === STATE.activeId) || STATE.companies[0];
       if (active && (!STATE.token || active.companyId !== STATE.companyId)) {
-        STATE.token = active.token;
+        STATE.token = active.token || null;
         STATE.companyId = active.companyId;
         STATE.backendUrl = active.backendUrl;
         saveCredentials();
@@ -840,6 +904,25 @@ async function loadSavedConfig() {
       renderCompanySelector();
     }
   } catch (e) { console.error("Error loading config:", e); }
+}
+
+function applyThemeUI() {
+  document.documentElement.setAttribute('data-theme', STATE.theme);
+  localStorage.setItem('theme', STATE.theme);
+
+  document.querySelectorAll('.theme-toggle').forEach(btn => {
+    btn.textContent = STATE.theme === 'light' ? '🌙' : '☀️';
+  });
+
+  const active = STATE.companies.find(c => c.companyId === STATE.companyId);
+  if (active) applyCompanyBranding(active);
+
+  refreshAllViews();
+}
+
+function toggleTheme() {
+  STATE.theme = STATE.theme === 'light' ? 'dark' : 'light';
+  applyThemeUI();
 }
 
 function renderCompanySelector() {
@@ -886,16 +969,25 @@ function applyCompanyBranding(company) {
   }
 
   if (logoContainer) {
-    if (logoUrl) {
-      logoContainer.innerHTML = `<img src="${logoUrl}" style="width:24px;height:24px;object-fit:contain;border-radius:4px;" onerror="this.innerHTML='📅'">`;
+    if (logoUrl && isSafeHttpUrl(logoUrl)) {
+      logoContainer.textContent = '';
+      const img = document.createElement('img');
+      img.src = logoUrl;
+      img.alt = name;
+      img.referrerPolicy = 'no-referrer';
+      img.style.cssText = 'width:24px;height:24px;object-fit:contain;border-radius:4px;';
+      img.onerror = () => {
+        logoContainer.textContent = '📅';
+      };
+      logoContainer.appendChild(img);
     } else {
       // Avatar con iniciales si no hay logo
       const initials = name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
-      logoContainer.innerHTML = `
-        <div style="width:24px; height:24px; background:${brandColor}; color:white; border-radius:4px; 
-                    display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:800;">
-          ${initials}
-        </div>`;
+      logoContainer.textContent = '';
+      const fallback = document.createElement('div');
+      fallback.textContent = initials;
+      fallback.style.cssText = `width:24px;height:24px;background:${brandColor};color:white;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;`;
+      logoContainer.appendChild(fallback);
     }
   }
 
@@ -978,7 +1070,7 @@ function switchCompany(cid) {
   const next = STATE.companies.find(c => c.companyId === cid);
   if (!next) return;
   
-  STATE.token = next.token;
+  STATE.token = next.token || null;
   STATE.companyId = next.companyId;
   STATE.backendUrl = next.backendUrl;
   saveCredentials();
@@ -990,6 +1082,7 @@ function switchCompany(cid) {
   if (isLocalProxy()) {
     fetch('/save-config', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(next)
     });
   }
@@ -1027,7 +1120,7 @@ function startAutoRefresh() {
   if (REFRESH_TIMER) clearInterval(REFRESH_TIMER);
   REFRESH_TIMER = setInterval(async () => {
     const isAppVisible = !$('app-screen').classList.contains('hidden');
-    if (isAppVisible && !STATE.isLoading && STATE.token && STATE.companyId) {
+    if (isAppVisible && !STATE.isLoading && STATE.companyId && (STATE.token || hasProxyUnlockSession())) {
       await loadData();
     }
   }, 5 * 60 * 1000); 
@@ -1046,7 +1139,21 @@ function stopAutoRefresh() {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 async function init() {
+  if (APP_BOOTSTRAPPED) return;
+  APP_BOOTSTRAPPED = true;
+
   // --- Master Password Protection ---
+  await loadSavedConfig();
+  const needsInitialSetup = isLocalProxy() && (
+    STATE.companies.length === 0 ||
+    STATE.companies.every(company => !company.hasMasterPassword)
+  );
+  if (needsInitialSetup) {
+    sessionStorage.removeItem('ssm_unlocked');
+    await startApp();
+    return;
+  }
+
   const isUnlocked = sessionStorage.getItem('ssm_unlocked') === 'true';
   const lockScreen = $('lock-screen');
   const unlockBtn = $('unlock-btn');
@@ -1107,7 +1214,7 @@ async function init() {
   // If already unlocked
   lockScreen.classList.remove('active');
   lockScreen.classList.add('hidden');
-  startApp();
+  await startApp();
 }
 
 /**
@@ -1125,7 +1232,7 @@ function showScreen(screenId) {
 /**
  * Alterna entre módulos principales (Vacaciones / Fichajes)
  */
-function switchModule(module) {
+function switchModule(module, options = {}) {
   STATE.currentModule = module;
   localStorage.setItem('ssm_current_module', module);
   
@@ -1162,12 +1269,12 @@ function switchModule(module) {
     
     // Inicialización específica de Fichajes
     FichajesModule.init();
-    FichajesModule.loadData();
+    if (!options.skipLoad) FichajesModule.loadData();
   } else {
     if (sidebarNav) sidebarNav.style.display = 'block';
     if (absenceSection) absenceSection.style.display = 'block';
     if (employeeSection) employeeSection.style.display = 'block';
-    loadData();
+    if (!options.skipLoad) loadData();
   }
 }
 
@@ -1236,8 +1343,6 @@ async function startApp() {
   if (STATE.sidebarCollapsed) {
     document.body.classList.add('sidebar-collapsed');
   }
-  switchModule(STATE.currentModule);
-
   // Wire employee filters
   const empSearch = $('employee-search');
   if(empSearch) empSearch.addEventListener('input', renderEmployeeFilterList);
@@ -1294,7 +1399,8 @@ async function startApp() {
   const cancelSetupBtn = $('cancel-setup-btn');
   if (cancelSetupBtn) {
     cancelSetupBtn.addEventListener('click', () => {
-      if (STATE.token && STATE.companyId) {
+      const hasLocalProxySession = isLocalProxy() && sessionStorage.getItem('ssm_unlocked') === 'true';
+      if (STATE.companyId && (STATE.token || hasLocalProxySession)) {
         showApp();
       } else {
         showScreen('lock-screen');
@@ -1305,40 +1411,21 @@ async function startApp() {
   $('modal-close').addEventListener('click', closeModal);
   $('day-modal').addEventListener('click', e => { if (e.target === $('day-modal')) closeModal(); });
 
-  // Multi-button theme toggle synchronization
-  const updateThemeUI = () => {
-    document.documentElement.setAttribute('data-theme', STATE.theme);
-    localStorage.setItem('theme', STATE.theme);
-    
-    // Update all theme buttons simultaneously
-    const themeButtons = document.querySelectorAll('.theme-toggle');
-    themeButtons.forEach(btn => {
-      btn.textContent = STATE.theme === 'light' ? '🌙' : '☀️';
-    });
-
-    // Update UI components
-    const active = STATE.companies.find(c => c.companyId === STATE.companyId);
-    if (active) applyCompanyBranding(active);
-    
-    refreshAllViews();
-  };
-
   const themeToggleButtons = document.querySelectorAll('.theme-toggle');
   themeToggleButtons.forEach(btn => {
     btn.textContent = STATE.theme === 'light' ? '🌙' : '☀️';
-    btn.addEventListener('click', () => {
-      STATE.theme = STATE.theme === 'light' ? 'dark' : 'light';
-      updateThemeUI();
-    });
+    btn.addEventListener('click', toggleTheme);
   });
 
   // Try loading credentials saved by get-token.py via server
   await loadSavedConfig();
 
   // Auto-login if credentials available
-  if (STATE.token && STATE.companyId) {
+  const canUseLocalProxySession = isLocalProxy() && sessionStorage.getItem('ssm_unlocked') === 'true';
+  if (STATE.companyId && (STATE.token || canUseLocalProxySession)) {
     showApp();
     await loadInitialData();
+    switchModule(STATE.currentModule, { skipLoad: STATE.currentModule === 'vacaciones' });
     startAutoRefresh();
     loadWeather();
   } else {
@@ -1359,6 +1446,7 @@ function showSetup(editData = null) {
   }
 
   const isEditing = !!editData;
+  SETUP_EDITING_COMPANY_ID = isEditing ? String(editData.companyId || '') : null;
   
   // Actualizar Título
   const titleEl = $('setup-title');
@@ -1377,18 +1465,40 @@ function showSetup(editData = null) {
   }
 
   const fields = {
-    'token-input':   editData ? editData.token : '',
+    'token-input':   '',
     'company-input': editData ? editData.companyId : '',
     'name-input':    editData ? editData.name : '',
     'color-input':   editData ? editData.brandColor : '',
     'logo-input':    editData ? editData.logoUrl : '',
-    'masterpwd-input': editData ? (editData.masterPassword || '') : '',
+    'masterpwd-input': '',
     'backend-input': editData ? editData.backendUrl : 'https://back-eu1.sesametime.com'
   };
 
   for (const [id, val] of Object.entries(fields)) {
     const el = $(id);
     if (el) el.value = val || '';
+  }
+
+  const tokenInput = $('token-input');
+  const tokenHint = $('token-preserve-hint');
+  if (tokenInput) {
+    const hasStoredToken = isEditing && editData.hasToken;
+    tokenInput.dataset.hasStoredToken = hasStoredToken ? 'true' : 'false';
+    tokenInput.placeholder = hasStoredToken
+      ? 'Token guardado; déjalo vacío para conservarlo'
+      : 'Pega tu cookie USID aquí...';
+    if (tokenHint) tokenHint.classList.toggle('hidden', !hasStoredToken);
+  }
+
+  const masterPwdInput = $('masterpwd-input');
+  const masterPwdHint = $('masterpwd-preserve-hint');
+  if (masterPwdInput) {
+    const hasStoredPassword = isEditing && editData.hasMasterPassword;
+    masterPwdInput.dataset.hasStoredPassword = hasStoredPassword ? 'true' : 'false';
+    masterPwdInput.placeholder = hasStoredPassword
+      ? 'Contraseña guardada; déjala vacía para conservarla'
+      : 'Escribe la contraseña maestra...';
+    if (masterPwdHint) masterPwdHint.classList.toggle('hidden', !hasStoredPassword);
   }
 }
 
@@ -1407,11 +1517,15 @@ async function handleConnect() {
   err.textContent = '';
   err.classList.add('hidden');
 
-  if (!token)          return showSetupError('Por favor introduce el token de sesión (USID).');
-  if (!companyId)      return showSetupError('Por favor introduce el Company ID.');
-  if (!masterPassword) return showSetupError('Por favor introduce una Contraseña Maestra obligatoria.');
+  const isEditingSameCompany = SETUP_EDITING_COMPANY_ID && String(companyId) === String(SETUP_EDITING_COMPANY_ID);
+  const canReuseStoredToken = isLocalProxy() && isEditingSameCompany && $('token-input')?.dataset.hasStoredToken === 'true';
+  const canReuseStoredPassword = isLocalProxy() && isEditingSameCompany && $('masterpwd-input')?.dataset.hasStoredPassword === 'true';
 
-  STATE.token     = token;
+  if (!token && !canReuseStoredToken) return showSetupError('Por favor introduce el token de sesión (USID).');
+  if (!companyId)      return showSetupError('Por favor introduce el Company ID.');
+  if (!masterPassword && !canReuseStoredPassword) return showSetupError('Por favor introduce una Contraseña Maestra obligatoria.');
+
+  STATE.token     = token || null;
   STATE.companyId = companyId;
   STATE.backendUrl= backendUrl || 'https://back-eu1.sesametime.com';
 
@@ -1446,8 +1560,8 @@ async function finalizeLogin(companyData = {}) {
     await persistConfigToServer(companyName, brandColor, logoUrl, masterPassword);
   }
 
-  // Guardar timestamp del token para el indicador de caducidad
-  saveTokenTimestamp(STATE.companyId);
+  // Guardar timestamp solo cuando se introduce un token nuevo.
+  if (STATE.token) saveTokenTimestamp(STATE.companyId);
 
   // Recargar la lista de empresas guardadas y actualizar el selector inmediatamente
   await loadSavedConfig();
@@ -1461,7 +1575,9 @@ async function finalizeLogin(companyData = {}) {
   });
 
   showApp();
+  sessionStorage.setItem('ssm_unlocked', 'true');
   await loadInitialData();
+  switchModule(STATE.currentModule, { skipLoad: STATE.currentModule === 'vacaciones' });
   renderTokenStatus(); // Mostrar banner si el token es antiguo
   startAutoRefresh();
   loadWeather();
@@ -1736,7 +1852,7 @@ function renderFilters() {
   Object.values(STATE.calendarData).forEach(entries => {
     entries.forEach(e => {
       const id = e.type.id;
-      const visibleEmps = e.employees.filter(emp => !STATE.hiddenEmployeeIds.has(emp.id));
+      const visibleEmps = e.employees.filter(emp => !STATE.hiddenEmployeeIds.has(String(emp.id)));
       if (id) counts[id] = (counts[id] || 0) + visibleEmps.length;
     });
   });
@@ -2030,7 +2146,7 @@ function buildDayCell(date, otherMonth) {
   const filteredEvents = events
     .filter(e => STATE.activeFilters.has(e.type.id))
     .map(evt => {
-      const visibleEmps = evt.employees.filter(emp => !STATE.hiddenEmployeeIds.has(emp.id));
+      const visibleEmps = evt.employees.filter(emp => !STATE.hiddenEmployeeIds.has(String(emp.id)));
       return { ...evt, employees: visibleEmps, numEmployees: visibleEmps.length };
     })
     .filter(evt => evt.employees.length > 0);
@@ -2137,7 +2253,7 @@ function renderEmployeeList() {
     entries.forEach(evt => {
       if (!STATE.activeFilters.has(evt.type.id)) return;
       evt.employees.forEach(emp => {
-        if (STATE.hiddenEmployeeIds.has(emp.id)) return;
+        if (STATE.hiddenEmployeeIds.has(String(emp.id))) return;
         if (!empMap[emp.id]) empMap[emp.id] = { emp, absences: new Map() };
         
         const typeId = evt.type.id;
@@ -2212,7 +2328,7 @@ function renderStats() {
     
     const visibleInDay = entries.reduce((acc, evt) => {
       if (!STATE.activeFilters.has(evt.type.id)) return acc;
-      const visibleEmps = evt.employees.filter(e => !STATE.hiddenEmployeeIds.has(e.id));
+      const visibleEmps = evt.employees.filter(e => !STATE.hiddenEmployeeIds.has(String(e.id)));
       
       const id = evt.type.id;
       if (!typeTotals[id]) typeTotals[id] = { name: evt.type.name, total: 0, color: resolveColor(evt.type.color) };
@@ -2423,10 +2539,13 @@ function exportToIcal() {
     dayEntries.forEach(evt => {
       if (!STATE.activeFilters.has(evt.type.id)) return;
       
-      const visibleEmps = evt.employees.filter(emp => !STATE.hiddenEmployeeIds.has(emp.id));
+      const visibleEmps = evt.employees.filter(emp => !STATE.hiddenEmployeeIds.has(String(emp.id)));
       if (visibleEmps.length === 0) return;
 
       const date = dateStr.replace(/-/g, '');
+      const endDate = new Date(`${dateStr}T00:00:00`);
+      endDate.setDate(endDate.getDate() + 1);
+      const end = fmtDate(endDate).replace(/-/g, '');
       const typeName = evt.type.name || 'Ausencia';
       
       visibleEmps.forEach(emp => {
@@ -2434,7 +2553,7 @@ function exportToIcal() {
         events.push([
           'BEGIN:VEVENT',
           `DTSTART;VALUE=DATE:${date}`,
-          `DTEND;VALUE=DATE:${date}`,
+          `DTEND;VALUE=DATE:${end}`,
           `SUMMARY:${typeName}: ${empName}`,
           `DESCRIPTION:Ausencia de tipo ${typeName} para ${empName}`,
           'END:VEVENT'
@@ -2482,8 +2601,7 @@ async function showSubscriptionModal() {
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     const token = hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 16);
     
-    const host = window.location.host;
-    const url = `http://${host}/feed.ics?token=${token}`;
+    const url = `${window.location.origin}/feed.ics?token=${token}`;
     
     const choice = confirm(
       `🔗 Enlace de Suscripción para Google Calendar:\n\n` +
@@ -2550,25 +2668,20 @@ function showLoading(show) {
 async function logout() {
   stopAutoRefresh();
   clearCredentials();
-
-  // Limpiar también el servidor si es entorno local
-  if (isLocalProxy()) {
-    try {
-      await fetch('/wipe-all-config', { method: 'POST' });
-    } catch (e) {
-      console.warn("No se pudo limpiar la configuración del servidor:", e);
-    }
-  }
+  sessionStorage.removeItem('ssm_unlocked');
+  sessionStorage.removeItem('ssm_current_date');
+  sessionStorage.removeItem('ssm_fichajes_cache');
 
   STATE.token = STATE.companyId = STATE.currentUser = null;
   STATE.absenceTypes = [];
   STATE.calendarData = {};
   STATE.activeFilters = new Set();
-  showSetup();
+  const passInput = $('master-pass');
+  if (passInput) passInput.value = '';
+  showScreen('lock-screen');
 }
 
-// ── Start ──────────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', init);
+// El arranque se registra al final del archivo, después de declarar todos los módulos.
 
 /**
  * --- METEOROLOGÍA (ZARAGOZA) ---
@@ -2727,11 +2840,6 @@ const FichajesModule = {
       this.selectedEmployee = e.target.value;
       this.renderTable();
     });
-    // Theme toggle in signings header
-    document.getElementById('theme-btn-signings')?.addEventListener('click', () => {
-      toggleTheme();
-    });
-
     // Refresh btn
     document.getElementById('refresh-signings-btn')?.addEventListener('click', () => {
       this.loadData(true);
@@ -3006,15 +3114,15 @@ const FichajesModule = {
   },
 
   renderBirthdayCard(emp, isToday) {
-    const photo = emp.imageProfileURL || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(emp.firstName + ' ' + (emp.lastName || '')) + '&background=random';
+    const fullName = `${emp.firstName || ''} ${emp.lastName || ''}`.trim();
     const dateStr = `${emp.bDay} de ${MONTHS_ES[emp.bMonth - 1]}`;
 
     return `
       <div class="birthday-card ${isToday ? 'is-today' : ''}">
-        <img src="${photo}" alt="${emp.firstName}" class="birthday-avatar">
+        ${renderLocalAvatar(fullName, emp.imageProfileURL, 'birthday-avatar')}
         <div class="birthday-info">
-          <span class="birthday-name">${emp.firstName} ${emp.lastName || ''}</span>
-          <span class="birthday-date">${dateStr} ${isToday ? '🎉' : ''}</span>
+          <span class="birthday-name">${escapeHTML(fullName)}</span>
+          <span class="birthday-date">${escapeHTML(dateStr)} ${isToday ? '🎉' : ''}</span>
         </div>
       </div>
     `;
@@ -3053,7 +3161,8 @@ const FichajesModule = {
           if (parsed.biTheoreticMap) {
             this.biTheoreticMap = new Map(Object.entries(parsed.biTheoreticMap));
           }
-          this.render();
+          this.populateEmployeeSelect();
+          this.renderTable();
           console.info(`Fichajes: Cache hits for ${start}/${end} (${this.data.length} registros).`);
         } catch (e) {
           console.warn("Fichajes cache parse error:", e);
@@ -4712,12 +4821,13 @@ const FichajesModule = {
             const empId = String(emp.id);
             const name = `${emp.firstName || ''} ${emp.lastName || ''}`.trim();
 
-            if (STATE.hiddenEmployeeIds.has(empId)) return;
+            if (STATE.hiddenEmployeeIds.has(String(empId))) return;
             if (this.selectedEmployee && this.selectedEmployee !== 'all' && String(this.selectedEmployee) !== empId) return;
             if (this.searchQuery && !name.toLowerCase().includes(this.searchQuery)) return;
 
             rows.push({
               date,
+              employeeId: empId,
               employeeName: name || 'Empleado',
               typeName: entry.type?.name || 'Ausencia'
             });
@@ -4990,8 +5100,8 @@ const FichajesModule = {
         <tr class="balance-row">
           <td>
             <div class="user-chip-table" style="display:flex; align-items:center; gap:10px;">
-              <img src="${stat.photo || 'https://ui-avatars.com/api/?name='+encodeURIComponent(stat.name)}" style="width:32px; height:32px; border-radius:50%; object-fit:cover; border: 1px solid var(--border);" />
-              <span style="font-weight:600; font-size:0.9rem;">${stat.name}</span>
+              ${renderLocalAvatar(stat.name, stat.photo, 'balance-avatar', 'width:32px; height:32px; border-radius:50%; object-fit:cover; border: 1px solid var(--border);')}
+              <span style="font-weight:600; font-size:0.9rem;">${escapeHTML(stat.name)}</span>
             </div>
           </td>
           <td class="text-center">

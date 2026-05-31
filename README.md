@@ -79,6 +79,7 @@ La verdadera magia ocurre en segundo plano (Backend/JS Engine):
 
 ### Requisitos
 - **Python 3.8+** (Para ejecutar el proxy local).
+- **Dependencias Python**: `pip install -r requirements.txt` para habilitar cifrado local de secretos.
 - **Credenciales**: Usuario y contraseña de Sesame HR con permisos de Administrador/Manager.
 
 ### Pasos
@@ -87,18 +88,67 @@ La verdadera magia ocurre en segundo plano (Backend/JS Engine):
 git clone https://github.com/jesusgascon/sesame-premium-dashboard.git
 cd sesame-premium-dashboard
 ```
+2. **Instalar dependencias locales**:
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   python -m pip install -r requirements.txt
+   ```
 2. **Preparar Configuración**:
-   Copia las plantillas y rellena `config.secrets.json` con tus tokens de Sesame.
+   Copia las plantillas y rellena `config.secrets.json` con tus tokens de Sesame y una contraseña maestra local por empresa. Si introduces valores en claro, `server.py` los migra a cifrado local en el siguiente arranque cuando `cryptography` está disponible.
    ```bash
    cp config.example.json config.json
    cp config.secrets.example.json config.secrets.json
    ```
+   También puedes usar el asistente local:
+   ```bash
+   bash start.sh token
+   ```
 3. **Lanzar el Servidor**:
-   El script generará certificados locales y lanzará el dashboard.
+   El script generará certificados locales y lanzará el dashboard en modo red local por defecto.
    ```bash
    bash start.sh
    ```
-4. **Disfrutar**: El navegador se abrirá automáticamente en `https://localhost:8765`.
+4. **Disfrutar**: El navegador se abrirá automáticamente y la terminal mostrará también la URL LAN.
+
+### Acceso desde la red local
+
+El acceso desde otros equipos de la misma red es el modo por defecto:
+
+```bash
+bash start.sh
+```
+
+También puedes hacerlo explícito con `bash start.sh lan`. El servidor mostrará una URL tipo `https://192.168.x.x:8765`; abre esa URL desde otro dispositivo conectado a la misma red. Si el navegador avisa por certificado autofirmado, acepta la excepción solo si estás en tu red de confianza.
+
+Opciones de arranque disponibles:
+
+```bash
+bash start.sh        # Red local, por defecto
+bash start.sh lan    # Red local, explícito
+bash start.sh local  # Solo este equipo
+bash start.sh token  # Extraer credenciales
+```
+
+## 🔐 Seguridad Local
+
+- `bash start.sh` expone el panel en la red local por defecto (`0.0.0.0`). Úsalo solo en redes de confianza, con firewall local y contraseña maestra configurada. Para limitarlo al equipo actual usa `bash start.sh local`.
+- `config.json` contiene solo metadatos. Los tokens USID y contraseñas maestras viven en `config.secrets.json`, que no debe subirse a Git.
+- `/config` no devuelve tokens ni contraseñas al navegador. El proxy local inyecta la autorización desde el almacén local de secretos.
+- Al desbloquear con la contraseña maestra, el servidor crea una sesión local `HttpOnly` de corta duración. En modo LAN, las llamadas al proxy que usan tokens guardados y las mutaciones de configuración exigen esa sesión.
+- El cierre de sesión bloquea la UI local, pero no borra la configuración. Para eliminar una empresa usa el botón de borrado de empresa.
+- No envíes datos reales de empleados a servicios externos ni compartas capturas con IPs, coordenadas, teléfonos o cumpleaños.
+
+## 🧯 Troubleshooting
+
+- **Certificado local**: acepta el certificado autofirmado de `localhost` si el navegador avisa la primera vez.
+- **Puerto ocupado**: detén otros procesos en `8765` antes de ejecutar `bash start.sh`.
+- **Falta `cryptography`**: ejecuta `python -m pip install -r requirements.txt`. Sin esa dependencia el servidor avisa y no puede cifrar nuevos secretos.
+- **No abre desde otro dispositivo**: revisa que ambos equipos estén en la misma red y permite el puerto `8765` en el firewall local.
+- **Sesión local bloqueada**: desbloquea primero el panel con la contraseña maestra desde el navegador que hará las consultas.
+- **Token caducado o 401/403**: renueva credenciales con `bash start.sh token` o desde la pantalla de configuración.
+- **No desbloquea**: revisa que `config.secrets.json` incluya `passwords` para la empresa activa.
+- **UI inconsistente tras muchos cambios**: cierra sesión y recarga; si persiste, limpia `localStorage/sessionStorage` del origen local.
 
 ---
 

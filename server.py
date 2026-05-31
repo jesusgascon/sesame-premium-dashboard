@@ -20,6 +20,10 @@ import hashlib
 import datetime
 import ssl
 import subprocess
+import socket
+import ipaddress
+import secrets
+import time
 
 # Cifrado de tokens en reposo
 try:
@@ -31,12 +35,25 @@ except ImportError:
 
 # --- CONFIGURACIÓN ---
 PORT      = 8765
+HOST      = os.environ.get('SESAME_HOST', '127.0.0.1')
+LAN_MODE  = HOST in ('0.0.0.0', '::') or os.environ.get('SESAME_LAN') == '1'
 BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE   = os.path.join(BASE_DIR, 'config.json')
 SECRETS_FILE  = os.path.join(BASE_DIR, 'config.secrets.json')
 KEY_FILE      = os.path.join(BASE_DIR, 'key.bin')       # Clave AES local (gitignored)
 CERT_FILE     = os.path.join(BASE_DIR, 'cert.pem')      # Certificado TLS (gitignored)
 PRIVKEY_FILE  = os.path.join(BASE_DIR, 'privkey.pem')   # Clave TLS privada (gitignored)
+PUBLIC_FILES  = {'/index.html', '/styles.css', '/app.js', '/favicon.png'}
+SENSITIVE_PATHS = {
+    '/config.json',
+    '/config.secrets.json',
+    '/key.bin',
+    '/cert.pem',
+    '/privkey.pem',
+}
+SESSION_COOKIE = 'ssm_session'
+SESSION_TTL_SECONDS = 8 * 60 * 60
+SERVER_SESSIONS = {}
 
 # Contraseñas maestras ya no están hardcodeadas, se leen desde config.secrets.json
 # --- CIFRADO DE TOKENS (Fernet / AES-128-CBC + HMAC) ---
@@ -59,6 +76,50 @@ def _get_fernet():
 
 _FERNET = _get_fernet()
 
+
+def get_lan_ip():
+    """Devuelve la IP LAN más probable sin enviar tráfico real."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(('8.8.8.8', 80))
+            return sock.getsockname()[0]
+    except Exception:
+        return '127.0.0.1'
+
+
+def is_allowed_local_origin(origin):
+    """Permite CORS solo para localhost o IPs privadas cuando LAN_MODE está activo."""
+    if not origin:
+        return False
+
+    parsed = urllib.parse.urlparse(origin)
+    if parsed.scheme not in ('http', 'https') or parsed.port != PORT:
+        return False
+
+    host = parsed.hostname or ''
+    if host in ('localhost', '127.0.0.1', '::1'):
+        return True
+
+    if not LAN_MODE:
+        return False
+
+    try:
+        ip = ipaddress.ip_address(host)
+        return ip.is_private or ip.is_loopback
+    except ValueError:
+        return False
+
+
+def has_master_passwords():
+    if not os.path.exists(SECRETS_FILE):
+        return False
+    try:
+        with open(SECRETS_FILE) as f:
+            passwords = json.load(f).get("passwords", {})
+        return any(passwords.values())
+    except Exception:
+        return False
+
 def encrypt_token(token: str) -> str:
     """Cifra un token si Fernet está disponible."""
     if not token or not _FERNET:
@@ -80,7 +141,7 @@ def decrypt_token(enc: str) -> str:
         return enc   # Clave incorrecta o token corrupto → devolver tal cual
 
 
-def load_config():
+def load_config(include_secrets=True):
     """Carga config.json (metadatos) y config.secrets.json (tokens) y los fusiona.
     Si config.json fue borrado manualmente pero config.secrets.json existe,
     reconstruye una configuración mínima para no perder los tokens.
@@ -129,6 +190,21 @@ def load_config():
         save_config(cfg)  # Regenerar config.json
         print(f"  → Regeneradas {len(companies)} empresa(s). Edita los nombres desde la UI.")
 
+    if not include_secrets:
+        public_passwords = {}
+        public_tokens = set(secrets.keys())
+        if os.path.exists(SECRETS_FILE):
+            try:
+                with open(SECRETS_FILE) as f:
+                    public_passwords = json.load(f).get("passwords", {})
+            except Exception:
+                pass
+        for company in cfg.get("companies", []):
+            cid = company.get("companyId", "")
+            company["hasToken"] = cid in public_tokens
+            company["hasMasterPassword"] = cid in public_passwords
+        return cfg
+
     # Inyectar token (descifrado) y flag de password en cada empresa
     for company in cfg.get("companies", []):
         cid = company.get("companyId", "")
@@ -144,14 +220,7 @@ def load_config():
             except Exception:
                 pass
                 
-        # Auto-migración temporal si no hay contraseña guardada pero conocemos la empresa
-        if cid not in passwords:
-            c_name = company.get("name", "").lower()
-            if "fibercom" in c_name:
-                company["masterPassword"] = "B50449107"
-            elif "aragonph" in c_name:
-                company["masterPassword"] = "B99030074"
-        else:
+        if cid in passwords:
             company["masterPassword"] = decrypt_token(passwords[cid])
 
     return cfg
@@ -194,6 +263,9 @@ def save_config(data):
         except Exception:
             pass
             
+    valid_cids = {str(c.get("companyId")) for c in companies_clean if c.get("companyId")}
+    existing_secrets = {cid: val for cid, val in existing_secrets.items() if cid in valid_cids}
+    existing_passwords = {cid: val for cid, val in existing_passwords.items() if cid in valid_cids}
     existing_secrets.update(secrets_tokens)
     
     for cid, pwd in secrets_passwords.items():
@@ -204,12 +276,64 @@ def save_config(data):
 
     with open(SECRETS_FILE, 'w') as f:
         json.dump({"tokens": existing_secrets, "passwords": existing_passwords}, f, indent=2)
+    try:
+        os.chmod(SECRETS_FILE, 0o600)
+    except Exception:
+        pass
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=BASE_DIR, **kwargs)
+
+    def _request_is_same_origin(self):
+        origin = self.headers.get('Origin')
+        if not origin:
+            return True
+        return is_allowed_local_origin(origin)
+
+    def _session_token(self):
+        cookie = self.headers.get('Cookie', '')
+        for part in cookie.split(';'):
+            name, _, value = part.strip().partition('=')
+            if name == SESSION_COOKIE:
+                return value
+        return ''
+
+    def _is_authenticated(self):
+        token = self._session_token()
+        if not token:
+            return False
+        expires = SERVER_SESSIONS.get(token)
+        if not expires or expires < time.time():
+            SERVER_SESSIONS.pop(token, None)
+            return False
+        SERVER_SESSIONS[token] = time.time() + SESSION_TTL_SECONDS
+        return True
+
+    def _set_session_cookie(self):
+        token = secrets.token_urlsafe(32)
+        SERVER_SESSIONS[token] = time.time() + SESSION_TTL_SECONDS
+        attrs = [
+            f'{SESSION_COOKIE}={token}',
+            'Path=/',
+            'HttpOnly',
+            'SameSite=Strict',
+            f'Max-Age={SESSION_TTL_SECONDS}',
+        ]
+        if isinstance(self.request, ssl.SSLSocket):
+            attrs.append('Secure')
+        self.send_header('Set-Cookie', '; '.join(attrs))
+
+    def _require_session(self):
+        if not self._request_is_same_origin():
+            self._send_error(403, "Origen no permitido.")
+            return False
+        if not self._is_authenticated():
+            self._send_error(401, "Sesión local bloqueada. Desbloquea el panel con la contraseña maestra.")
+            return False
+        return True
 
     # ── CORS preflight ───────────────────────────────────────────────────
     def do_OPTIONS(self):
@@ -231,8 +355,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         elif parsed_path in ['/', '/index.html']:
             self.path = '/index.html'
             super().do_GET()
+        elif parsed_path in PUBLIC_FILES:
+            self.path = parsed_path
+            super().do_GET()
+        elif parsed_path in SENSITIVE_PATHS or parsed_path.startswith(('/.git', '/.codex', '/.agents', '/scratch', '/_scratch')):
+            self._send_error(403, "Ruta local protegida.")
         else:
-            super().do_GET() # Comportamiento estándar: busca el archivo en disco
+            self._send_error(404, "Archivo no publicado.")
 
     # ── POST ──────────────────────────────────────────────────────────────
     def do_POST(self):
@@ -242,10 +371,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if self.path.startswith('/sesame-api/'):
             self._proxy('POST', body)
         elif self.path == '/save-config':
+            if has_master_passwords() and not self._require_session():
+                return
             self._save_config(body)
         elif self.path == '/delete-config':
+            if not self._require_session():
+                return
             self._delete_config(body)
         elif self.path == '/wipe-all-config':
+            if not self._require_session():
+                return
             self._wipe_all_config()
         elif self.path == '/validate-password':
             self._validate_password(body)
@@ -255,7 +390,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     # ── Config endpoints ──────────────────────────────────────────────────
     def _serve_config(self):
-        cfg = load_config()
+        cfg = load_config(include_secrets=False)
         data = json.dumps(cfg).encode()
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
@@ -282,14 +417,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 if decrypt_token(enc_pwd) == pwd:
                     ok = True
                     break
-                    
-            # Fallback legacy (si el user no ha metido los CIF en la UI todavía)
-            if not ok and pwd in ['B50449107', 'B99030074']:
-                ok = True
                 
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self._cors_headers()
+            if ok:
+                self._set_session_cookie()
             self.end_headers()
             self.wfile.write(json.dumps({'ok': ok}).encode())
         except Exception as e:
@@ -300,6 +433,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def _save_config(self, body):
         try:
+            first_setup = not has_master_passwords()
             new_company = json.loads(body)
             cfg = load_config()
             
@@ -330,6 +464,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self._cors_headers()
+            if first_setup and new_company.get("masterPassword"):
+                self._set_session_cookie()
             self.end_headers()
             self.wfile.write(b'{"ok":true}')
         except Exception as e:
@@ -463,6 +599,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             days = json.loads(r.read())["data"]
             for day in days:
                 date_str = day["date"].replace("-", "")
+                end_date = (datetime.datetime.strptime(day["date"], "%Y-%m-%d") + datetime.timedelta(days=1)).strftime("%Y%m%d")
                 for ct in day.get("calendar_types", []):
                     t_id = ct.get("calendar_type", {}).get("id")
                     t_name = type_names.get(t_id, "Ausencia")
@@ -474,7 +611,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                             f"UID:{uid}",
                             f"DTSTAMP:{now.strftime('%Y%m%dT%H%M%SZ')}",
                             f"DTSTART;VALUE=DATE:{date_str}",
-                            f"DTEND;VALUE=DATE:{date_str}",
+                            f"DTEND;VALUE=DATE:{end_date}",
                             f"SUMMARY:{t_name}: {emp_name}",
                             "DESCRIPTION:Sincronizado desde el Panel de Vacaciones Sesame.",
                             "STATUS:CONFIRMED",
@@ -518,6 +655,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             hl_x = hl.startswith('x-')
             if hl_allowed or hl_sec or hl_x:
                 hdrs[h] = self.headers[h]
+
+        if 'Authorization' not in hdrs:
+            if has_master_passwords() and not self._require_session():
+                return
+            cfg = load_config(include_secrets=True)
+            cid = hdrs.get('csid') or hdrs.get('x-company-id') or cfg.get('activeId')
+            company = next((c for c in cfg.get('companies', []) if c.get('companyId') == cid), None)
+            if company and company.get('token'):
+                hdrs['Authorization'] = f"Bearer {company['token']}"
+                hdrs['csid'] = company.get('companyId', cid)
         
         # Ensure we always pass a realistic User-Agent if missing, otherwise WAF blocks us
         if 'User-Agent' not in hdrs:
@@ -556,10 +703,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     # ── Helpers ───────────────────────────────────────────────────────────
     def _cors_headers(self):
-        self.send_header('Access-Control-Allow-Origin', '*')
+        origin = self.headers.get('Origin', '')
+        if is_allowed_local_origin(origin):
+            self.send_header('Access-Control-Allow-Origin', origin)
+            self.send_header('Vary', 'Origin')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers',
-                         'Authorization, csid, Content-Type, X-Backend-Url, Accept, x-company-id, X-Region')
+                         'Authorization, csid, Content-Type, X-Backend-Url, Accept, x-company-id, X-Region, X-Sesame-Region')
 
     def log_message(self, fmt, *args):
         # Silenciar logs si el status code es < 400 (exitosos)
@@ -586,13 +736,26 @@ if __name__ == '__main__':
     if CRYPTO_AVAILABLE and _FERNET and os.path.exists(SECRETS_FILE):
         try:
             with open(SECRETS_FILE) as f:
-                raw = json.load(f).get('tokens', {})
+                secret_doc = json.load(f)
+            raw = secret_doc.get('tokens', {})
+            raw_passwords = secret_doc.get('passwords', {})
             migrated = {cid: (t if t.startswith('gA') else encrypt_token(t)) for cid, t in raw.items()}
+            migrated_passwords = {
+                cid: (pwd if pwd.startswith('gA') else encrypt_token(pwd))
+                for cid, pwd in raw_passwords.items()
+            }
             plain_count = sum(1 for t in raw.values() if not t.startswith('gA'))
-            if plain_count:
+            plain_pwd_count = sum(1 for pwd in raw_passwords.values() if not pwd.startswith('gA'))
+            if plain_count or plain_pwd_count:
+                secret_doc['tokens'] = migrated
+                secret_doc['passwords'] = migrated_passwords
                 with open(SECRETS_FILE, 'w') as f:
-                    json.dump({'tokens': migrated}, f, indent=2)
-                print(f'🔒  {plain_count} token(s) migrado(s) a cifrado AES.')
+                    json.dump(secret_doc, f, indent=2)
+                try:
+                    os.chmod(SECRETS_FILE, 0o600)
+                except Exception:
+                    pass
+                print(f'🔒  {plain_count} token(s) y {plain_pwd_count} contraseña(s) migrado(s) a cifrado AES.')
         except Exception as e:
             print(f'⚠  Error migrando tokens: {e}')
 
@@ -610,7 +773,8 @@ if __name__ == '__main__':
             'openssl', 'req', '-x509', '-newkey', 'rsa:2048',
             '-keyout', PRIVKEY_FILE, '-out', CERT_FILE,
             '-days', '365', '-nodes',
-            '-subj', '/CN=localhost/O=SesamePremiumDashboard/C=ES'
+            '-subj', '/CN=localhost/O=SesamePremiumDashboard/C=ES',
+            '-addext', f'subjectAltName=DNS:localhost,IP:127.0.0.1,IP:{get_lan_ip()}'
         ], capture_output=True)
         if result.returncode == 0:
             try:
@@ -622,12 +786,18 @@ if __name__ == '__main__':
         use_https = True
 
     protocol = 'https' if use_https else 'http'
-    url = f'{protocol}://localhost:{PORT}'
+    local_url = f'{protocol}://localhost:{PORT}'
+    lan_ip = get_lan_ip()
+    lan_url = f'{protocol}://{lan_ip}:{PORT}'
+    shown_url = lan_url if LAN_MODE else local_url
 
     print('\n╔══════════════════════════════════════════════════╗')
     print('║   🚀  Sesame Premium Dashboard · Servidor Local  ║')
     print('╠══════════════════════════════════════════════════╣')
-    print(f'║  {"🔒 HTTPS" if use_https else "⚠️  HTTP "}  {url:<37}║')
+    print(f'║  {"🔒 HTTPS" if use_https else "⚠️  HTTP "}  {local_url:<37}║')
+    if LAN_MODE:
+        print(f'║  🌐  LAN     {lan_url:<37}║')
+        print('║  ⚠️   Accesible desde tu red local              ║')
     enc_st = '🔐 Tokens cifrados AES' if CRYPTO_AVAILABLE else '⚠️  Tokens en texto plano'
     print(f'║  {enc_st:<47}║')
     cred_st = f'✅ Credenciales: {active_name}' if has_cfg else '⚠️  Sin credenciales (get-token.py)'
@@ -636,17 +806,16 @@ if __name__ == '__main__':
     print('║  ⛔   Ctrl+C para detener                        ║')
     print('╚══════════════════════════════════════════════════╝\n')
 
-    httpd = http.server.ThreadingHTTPServer(('', PORT), Handler)
+    httpd = http.server.ThreadingHTTPServer((HOST, PORT), Handler)
 
     if use_https:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(CERT_FILE, PRIVKEY_FILE)
         httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
 
-    threading.Timer(1.2, lambda: webbrowser.open(url)).start()
+    threading.Timer(1.2, lambda: webbrowser.open(shown_url)).start()
 
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         print('\n⛔  Servidor detenido.')
-
