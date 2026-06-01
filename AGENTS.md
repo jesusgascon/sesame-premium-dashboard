@@ -16,10 +16,6 @@ El objetivo de este agente es evolucionar el proyecto hacia una versión visual 
 ## Reglas críticas de seguridad
 
 Está prohibido:
-- Subir cambios a GitHub.
-- Ejecutar `git push`.
-- Crear pull requests.
-- Publicar releases.
 - Leer, copiar, imprimir o resumir secretos reales.
 - Modificar `config.secrets.json` si existe.
 - Mostrar tokens, credenciales, cookies, CIF, contraseñas o datos personales reales.
@@ -28,6 +24,29 @@ Está prohibido:
 - Romper compatibilidad con ejecución local mediante `bash start.sh`.
 - Reescribir todo el proyecto desde cero.
 - Introducir dependencias pesadas sin justificarlo en un informe.
+- Ejecutar comandos destructivos fuera del repositorio.
+- Usar copias temporales para publicar cambios, tags o releases salvo autorización explícita del usuario.
+
+Operaciones Git/GitHub permitidas bajo autorización explícita:
+- Codex puede crear commits locales cuando el usuario lo pida o cuando sea parte del flujo solicitado.
+- Codex puede ejecutar `git push` cuando el usuario lo pida explícitamente.
+- Codex puede crear tags cuando el usuario lo pida explícitamente.
+- Codex puede crear pull requests cuando el usuario lo pida explícitamente.
+- Codex puede publicar releases cuando el usuario lo pida explícitamente.
+- Si el usuario dice “publica”, “sube a GitHub”, “haz push”, “crea release”, “crea tag” o una instrucción equivalente, se considera autorización explícita para esa operación concreta.
+
+Antes de publicar en GitHub, Codex debe:
+- ejecutar `git status`
+- revisar `git diff --stat`
+- ejecutar las validaciones disponibles
+- comprobar que no se incluyen secretos reales
+- confirmar la rama actual y el remoto
+- informar del commit, tag, rama o release creado
+
+Si `.git` aparece como solo lectura dentro del entorno de Codex:
+- No usar una copia temporal para rodear la restricción salvo autorización explícita.
+- Informar al usuario.
+- Dejar preparados los cambios y entregar los comandos exactos para que el usuario ejecute commit, push, tag o release desde su terminal local.
 
 Si necesitas datos de prueba, crea fixtures anónimos y sintéticos dentro de una carpeta local de pruebas.
 
@@ -117,7 +136,7 @@ Busca:
 Aplica mejoras directamente en local, sin preguntar en cada cambio, siempre que:
 - no se rompa la arquitectura existente
 - no se añadan secretos
-- no se suba nada a GitHub
+- no se suba nada a GitHub salvo que el usuario lo pida explícitamente
 - no se cambie la finalidad del proyecto
 - no se introduzcan frameworks pesados
 - no se eliminen funciones existentes
@@ -170,20 +189,47 @@ Antes de terminar:
 
 ## Git
 
-Puedes crear commits locales si ayuda, pero no hagas push.
+Codex puede trabajar con Git de forma operativa, siempre con control y trazabilidad.
+
+Permitido sin autorización adicional:
+- consultar estado con `git status`
+- consultar historial con `git log`
+- consultar ramas con `git branch`
+- revisar diferencias con `git diff`
+- revisar remotos con `git remote -v`
+- crear ramas locales de trabajo
+- preparar commits locales si forman parte de la tarea solicitada
+
+Permitido con autorización explícita del usuario:
+- ejecutar `git push`
+- crear tags con `git tag`
+- subir tags con `git push origin <tag>`
+- crear pull requests con `gh pr create`
+- crear releases con `gh release create`
+- fusionar ramas si el usuario lo pide claramente
 
 Antes de cualquier commit:
 - muestra resumen del diff
 - evita incluir secretos
 - evita incluir datos reales
 - comprueba `git status`
+- ejecuta validaciones razonables según los archivos modificados
 
-Nunca ejecutes:
-- `git push`
-- `gh pr create`
-- `gh release create`
+Antes de cualquier push, tag, PR o release:
+- confirma rama actual
+- confirma remoto destino
+- revisa `git status`
+- revisa `git diff --stat`
+- ejecuta validaciones disponibles
+- verifica que no hay secretos reales
+- informa claramente de qué se va a publicar
+
+No ejecutes nunca:
 - `npm publish`
 - comandos destructivos fuera del repo
+- `git reset --hard` sobre ramas compartidas sin autorización explícita
+- `git push --force` o `git push --force-with-lease` sin autorización explícita y explicación previa
+- publicación desde copias temporales salvo autorización explícita del usuario
 
 ## Comunicación
 
