@@ -161,6 +161,16 @@ Para una inmersión profunda en los algoritmos de cruce de datos, heurísticas d
 
 ## 📜 Changelog Detallado
 
+### [v1.5.0] — 2026-06-01 | *Premium LAN & Visual Polish*
+- **Añadido**: `bash start.sh` arranca en modo red local por defecto y muestra las opciones disponibles (`lan`, `local`, `token`, `help`) antes de iniciar.
+- **Seguridad local**: El proxy ya no expone tokens al navegador en `/config`; usa metadatos públicos y una sesión local `HttpOnly` tras desbloquear con la contraseña maestra.
+- **Mejorado**: Pulido visual premium de login, setup, sidebar, cabeceras, calendario, tablas, modales, estados vacíos, cumpleaños y responsive móvil/tablet.
+- **Corregido**: El selector de **Empresa Activa** mantiene contraste y render estable en reposo, hover y focus, evitando caracteres visualmente corruptos antes de interactuar.
+- **Corregido**: La línea de tiempo de fichajes conserva segmentos rectos para trabajo, pausa y ausencias; no usa esquinas redondeadas porque representa una escala temporal.
+- **Mejorado**: Al editar una empresa, token y contraseña guardados se conservan sin mostrarse y se comunica con una ayuda persistente, no solo con placeholder.
+- **Privacidad**: Eliminados fallbacks externos de avatar con nombres de empleados; las iniciales se generan localmente.
+- **Documentación**: README y ARCHITECTURE actualizados con instalación, LAN, sesión local, cifrado de secretos y operación multiempresa.
+
 ### [v1.4.0] — 2026-05-07 | *The Persistence & Audit Update*
 - **Añadido**: Nuevo motor `Incidence Detection Engine`. Detecta en tiempo real solicitudes de borrado o edición pendientes cruzando la REST API con el BI Engine.
 - **Añadido**: UX Memory. El sistema guarda en `localStorage` si estabas en Fichajes o Vacaciones; un `F5` ya no interrumpe el flujo.

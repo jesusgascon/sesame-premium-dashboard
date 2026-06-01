@@ -93,7 +93,9 @@ El frontend no utiliza librerías (Cero React, Vue o Tailwind) para garantizar u
 
 - **Variables CSS Dinámicas**: Todo el esquema de color está tokenizado en la raíz (`:root`). El cambio de tema invierte las variables fundamentales (`--bg-base`, `--text-primary`), haciendo que la transición sea manejada íntegramente por el motor de renderizado de la GPU del navegador.
 - **Glassmorphism & Jerarquía**: Uso intensivo de `backdrop-filter: blur()`, fondos translúcidos (`rgba(255,255,255,0.03)`) y bordes de contraste (`1px solid var(--border)`) para crear profundidad.
+- **Capa Visual Premium (v1.5.0)**: `styles.css` añade una capa final de superficies elevadas, bordes fuertes, sombras suaves, estados hover/focus consistentes, selector de empresa activo estable y responsive reforzado sin cambiar la estructura HTML/JS.
 - **Bento-Grid Details**: El panel de detalles expandible de un fichaje usa un layout tipo "Bento Box" (cajas asimétricas organizadas en un grid perfecto) para mostrar métricas heterogéneas (Mapa GPS, Tiempos, Dispositivos) de forma digerible.
+- **Timeline de Fichajes**: Las barras de trabajo, pausa y ausencias se renderizan como segmentos rectos sobre una línea temporal. No se redondean para preservar la lectura de escala y evitar un aspecto de píldoras independientes.
 - **Kiosko Mode**: Un flag en el estado que aplica clases CSS a nivel del `<body>` para ocultar la barra lateral y controles, maximizando el área gráfica para pantallas de televisión en salas de reuniones.
 
 ---
