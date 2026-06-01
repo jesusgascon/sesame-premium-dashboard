@@ -2187,7 +2187,7 @@ body {
 .signings-table { width: 100%; border-collapse: collapse; text-align: left; }
 .signings-table th, .signings-table td { padding: 12px 16px; border-bottom: 1px solid var(--border); }
 .signings-table th { 
-  position: sticky; top: 0; background: var(--bg-card-solid); z-index: 10;
+  background: var(--bg-card-solid);
   font-size: 0.8rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;
 }
 .signings-table tbody tr:hover { background: rgba(255,255,255,0.02); }
