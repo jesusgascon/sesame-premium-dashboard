@@ -791,20 +791,17 @@ if __name__ == '__main__':
     lan_url = f'{protocol}://{lan_ip}:{PORT}'
     shown_url = lan_url if LAN_MODE else local_url
 
-    print('\n╔══════════════════════════════════════════════════╗')
-    print('║   🚀  Sesame Premium Dashboard · Servidor Local  ║')
-    print('╠══════════════════════════════════════════════════╣')
-    print(f'║  {"🔒 HTTPS" if use_https else "⚠️  HTTP "}  {local_url:<37}║')
+    print('\nSesame Premium Dashboard - Servidor local')
+    print('-----------------------------------------')
+    print(f'Protocolo : {"HTTPS" if use_https else "HTTP"}')
+    print(f'Local     : {local_url}')
     if LAN_MODE:
-        print(f'║  🌐  LAN     {lan_url:<37}║')
-        print('║  ⚠️   Accesible desde tu red local              ║')
-    enc_st = '🔐 Tokens cifrados AES' if CRYPTO_AVAILABLE else '⚠️  Tokens en texto plano'
-    print(f'║  {enc_st:<47}║')
-    cred_st = f'✅ Credenciales: {active_name}' if has_cfg else '⚠️  Sin credenciales (get-token.py)'
-    print(f'║  {cred_st:<47}║')
-    print('║  🌐  Abriendo navegador...                       ║')
-    print('║  ⛔   Ctrl+C para detener                        ║')
-    print('╚══════════════════════════════════════════════════╝\n')
+        print(f'LAN       : {lan_url}')
+        print('Aviso     : accesible desde la red local')
+    print(f'Secretos  : {"tokens cifrados AES" if CRYPTO_AVAILABLE else "tokens en texto plano"}')
+    print(f'Empresa   : {active_name if has_cfg else "sin credenciales (get-token.py)"}')
+    print('Navegador : abriendo automaticamente')
+    print('Salir     : Ctrl+C\n')
 
     httpd = http.server.ThreadingHTTPServer((HOST, PORT), Handler)
 
@@ -818,4 +815,4 @@ if __name__ == '__main__':
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        print('\n⛔  Servidor detenido.')
+        print('\nServidor detenido.')

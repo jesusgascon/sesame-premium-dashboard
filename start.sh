@@ -10,14 +10,12 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$DIR"
 
 show_options() {
-  echo "╔══════════════════════════════════════════════════╗"
-  echo "║ Sesame Premium Dashboard · Arranque             ║"
-  echo "╠══════════════════════════════════════════════════╣"
-  echo "║ ./start.sh        LAN por defecto               ║"
-  echo "║ ./start.sh lan    LAN explícito                 ║"
-  echo "║ ./start.sh local  Solo este equipo              ║"
-  echo "║ ./start.sh token  Extraer credenciales          ║"
-  echo "╚══════════════════════════════════════════════════╝"
+  echo "Sesame Premium Dashboard - Arranque"
+  echo "-----------------------------------"
+  echo "  ./start.sh        LAN por defecto"
+  echo "  ./start.sh lan    LAN explicito"
+  echo "  ./start.sh local  Solo este equipo"
+  echo "  ./start.sh token  Extraer credenciales"
   echo
 }
 
