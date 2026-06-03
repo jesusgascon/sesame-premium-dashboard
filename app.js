@@ -4367,9 +4367,14 @@ const FichajesModule = {
         return '<div class="mini-timeline-bar absence" style="left:' + ps.toFixed(2) + '%;width:' + pw.toFixed(2) + '%;background:rgba(139,92,246,0.25);border:1px dashed #a78bfa;height:8px;" title="' + lbl + '"></div>';
       }).join('');
     };
-    const _absTableRowsHtml = (segs) => {
+    const _absTableRowsHtml = (segs, entries) => {
       if (!segs || !segs.length) return '';
-      return segs.map(abs => {
+      // Si ya existen fichajes de tipo ausencia en los registros físicos,
+      // no mostrar la fila del calendario (evitar duplicado)
+      const hasAbsSignings = (entries || []).some(e => e.type !== 'work' && e.type !== 'pause');
+      if (hasAbsSignings) return '';
+      // Tampoco mostrar ausencias de día completo (sin franja horaria concreta)
+      return segs.filter(abs => !abs.isFullDay).map(abs => {
         let durStr = '--';
         const p1 = abs.start.split(':').map(Number);
         const p2 = abs.end.split(':').map(Number);
@@ -4627,7 +4632,7 @@ const FichajesModule = {
                   <table class="details-tech-table">
                     <thead><tr><th>HORARIO</th><th>DURACIÓN</th><th>TIPO</th><th>ORIGEN</th><th>UBICACIÓN</th></tr></thead>
                     <tbody>
-                      ${_absTableRowsHtml(row.absenceSegments)}
+                      ${_absTableRowsHtml(row.absenceSegments, row.entries)}
                       ${(row.entries || []).map(e => {
                         const icon = e.type === 'work' ? '💼' : (e.type === 'pause' ? '☕' : '🚪');
                         const typeCls = e.type === 'work' ? 'type-work' : (e.type === 'pause' ? 'type-pause' : 'type-abs');
