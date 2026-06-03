@@ -171,6 +171,7 @@ Para una inmersión profunda en los algoritmos de cruce de datos, heurísticas d
 - **Corregido**: Las ausencias de día completo no generan fila en la tabla de detalles (no tienen franja horaria concreta).
 - **Corregido**: La barra de ausencia en la mini-línea de actividad ahora ocupa el alto completo del contenedor (24 px) al eliminar el `height:8px` inline que sobreescribía el CSS.
 - **Corregido**: Lógica de "cruce inteligente" actualizada para evitar que fichajes físicos reales (trabajo o pausa) sean reemplazados visualmente por el nombre de una ausencia parcial con la que solapan. Esto soluciona la desaparición de las franjas trabajadas y la visibilidad de la ausencia en la tabla de detalles.
+- **Corregido**: El módulo Calendario ahora obtiene todas las ausencias sin limitarse a los tipos pre-cacheados (`fetchCalendarGrouped` con parámetros vacíos). Además, registra dinámicamente cualquier tipo de ausencia faltante o histórico devuelto por la API, solucionando el problema de ausencias invisibles en el calendario que sí aparecían en fichajes.
 - **CSS**: Añadida regla `.mini-timeline-bar.absence` con color violeta `rgba(139,92,246,0.35)` y bordes laterales `#a78bfa` para distinguir visualmente las ausencias de los tramos de trabajo y pausa.
 
 ### [v1.5.2] — 2026-06-01 | *Visual Polish*

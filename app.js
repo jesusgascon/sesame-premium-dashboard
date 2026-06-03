@@ -1758,7 +1758,7 @@ async function loadDataInternal() {
     let employeeMode = false;
 
     try {
-      rawData = await fetchCalendarGrouped(fmtDate(fromDate), fmtDate(toDate), typeIds);
+      rawData = await fetchCalendarGrouped(fmtDate(fromDate), fmtDate(toDate), []);
     } catch (calErr) {
       const is403 = calErr.message.includes('403') || calErr.message.includes('401');
       if (is403 && STATE.currentUser) {
@@ -1835,6 +1835,18 @@ async function loadDataInternal() {
         });
 
         const rawType = ct.calendar_type || {};
+        
+        // Registrar dinámicamente el tipo si no existía (ej. ausencias históricas o parciales no devueltas en /absence-types)
+        if (rawType.id && !STATE.absenceTypes.find(t => t.id === rawType.id)) {
+          STATE.absenceTypes.push({
+            id: rawType.id,
+            name: rawType.name || 'Ausencia',
+            color: rawType.color || 'ssmv2-purple',
+            category: rawType.category || 'vacation'
+          });
+          STATE.activeFilters.add(rawType.id);
+        }
+
         const masterType = STATE.absenceTypes.find(t => t.id === rawType.id) || {};
         
         return {
