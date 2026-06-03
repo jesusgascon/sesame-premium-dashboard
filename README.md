@@ -5,7 +5,7 @@
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Frontend](https://img.shields.io/badge/frontend-Vanilla%20JS%20(ES6+)-yellow.svg)
 ![Backend](https://img.shields.io/badge/backend-Python%20Proxy-green.svg)
-![Version](https://img.shields.io/badge/version-1.6.0-success.svg)
+![Version](https://img.shields.io/badge/version-1.6.1-success.svg)
 ![Status](https://img.shields.io/badge/status-Production%20Ready-success.svg)
 
 ---
@@ -161,7 +161,7 @@ Para una inmersión profunda en los algoritmos de cruce de datos, heurísticas d
 
 ## 📜 Changelog Detallado
 
-### [v1.6.0] — 2026-06-04 | *Ausencias Parciales en Fichajes y Calendario*
+### [v1.6.1] — 2026-06-04 | *Corrección de Ausencias Parciales*
 - **Añadido**: Las ausencias de jornada parcial (visitas médicas, permisos por horas, etc.) ahora se visualizan en **dos niveles**:
   - **Calendario de Vacaciones — Modal de día**: aparece un badge `🕐 HH:MM – HH:MM (Xh)` bajo el nombre de cada empleado cuando la API `/calendars` confirma un horario parcial de ausencia.
   - **Fichajes — Línea de actividad**: la franja horaria de ausencia se renderiza como una **barra violeta semitransparente** en la mini-línea de actividad del panel de detalle.
