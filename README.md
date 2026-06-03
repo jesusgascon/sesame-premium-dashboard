@@ -5,7 +5,7 @@
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Frontend](https://img.shields.io/badge/frontend-Vanilla%20JS%20(ES6+)-yellow.svg)
 ![Backend](https://img.shields.io/badge/backend-Python%20Proxy-green.svg)
-![Version](https://img.shields.io/badge/version-1.4.0-success.svg)
+![Version](https://img.shields.io/badge/version-1.6.0-success.svg)
 ![Status](https://img.shields.io/badge/status-Production%20Ready-success.svg)
 
 ---
@@ -161,7 +161,18 @@ Para una inmersión profunda en los algoritmos de cruce de datos, heurísticas d
 
 ## 📜 Changelog Detallado
 
-### [v1.5.0] — 2026-06-01 | *Premium LAN & Visual Polish*
+### [v1.6.0] — 2026-06-04 | *Ausencias Parciales en Fichajes y Calendario*
+- **Añadido**: Las ausencias de jornada parcial (visitas médicas, permisos por horas, etc.) ahora se visualizan en **dos niveles**:
+  - **Calendario de Vacaciones — Modal de día**: aparece un badge `🕐 HH:MM – HH:MM (Xh)` bajo el nombre de cada empleado cuando la API `/calendars` confirma un horario parcial de ausencia.
+  - **Fichajes — Línea de actividad**: la franja horaria de ausencia se renderiza como una **barra violeta semitransparente** en la mini-línea de actividad del panel de detalle.
+  - **Fichajes — Tabla de detalles**: aparece una fila `📌 <Tipo de Ausencia>` con horario exacto y duración calculada, **solo** cuando el tramo de ausencia no está ya cubierto por un fichaje físico (no hay duplicados).
+- **Añadido**: `fetchAbsenceTimesIndex()` — nueva función que consulta de forma no bloqueante `/api/v3/companies/.../calendars` para poblar `STATE.absenceTimesIndex`, un mapa `{empId_date → {startTime, endTime}}` reutilizable en todo el frontend.
+- **Añadido**: `FichajesModule.absenceTimesMap` — mapa análogo para el módulo de fichajes, que cruza los horarios exactos de ausencia con los registros de presencia en `parseRealSignings`.
+- **Corregido**: Las ausencias de día completo no generan fila en la tabla de detalles (no tienen franja horaria concreta).
+- **Corregido**: La barra de ausencia en la mini-línea de actividad ahora ocupa el alto completo del contenedor (24 px) al eliminar el `height:8px` inline que sobreescribía el CSS.
+- **CSS**: Añadida regla `.mini-timeline-bar.absence` con color violeta `rgba(139,92,246,0.35)` y bordes laterales `#a78bfa` para distinguir visualmente las ausencias de los tramos de trabajo y pausa.
+
+### [v1.5.2] — 2026-06-01 | *Visual Polish*
 - **Añadido**: `bash start.sh` arranca en modo red local por defecto y muestra las opciones disponibles (`lan`, `local`, `token`, `help`) antes de iniciar.
 - **Seguridad local**: El proxy ya no expone tokens al navegador en `/config`; usa metadatos públicos y una sesión local `HttpOnly` tras desbloquear con la contraseña maestra.
 - **Mejorado**: Pulido visual premium de login, setup, sidebar, cabeceras, calendario, tablas, modales, estados vacíos, cumpleaños y responsive móvil/tablet.

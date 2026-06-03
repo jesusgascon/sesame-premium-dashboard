@@ -100,3 +100,40 @@ El frontend no utiliza librerías (Cero React, Vue o Tailwind) para garantizar u
 
 ---
 *Fin del Documento de Arquitectura.*
+
+---
+
+## 7. Motor de Ausencias Parciales (v1.6.0)
+
+### Problema resuelto
+El API de calendarios de Sesame tiene dos endpoints con diferente granularidad:
+- `/calendars-grouped` — devuelve ausencias agrupadas por tipo/día, sin horario exacto.
+- `/calendars` — devuelve ausencias individuales por empleado con `startTime`/`endTime` cuando son de jornada parcial.
+
+El módulo de Fichajes usaba únicamente los datos de presencia (`/workEntries`) para renderizar la línea de tiempo, por lo que los tramos de ausencia parcial (p. ej., visita médica de 10:16 a 12:02) eran invisibles en el detalle de ese día.
+
+### Solución implementada
+
+#### `fetchAbsenceTimesIndex(from, to)`
+Función global no bloqueante que consulta `/calendars` y construye `STATE.absenceTimesIndex`, un `Map` con clave `"empId_date"` y valor `{startTime, endTime, seconds}`. Se llama tras cargar el calendario y el resultado queda disponible para toda la interfaz.
+
+#### `FichajesModule.absenceTimesMap`
+Mapa análogo construido dentro de `FichajesModule.loadData` usando `fetchCalendarsRaw()`. Se almacena en la instancia del módulo y se cruza en `parseRealSignings` para inyectar los horarios exactos en los `absenceSegments` de cada fila.
+
+#### Renderizado en la UI
+Las ausencias parciales se visualizan en tres capas:
+
+| Capa | Elemento | Descripción |
+|------|----------|-------------|
+| **Modal calendario** | Badge `🕐 HH:MM – HH:MM` | Se muestra bajo el nombre del empleado en el modal de día del calendario de vacaciones. |
+| **Mini-línea de actividad** | Barra violeta `rgba(139,92,246,0.35)` | Renderizada por `_absTimelineHtml()` sobre el contenedor `detail-activity-timeline` (24 px). |
+| **Tabla de detalles** | Fila `📌 <Tipo>` con horario y duración | Generada por `_absTableRowsHtml()`. Se omite si un fichaje físico ya cubre ese tramo horario exacto (lógica de solapamiento por minuto). |
+
+#### Lógica de deduplicación
+Para evitar duplicados entre el registro del calendario y los fichajes físicos (que a veces también se etiquetan con el tipo de ausencia), `_absTableRowsHtml` aplica una comprobación de solapamiento temporal:
+```
+ausencia visible ⟺ no existe ninguna entrada (type ≠ 'work'/'pause')
+                    cuyo tramo [eIn, eOut] solape con [absStart, absEnd]
+```
+Esto garantiza que el tramo 10:16-12:02 aparezca como fila `📌` si no hay ningún fichaje que lo cubra, pero se suprima si ya hay un `🚪` registrado para ese periodo exacto.
+
