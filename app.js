@@ -4369,12 +4369,28 @@ const FichajesModule = {
     };
     const _absTableRowsHtml = (segs, entries) => {
       if (!segs || !segs.length) return '';
-      // Si ya existen fichajes de tipo ausencia en los registros físicos,
-      // no mostrar la fila del calendario (evitar duplicado)
-      const hasAbsSignings = (entries || []).some(e => e.type !== 'work' && e.type !== 'pause');
-      if (hasAbsSignings) return '';
-      // Tampoco mostrar ausencias de día completo (sin franja horaria concreta)
-      return segs.filter(abs => !abs.isFullDay).map(abs => {
+      // Mostrar solo ausencias parciales cuyo tramo NO está cubierto por un fichaje físico.
+      // (si ya hay un fichaje que solapa exactamente ese periodo, no duplicamos)
+      const isCoveredByEntry = (absStartStr, absEndStr) => {
+        const [ah, am] = (absStartStr || '00:00').split(':').map(Number);
+        const [bh, bm] = (absEndStr   || '23:59').split(':').map(Number);
+        const aMin = ah*60 + (am||0);
+        const bMin = bh*60 + (bm||0);
+        return (entries || []).some(e => {
+          if (!e.in || !e.out || e.type === 'work' || e.type === 'pause') return false;
+          const [ih, im] = e.in.split(':').map(Number);
+          const [oh, om] = e.out.split(':').map(Number);
+          const iMin = ih*60 + (im||0);
+          const oMin = oh*60 + (om||0);
+          // Solapamiento: la entrada empieza antes de que acabe la ausencia
+          // Y termina después de que empiece la ausencia
+          return iMin < bMin && oMin > aMin;
+        });
+      };
+      return segs.filter(abs => {
+        if (abs.isFullDay) return false; // día completo: sin franja horaria concreta
+        return !isCoveredByEntry(abs.start, abs.end); // solo si el tramo NO está en los fichajes
+      }).map(abs => {
         let durStr = '--';
         const p1 = abs.start.split(':').map(Number);
         const p2 = abs.end.split(':').map(Number);
