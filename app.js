@@ -81,6 +81,7 @@ const STATE = {
   hiddenEmployeeIds: new Set(), // Empleados ocultos en el filtro
   calendarData: {},     // 'YYYY-MM-DD' → [{type, employees}]
   absenceTypes: [],
+  absenceTimesIndex: new Map(),
   activeFilters: new Set(),
   currentDate:  (function() {
     const saved = sessionStorage.getItem('ssm_current_date');
@@ -564,6 +565,32 @@ async function fetchCalendarGrouped(from, to, typeIds) {
     params
   );
   return data.data || data || [];
+}
+
+async function fetchAbsenceTimesIndex(from, to) {
+  try {
+    const data = await apiFetch(`/api/v3/companies/${STATE.companyId}/calendars?from=${from}&to=${to}`);
+    const list = data.data || data || [];
+    const index = new Map();
+    list.forEach(cal => {
+      const empId = cal.employee?.id || cal.entityReference?.id;
+      if (!empId || !cal.daysOff) return;
+      cal.daysOff.forEach(doff => {
+        if (!doff.date) return;
+        if (doff.startTime || doff.endTime || doff.dayOffTimeType === 'partial_day') {
+          index.set(String(empId) + '_' + doff.date, {
+            startTime: doff.startTime || null,
+            endTime:   doff.endTime   || null,
+            seconds:   doff.seconds   || 0
+          });
+        }
+      });
+    });
+    return index;
+  } catch(e) {
+    console.warn('fetchAbsenceTimesIndex failed (non-critical):', e.message);
+    return new Map();
+  }
 }
 
 async function fetchPresence() {
@@ -1823,6 +1850,12 @@ async function loadDataInternal() {
     });
 
     updateMonthLabel();
+
+    // Poblar índice de horarios de ausencias parciales (asíncrono, no bloqueante)
+    fetchAbsenceTimesIndex(fmtDate(fromDate), fmtDate(toDate)).then(idx => {
+      STATE.absenceTimesIndex = idx;
+    });
+
     // Añadir nota de modo empleado en el label del mes si aplica
     if (employeeMode) {
       const lbl = $('absence-count-label');
@@ -2511,7 +2544,17 @@ function openModal(dateStr, events) {
             ? `<img src="${emp.imageProfileURL}" alt="${name}" onerror="this.parentNode.textContent='${initials}'" />`
             : initials}
         </div>
-        <div class="modal-emp-name">${name}</div>
+        <div class="modal-emp-name">
+          ${name}
+          ${(() => {
+            const tk = String(emp.id || '') + '_' + dateStr;
+            const ti = STATE.absenceTimesIndex && STATE.absenceTimesIndex.get(tk);
+            if (!ti || !ti.startTime || !ti.endTime) return '';
+            const durH = ti.seconds ? Math.floor(ti.seconds / 3600) : 0;
+            const durTxt = durH ? ' <span class="modal-emp-duration">(' + durH + 'h)</span>' : '';
+            return '<span class="modal-emp-time">\u{1F550} ' + ti.startTime.substring(0,5) + ' \u2013 ' + ti.endTime.substring(0,5) + durTxt + '</span>';
+          })()}
+        </div>
         ${emp.workStatus 
           ? `<span class="pill status-${emp.workStatus.toLowerCase().replace(/\s+/g, '-')}" style="margin-left:auto">${emp.workStatus}</span>` 
           : ''}
@@ -3459,8 +3502,9 @@ const FichajesModule = {
         }
       }
 
-      // 2.5 Excepciones de jornada
+      // 2.5 Excepciones de jornada + mapa de horarios de ausencias parciales
       const dayOverrides = new Map();
+      this.absenceTimesMap = new Map();
       if (!_coreApiIs403 && !_employeeMode) {
         try {
           const calendarsRaw = await fetchCalendarsRaw(start, end);
@@ -3472,6 +3516,13 @@ const FichajesModule = {
               cal.daysOff.forEach(doff => {
                 if (!doff.date) return;
                 const key = `${empId}_${doff.date}`;
+                if (doff.startTime || doff.endTime || doff.dayOffTimeType === 'partial_day') {
+                  this.absenceTimesMap.set(key, {
+                    startTime: doff.startTime || null,
+                    endTime:   doff.endTime   || null,
+                    seconds:   doff.seconds   || 0
+                  });
+                }
                 const existing = dayOverrides.get(key) || { workdayOverride: null, compensatedSeconds: 0 };
                 if (doff.dayOffTimeType === 'full_day' && typeof doff.seconds !== 'undefined') {
                   existing.workdayOverride = doff.seconds;
@@ -3976,7 +4027,15 @@ const FichajesModule = {
               eTimeRaw = `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:00`;
             }
 
-            // Capturamos la ausencia para el panel de detalles (aunque no se vea en la línea de tiempo gráfica)
+            // Cruzar con absenceTimesMap para obtener horario exacto de la API /calendars
+            const _atKey = String(record.employeeId) + '_' + record.date;
+            const _atVal = this.absenceTimesMap && this.absenceTimesMap.get(_atKey);
+            if (_atVal) {
+              if (_atVal.startTime) sTimeRaw = _atVal.startTime;
+              if (_atVal.endTime)   eTimeRaw = _atVal.endTime;
+            }
+
+            // Capturamos la ausencia para el panel de detalles
             absenceSegments.push({
               start: sTimeRaw || "00:00:00",
               end: eTimeRaw || "23:59:59",
@@ -4295,6 +4354,43 @@ const FichajesModule = {
     let totalWorked = 0;
     let totalTheoretic = 0;
     
+    // ── Helpers: HTML de ausencias (sin backticks anizados) ──────────────
+    const _absTimelineHtml = (segs) => {
+      if (!segs || !segs.length) return '';
+      return segs.filter(a => !a.isFullDay).map(abs => {
+        const p = abs.start.split(':').map(Number);
+        const q = abs.end.split(':').map(Number);
+        if (isNaN(p[0]) || isNaN(q[0])) return '';
+        const ps = ((p[0] + (p[1]||0)/60) / 24) * 100;
+        const pw = (((q[0] + (q[1]||0)/60) - (p[0] + (p[1]||0)/60)) / 24) * 100;
+        const lbl = (abs.label || 'Ausencia') + ': ' + abs.start.substring(0,5) + '-' + abs.end.substring(0,5);
+        return '<div class="mini-timeline-bar absence" style="left:' + ps.toFixed(2) + '%;width:' + pw.toFixed(2) + '%;background:rgba(139,92,246,0.25);border:1px dashed #a78bfa;height:8px;" title="' + lbl + '"></div>';
+      }).join('');
+    };
+    const _absTableRowsHtml = (segs) => {
+      if (!segs || !segs.length) return '';
+      return segs.map(abs => {
+        let durStr = '--';
+        const p1 = abs.start.split(':').map(Number);
+        const p2 = abs.end.split(':').map(Number);
+        if (!isNaN(p1[0]) && !isNaN(p2[0])) {
+          const dm = (p2[0]*60 + (p2[1]||0)) - (p1[0]*60 + (p1[1]||0));
+          if (dm > 0) durStr = Math.floor(dm/60) + 'h ' + (dm%60) + 'm';
+        }
+        const st = abs.start ? abs.start.substring(0,5) : '00:00';
+        const et = abs.end   ? abs.end.substring(0,5)   : '23:59';
+        const lbl = abs.label || 'Ausencia';
+        return '<tr class="row-is-absence" style="background:rgba(139,92,246,0.06);">'
+          + '<td><strong>' + st + ' \u2013 ' + et + '</strong></td>'
+          + '<td><span class="td-duration">' + durStr + '</span></td>'
+          + '<td><span style="background:rgba(139,92,246,0.15);border:1px dashed #a78bfa;padding:3px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;color:#a78bfa;">'
+          + '\uD83D\uDCCC ' + lbl + '</span></td>'
+          + '<td><span class="td-loc">\uD83D\uDCC5 Sesame (Ausencia)</span></td>'
+          + '<td><span style="opacity:0.3">--</span></td>'
+          + '</tr>';
+      }).join('');
+    };
+
     filtered.forEach((row, idx) => {
       try {
         const realWorked = Number(row.workedSeconds || 0);
@@ -4320,17 +4416,27 @@ const FichajesModule = {
           }
         }
 
-        // --- MULTI-SEGMENT TIMELINE ---
-        const timelineSegments = (row.entries || []).map(e => {
-          if (!e.in || !e.out || e.in === "--:--" || e.out === "--:--") return "";
-          if (e.in.includes(' ')) return ""; 
-          const [hIn, mIn] = e.in.split(':').map(Number);
-          const [hOut, mOut] = e.out.split(':').map(Number);
-          if (isNaN(hIn) || isNaN(hOut)) return "";
-          const start = ((hIn + (mIn||0)/60) / 24) * 100;
-          const width = (((hOut + (mOut||0)/60) - (hIn + (mIn||0)/60)) / 24) * 100;
-          return `<div class="timeline-bar ${e.type || 'work'}" style="left: ${start}%; width: ${width}%;" title="${e.typeLabel || 'Trabajo'}: ${e.in} - ${e.out}"></div>`;
-        }).join('');
+        // --- MULTI-SEGMENT TIMELINE (fichajes + ausencias parciales) ---
+        const timelineSegments = [
+          ...(row.entries || []).map(e => {
+            if (!e.in || !e.out || e.in === "--:--" || e.out === "--:--") return "";
+            if (e.in.includes(' ')) return "";
+            const [hIn, mIn] = e.in.split(':').map(Number);
+            const [hOut, mOut] = e.out.split(':').map(Number);
+            if (isNaN(hIn) || isNaN(hOut)) return "";
+            const ps = ((hIn + (mIn||0)/60) / 24) * 100;
+            const pw = (((hOut + (mOut||0)/60) - (hIn + (mIn||0)/60)) / 24) * 100;
+            return '<div class="timeline-bar ' + (e.type||'work') + '" style="left:' + ps + '%;width:' + pw + '%" title="' + (e.typeLabel||'Trabajo') + ': ' + e.in + ' - ' + e.out + '"></div>';
+          }),
+          ...(row.absenceSegments || []).filter(a => !a.isFullDay).map(abs => {
+            const [hIn, mIn] = abs.start.split(':').map(Number);
+            const [hOut, mOut] = abs.end.split(':').map(Number);
+            if (isNaN(hIn) || isNaN(hOut)) return "";
+            const ps = ((hIn + (mIn||0)/60) / 24) * 100;
+            const pw = (((hOut + (mOut||0)/60) - (hIn + (mIn||0)/60)) / 24) * 100;
+            return '<div class="timeline-bar absence" style="left:' + ps + '%;width:' + pw + '%" title="' + (abs.label||'Ausencia') + ': ' + abs.start.substring(0,5) + ' - ' + abs.end.substring(0,5) + '"></div>';
+          })
+        ].join('');
         
         const tr = document.createElement('tr');
         tr.className = 'row-expandable';
@@ -4396,6 +4502,7 @@ const FichajesModule = {
                    <div class="stats-bento-section">
                      <div class="info-title">📈 LÍNEA DE ACTIVIDAD</div>
                      <div class="detail-activity-timeline">
+                       ${_absTimelineHtml(row.absenceSegments)}
                        ${(row.entries || []).map(e => {
                          if (!e.in || !e.out || e.in === "--:--" || e.out === "--:--") return "";
                          const [hIn, mIn] = e.in.split(':').map(Number);
@@ -4520,6 +4627,7 @@ const FichajesModule = {
                   <table class="details-tech-table">
                     <thead><tr><th>HORARIO</th><th>DURACIÓN</th><th>TIPO</th><th>ORIGEN</th><th>UBICACIÓN</th></tr></thead>
                     <tbody>
+                      ${_absTableRowsHtml(row.absenceSegments)}
                       ${(row.entries || []).map(e => {
                         const icon = e.type === 'work' ? '💼' : (e.type === 'pause' ? '☕' : '🚪');
                         const typeCls = e.type === 'work' ? 'type-work' : (e.type === 'pause' ? 'type-pause' : 'type-abs');
