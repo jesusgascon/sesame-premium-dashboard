@@ -135,9 +135,15 @@
   border-radius: 0;
   min-width: 2px;
 }
-.mini-timeline-bar.work { background: var(--accent); opacity: 0.85; }
-.mini-timeline-bar.pause { background: #f5a623; opacity: 0.85; }
-.mini-timeline-bar.abs { background: var(--accent); opacity: 0.85; }
+.mini-timeline-bar.work    { background: var(--accent); opacity: 0.85; }
+.mini-timeline-bar.pause   { background: #f5a623; opacity: 0.85; }
+.mini-timeline-bar.abs     { background: var(--accent); opacity: 0.85; }
+.mini-timeline-bar.absence {
+  background: rgba(139, 92, 246, 0.35);
+  border-left:  2px solid #a78bfa;
+  border-right: 2px solid #a78bfa;
+  opacity: 1;
+}
 
 /* Deep Audit Sub-items (Descriptions/Comments) */
 .detail-deep-item-sub {

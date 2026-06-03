@@ -4364,7 +4364,7 @@ const FichajesModule = {
         const ps = ((p[0] + (p[1]||0)/60) / 24) * 100;
         const pw = (((q[0] + (q[1]||0)/60) - (p[0] + (p[1]||0)/60)) / 24) * 100;
         const lbl = (abs.label || 'Ausencia') + ': ' + abs.start.substring(0,5) + '-' + abs.end.substring(0,5);
-        return '<div class="mini-timeline-bar absence" style="left:' + ps.toFixed(2) + '%;width:' + pw.toFixed(2) + '%;background:rgba(139,92,246,0.25);border:1px dashed #a78bfa;height:8px;" title="' + lbl + '"></div>';
+        return '<div class="mini-timeline-bar absence" style="left:' + ps.toFixed(2) + '%;width:' + pw.toFixed(2) + '%;" title="' + lbl + '"></div>';
       }).join('');
     };
     const _absTableRowsHtml = (segs, entries) => {
