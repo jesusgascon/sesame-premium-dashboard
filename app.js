@@ -4089,8 +4089,14 @@ const FichajesModule = {
         absDate.setHours(h, m, 0);
         const absStartTs = absDate.getTime();
         
-        // Emparejar solo si el fichaje empieza dentro del bloque de la ausencia parcial
-        if (entryStart >= absStartTs && entryStart < absStartTs + (4 * 3600 * 1000)) { // Margen de 4h
+        const [eH, eM] = (abs.end || "23:59:59").split(':').map(Number);
+        const absEndDate = new Date(record.date + 'T00:00:00');
+        absEndDate.setHours(eH, eM, 0);
+        const absEndTs = absEndDate.getTime();
+        
+        // Emparejar solo si el fichaje empieza dentro del bloque exacto de la ausencia parcial
+        // Margen de 15 min al inicio, y debe empezar antes del final de la ausencia para no pisar el fichaje de vuelta
+        if (entryStart >= (absStartTs - 900000) && entryStart < (absEndTs - 60000)) { 
            typeClass = 'private';
            typeLabel = abs.label;
            break;
