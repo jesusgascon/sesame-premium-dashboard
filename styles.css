@@ -1286,8 +1286,10 @@ body {
 
 /* Cuando el nav tiene clase view-switcher pasa a segmented-control */
 .sidebar-nav.view-switcher {
-  flex-direction: row;
-  gap: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  width: 100%;
+  box-sizing: border-box;
   background: rgba(var(--text-rgb, 255,255,255), 0.07);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -1296,7 +1298,7 @@ body {
 }
 
 .sidebar-nav.view-switcher .nav-item {
-  flex: 1;
+  display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -1312,9 +1314,7 @@ body {
   cursor: pointer;
   text-align: center;
   transition: all 0.18s ease;
-  white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .sidebar-nav.view-switcher .nav-item:hover {
