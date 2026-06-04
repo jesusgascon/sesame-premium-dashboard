@@ -18,7 +18,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-  
+
   <!-- ========== LOCK SCREEN ========== -->
   <div id="lock-screen" class="screen active">
     <div class="setup-bg">
@@ -239,7 +239,7 @@
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
           </div>
         </div>
-        
+
         <div class="section-content">
           <div class="chip-group" style="margin-bottom: 12px;">
             <button id="emp-sel-all" class="chip-btn">Todos</button>
@@ -269,14 +269,14 @@
             </div>
             <div class="widget-footer" id="vacation-subtitle">Cargando saldo...</div>
           </div>
-          
+
           <div id="seniority-widget" class="profile-widget glass-sm mt-10">
             <div class="seniority-info">
               <span class="seniority-label">Antigüedad</span>
               <span class="seniority-val" id="seniority-text">-- años</span>
             </div>
           </div>
-          
+
           <!-- Nuevo: Widget Patrones -->
           <div id="patterns-widget" class="profile-widget glass-sm mt-10" style="display:none;">
             <div class="widget-header">
@@ -334,7 +334,7 @@
 
     <!-- Main content -->
     <main class="main-content">
-      
+
       <!-- VACACIONES MODULE WRAPPER -->
       <div id="module-vacaciones-wrapper" class="module-wrapper active">
 
@@ -425,28 +425,28 @@
               <button id="next-month-signings" class="btn-icon-round" aria-label="Periodo siguiente">›</button>
             </div>
           </div>
-          
+
           <div class="header-actions">
-            <button id="today-signings" class="btn-secondary" style="font-size: 0.75rem; padding: 4px 10px;">Hoy</button>
-            
-            <div class="view-toggle" id="fichajes-view-toggle" style="margin: 0 5px;">
+            <button id="today-signings" class="btn-secondary btn-compact">Hoy</button>
+
+            <div class="view-toggle fichajes-view-toggle" id="fichajes-view-toggle">
               <button class="vt-btn active" data-fichaje-view="month">Mes</button>
               <button class="vt-btn" data-fichaje-view="week">Semana</button>
               <button class="vt-btn" data-fichaje-view="day">Día</button>
-              <button class="vt-btn" data-fichaje-view="balance" style="border-left: 1px solid rgba(255,255,255,0.1); margin-left: 4px; padding-left: 12px;">📈 Balances</button>
+              <button class="vt-btn balance-mode-btn" data-fichaje-view="balance">📈 Balances</button>
             </div>
 
-            <div class="search-group-signings" style="display: flex; align-items: center; gap: 6px; padding: 0 10px; border-left: 1px solid var(--border); border-right: 1px solid var(--border); margin: 0 5px;">
-              <input type="text" id="signings-employee-search" placeholder="🔍 Buscar..." class="beautiful-input-sm" style="width: 120px; height: 32px; font-size: 0.8rem;" aria-label="Buscar empleado en fichajes">
-              <select id="signings-employee-select" class="beautiful-select" style="width: 160px; height: 32px; font-size: 0.8rem; padding: 0 10px;" aria-label="Filtrar fichajes por empleado">
+            <div class="search-group-signings">
+              <input type="text" id="signings-employee-search" placeholder="🔍 Buscar..." class="beautiful-input-sm signings-search-input" aria-label="Buscar empleado en fichajes">
+              <select id="signings-employee-select" class="beautiful-select signings-employee-select" aria-label="Filtrar fichajes por empleado">
                 <option value="all">👥 Ver a todo el equipo</option>
               </select>
-              <button id="btn-show-multi-filter" class="btn-secondary" style="font-size: 0.65rem; padding: 4px 8px; height: 32px; border-radius: 8px; white-space: nowrap;" title="Seleccionar varios compañeros en el panel lateral">
+              <button id="btn-show-multi-filter" class="btn-secondary btn-compact multi-filter-btn" title="Seleccionar varios compañeros en el panel lateral">
                 Varios...
               </button>
             </div>
 
-            <div class="icon-actions-group" style="display: flex; align-items: center; gap: 4px;">
+            <div class="icon-actions-group">
               <button id="kiosko-mode-btn" class="btn-icon-round" title="Modo Kiosko (Vista de oficina)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
               </button>
@@ -454,10 +454,10 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
               </button>
               <button id="export-signings-json" class="btn-icon-round" title="Exportar JSON (Solo visibles)" aria-label="Exportar fichajes visibles en JSON">
-                <span style="font-size: 10px; font-weight: 800;">{ }</span>
+                <span class="json-icon-label">{ }</span>
               </button>
               <button id="theme-btn-signings" class="theme-toggle btn-icon-round" title="Cambiar tema" aria-label="Cambiar tema">🌙</button>
-              <button id="birthdays-btn" class="btn-icon-round" title="Cumpleaños del equipo" aria-label="Abrir cumpleaños del equipo" style="background: var(--accent-glow); color: var(--accent); border: 1px solid var(--accent);">
+              <button id="birthdays-btn" class="btn-icon-round birthdays-action-btn" title="Cumpleaños del equipo" aria-label="Abrir cumpleaños del equipo">
                 🎂
               </button>
               <button id="toggle-all-signings-btn" class="btn-icon-round" title="Expandir/Contraer todos" aria-label="Expandir o contraer todos los fichajes">
@@ -470,10 +470,10 @@
             </div>
           </div>
         </header>
-        
+
         <!-- Barra de progreso para cargas lentas -->
-        <div id="signings-progress-container" class="progress-container hidden" style="width: 100%; height: 3px; background: rgba(255,255,255,0.05); position: relative; overflow: hidden;">
-          <div id="signings-progress-bar" style="width: 0%; height: 100%; background: var(--accent); transition: width 0.3s ease; box-shadow: 0 0 10px var(--accent);"></div>
+        <div id="signings-progress-container" class="signings-progress-container hidden">
+          <div id="signings-progress-bar" class="signings-progress-bar"></div>
         </div>
 
         <section id="fichajes-insights" class="fichajes-insights">
@@ -511,10 +511,10 @@
         </section>
 
         <!-- Banner: Modo Empleado (visible solo cuando no hay permisos de equipo) -->
-        <div id="employee-mode-bar" style="display:none; align-items:center; gap:12px; padding:10px 20px; margin: 0 0 4px 0; background: linear-gradient(90deg, rgba(255,170,0,0.12), rgba(255,170,0,0.04)); border-bottom: 1px solid rgba(255,170,0,0.25); font-size:0.82rem; color:var(--text-muted);">
-          <span style="font-size:1.1rem;">👤</span>
+        <div id="employee-mode-bar" class="employee-mode-bar">
+          <span class="employee-mode-icon">👤</span>
           <span><strong style="color:var(--warn);">Modo Empleado</strong> — Esta cuenta no tiene acceso a datos del equipo en Sesame. Se muestran solo tus fichajes personales.</span>
-          <button onclick="localStorage.removeItem('ssm_company_mode_'+STATE.companyId); FichajesModule.loadData();" style="margin-left:auto; font-size:0.72rem; padding:3px 10px; border-radius:6px; background:rgba(255,170,0,0.15); border:1px solid rgba(255,170,0,0.3); color:var(--warn); cursor:pointer;" title="Fuerza re-detección de permisos (útil si el admin te asignó rol manager)">🔄 Re-verificar permisos</button>
+          <button class="employee-mode-recheck-btn" onclick="localStorage.removeItem('ssm_company_mode_'+STATE.companyId); FichajesModule.loadData();" title="Fuerza re-detección de permisos (útil si el admin te asignó rol manager)">🔄 Re-verificar permisos</button>
         </div>
 
         <div class="signings-table-container">

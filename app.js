@@ -38,8 +38,8 @@ function togglePassword(id) {
 // Auto-detect if running via local proxy server (server.py)
 function isLocalProxy() {
   const h = window.location.hostname;
-  return h === 'localhost' || h === '127.0.0.1' || 
-         h.startsWith('192.168.') || h.startsWith('10.') || 
+  return h === 'localhost' || h === '127.0.0.1' ||
+         h.startsWith('192.168.') || h.startsWith('10.') ||
          h.startsWith('172.') || h.endsWith('.local');
 }
 
@@ -115,10 +115,10 @@ function toggleSection(sectionId) {
 
   const isCollapsed = section.classList.toggle('is-collapsed');
   STATE.sidebarSections[sectionId] = isCollapsed;
-  
+
   // Persist
-  const storageKey = sectionId === 'absence-section' 
-    ? 'sidebar_section_absence_collapsed' 
+  const storageKey = sectionId === 'absence-section'
+    ? 'sidebar_section_absence_collapsed'
     : 'sidebar_section_employee_collapsed';
   localStorage.setItem(storageKey, isCollapsed);
 }
@@ -137,6 +137,28 @@ function escapeHTML(value) {
   }[ch]));
 }
 
+function safeClassToken(value, fallback = 'unknown') {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '') || fallback;
+}
+
+function safeHttpUrlAttr(value) {
+  return isSafeHttpUrl(value) ? escapeHTML(value) : '';
+}
+
+function safeTelHref(value) {
+  const href = String(value ?? '').replace(/[^\d+]/g, '');
+  return href ? `tel:${escapeHTML(href)}` : '';
+}
+
+function safeMailHref(value) {
+  const email = String(value ?? '').trim();
+  if (!/^[^\s@<>"']+@[^\s@<>"']+\.[^\s@<>"']+$/.test(email)) return '';
+  return `mailto:${escapeHTML(email)}`;
+}
+
 function getInitials(name) {
   return String(name || '')
     .trim()
@@ -152,7 +174,7 @@ function renderLocalAvatar(name, photoUrl, className = '', extraStyle = '') {
   const safePhoto = isSafeHttpUrl(photoUrl) ? escapeHTML(photoUrl) : '';
   const initials = escapeHTML(getInitials(name));
   if (safePhoto) {
-    return `<img src="${safePhoto}" alt="${safeName}" class="${className}" style="${extraStyle}" referrerpolicy="no-referrer" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'local-avatar-fallback ${className}',textContent:'${initials}'}))">`;
+    return `<img src="${safePhoto}" alt="${safeName}" class="${className}" style="${extraStyle}" referrerpolicy="no-referrer">`;
   }
   return `<span class="local-avatar-fallback ${className}" style="${extraStyle}" aria-hidden="true">${initials}</span>`;
 }
@@ -310,12 +332,12 @@ async function discoverEndpoint(candidates, payload = null) {
     }
 
     const methodsToTry = payload ? ['POST', 'GET'] : ['GET'];
-    
+
     for (const method of methodsToTry) {
       try {
         let finalPath = path;
         let body = null;
-        
+
         if (method === 'POST') {
           body = JSON.stringify(payload);
         } else if (method === 'GET' && payload) {
@@ -325,14 +347,14 @@ async function discoverEndpoint(candidates, payload = null) {
 
         const res = await apiFetch(finalPath, { method, body });
         // Si no dio error, hemos encontrado la ruta
-        return finalPath; 
+        return finalPath;
       } catch (e) {
         console.warn(`Deep Discovery: Failed ${method} ${path}: ${e.message}`);
         // Seguimos al siguiente método o ruta
       }
     }
   }
-  
+
   // Si todo falla, marcamos ambos como desactivados para evitar reintentos infinitos
   if (candidates === DISCOVERY.presencePaths || candidates.length === DISCOVERY.presencePaths.length) {
       DISCOVERY.workingPresence = 'DISABLED';
@@ -342,7 +364,7 @@ async function discoverEndpoint(candidates, payload = null) {
       DISCOVERY.workingChecks = 'DISABLED';
       localStorage.setItem('ssm_path_checks', 'DISABLED');
   }
-  
+
   return null;
 }
 
@@ -359,8 +381,8 @@ async function apiFetch(path, params = {}, isRetry = false) {
   // 1. Determinar el servidor de Sesame objetivo (Redundancia)
   let sesameBaseUrl = STATE.backendUrl || 'https://back-eu1.sesametime.com';
   if (isRetry) {
-    sesameBaseUrl = sesameBaseUrl.includes('back-') 
-      ? sesameBaseUrl.replace('back-', 'api-') 
+    sesameBaseUrl = sesameBaseUrl.includes('back-')
+      ? sesameBaseUrl.replace('back-', 'api-')
       : sesameBaseUrl.replace('api-', 'back-');
     console.warn(`Retry: Switching to alternative Sesame server: ${sesameBaseUrl}`);
   }
@@ -368,7 +390,7 @@ async function apiFetch(path, params = {}, isRetry = false) {
   // 2. IMPORTANTE: El navegador solo puede llamar al proxy local para evitar errores CORS (Failed to fetch)
   // Construimos la URL final que el navegador realmente llamará
   const finalUrl = new URL(`${apiBase()}${path}`);
-  
+
   // Añadimos parámetros de búsqueda si existen
   Object.entries(params).forEach(([k, v]) => {
     if (k === 'method' || k === 'body' || k === 'overrideBackend' || k === 'headers') return;
@@ -396,7 +418,7 @@ async function apiFetch(path, params = {}, isRetry = false) {
 
   try {
     const res = await fetch(finalUrl.toString(), fetchOptions);
-    
+
     // Rastrear estados para Auditoría
     if (path.includes('/me')) AUDIT.lastMeStatus = res.status;
     if (path.includes('/presence')) AUDIT.lastPresenceStatus = res.status;
@@ -422,16 +444,16 @@ async function apiFetch(path, params = {}, isRetry = false) {
       if (res.status === 401) {
         throw new Error("Sesión caducada (401). Por favor vuelve a conectar.");
       }
-      
+
       let serverDetail = '';
       try {
         const errorJson = await res.json();
         serverDetail = `: ${JSON.stringify(errorJson)}`;
       } catch (e) {}
-      
+
       throw new Error(`Error de API ${res.status}${serverDetail || ` (${res.statusText})`}`);
     }
-    
+
     return await res.json();
   } catch (err) {
     // Si el error es "Failed to fetch", probablemente el servidor local python3 server.py no está corriendo
@@ -448,7 +470,7 @@ async function apiFetch(path, params = {}, isRetry = false) {
 async function apiFetchBi(query) {
   // Usamos apiFetch para pasar por el proxy local y evitar CORS
   const url = '/api/v3/analytics/report-query';
-  
+
   return apiFetch(url, {
     method: 'POST',
     body: JSON.stringify(query),
@@ -468,29 +490,29 @@ async function apiFetchBi(query) {
 function upsertEmployee(emp) {
   if (!emp || !emp.id) return;
   const idStr = String(emp.id);
-  
+
   const existing = STATE.allEmployees.get(idStr) || {};
-  
+
   // Mezclamos la información, priorizando la que tenga más campos útiles (fotos, cargos)
   const updated = {
     ...existing,
     ...emp,
     id: emp.id,
-    birthDate: emp.birthDate || emp.birthday || emp.dateOfBirth || emp.date_of_birth || 
-               (emp.personalData && (emp.personalData.birthDate || emp.personalData.birthday)) || 
+    birthDate: emp.birthDate || emp.birthday || emp.dateOfBirth || emp.date_of_birth ||
+               (emp.personalData && (emp.personalData.birthDate || emp.personalData.birthday)) ||
                (emp.details && emp.details.birthDate) || existing.birthDate || '',
-    hiringDate: emp.hiringDate || emp.dateOfJoined || emp.joinedDate || emp.createdAt || 
+    hiringDate: emp.hiringDate || emp.dateOfJoined || emp.joinedDate || emp.createdAt ||
                 (emp.contract && emp.contract.startAt) || existing.hiringDate || ''
   };
 
   const photo = emp.imageProfileURL || emp.imageProfile || emp.photoUrl || emp.photo || emp.avatarUrl || emp.avatar || '';
   updated.imageProfileURL = photo || existing.imageProfileURL || '';
-  
+
   // Extraer balance acumulado si viene en el payload
   if (typeof emp.accumulatedSeconds !== 'undefined') {
     updated.accumulatedSeconds = emp.accumulatedSeconds;
   }
-  
+
   // Extraer horario teórico desde scheduleTemplateViews si viene en el payload
   if (emp.scheduleTemplateViews && emp.scheduleTemplateViews.length > 0) {
     const tmpl = emp.scheduleTemplateViews[0].scheduleTemplate;
@@ -508,10 +530,10 @@ function upsertEmployee(emp) {
   }
 
   STATE.allEmployees.set(idStr, updated);
-  
+
   // El estado central es STATE.allEmployees (Map)
 
-  
+
   // Actualizar el contador visual si existe
   const badge = document.getElementById('profiles-count-badge');
   if (badge) {
@@ -532,7 +554,7 @@ async function fetchMe() {
 }
 
 const PREMIUM_PALETTE = [
-  '#E11D48', '#2563EB', '#059669', '#D97706', '#7C3AED', 
+  '#E11D48', '#2563EB', '#059669', '#D97706', '#7C3AED',
   '#DB2777', '#0284C7', '#16A34A', '#EA580C', '#9333EA',
   '#F43F5E', '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6',
   '#BE185D', '#1D4ED8', '#15803D', '#9A3412', '#6D28D9',
@@ -596,7 +618,7 @@ async function fetchAbsenceTimesIndex(from, to) {
 async function fetchPresence() {
   try {
     if (DISCOVERY.workingPresence === 'DISABLED') return [];
-    
+
     let list = [];
     if (DISCOVERY.workingPresence) {
       AUDIT.lastPresencePathTried = DISCOVERY.workingPresence;
@@ -608,7 +630,7 @@ async function fetchPresence() {
       if (found) {
         DISCOVERY.workingPresence = found;
         localStorage.setItem('ssm_path_presence', found);
-        return fetchPresence(); 
+        return fetchPresence();
       }
     }
 
@@ -674,7 +696,7 @@ async function fetchVacationBalance(employeeId) {
           }
         }
       }
-      
+
       // Si llegamos aquí, ninguna ruta oficial funciona
       DISCOVERY.workingBalance = 'DISABLED';
       localStorage.setItem('ssm_path_balance', 'DISABLED');
@@ -683,21 +705,21 @@ async function fetchVacationBalance(employeeId) {
     const currentYear = new Date().getFullYear();
     const from = `${currentYear}-01-01`;
     const to = `${currentYear}-12-31`;
-    
-    const vacationType = STATE.absenceTypes.find(t => 
+
+    const vacationType = STATE.absenceTypes.find(t =>
       t.name.toLowerCase().includes('vacac')
     );
-    
+
     if (!vacationType) return null;
 
     // Consultamos el calendario agrupado para todo el año
     const rawData = await apiFetch(`/api/v3/companies/${STATE.companyId}/calendars-grouped`, {
       from, to, view: 'employee'
     });
-    
+
     const entries = rawData.data || rawData || [];
     let usedDays = 0;
-    
+
     entries.forEach(day => {
       const types = day.calendar_types || [];
       const hasVacation = types.some(ct => ct.calendar_type?.id === vacationType.id);
@@ -733,14 +755,14 @@ async function fetchEmployees() {
     const detailedResults = await Promise.allSettled(
       results.map(e => apiFetch(`/api/v3/employees/${e.id}`).catch(() => null))
     );
-    
+
     return results.map((e, index) => {
       const detailRes = detailedResults[index];
       let detail = {};
       if (detailRes.status === 'fulfilled' && detailRes.value) {
          detail = detailRes.value.data || detailRes.value || {};
       }
-      
+
       let workdays = null;
       // Extraer desde scheduleTemplateViews (la fuente de verdad de Sesame en 2026)
       if (detail.scheduleTemplateViews && detail.scheduleTemplateViews.length > 0) {
@@ -756,7 +778,7 @@ async function fetchEmployees() {
             0: (tmpl.sundayMinutes || 0) * 60
           };
         }
-      } 
+      }
       // Fallback a contracts por si acaso
       else if (detail.contracts && detail.contracts.length > 0) {
          const contract = detail.contracts[0];
@@ -779,13 +801,13 @@ async function fetchEmployees() {
         email: detail.email || e.email || e.companyEmail || '',
         phone: detail.phone || e.personalPhone || e.companyPhone || e.phone || '',
         jobTitle: detail.jobTitle || e.jobTitle || e.position?.name || '',
-        birthDate: e.birthDate || e.birthday || e.dateOfBirth || e.date_of_birth || 
-                   (e.personalData && (e.personalData.birthDate || e.personalData.birthday)) || 
+        birthDate: e.birthDate || e.birthday || e.dateOfBirth || e.date_of_birth ||
+                   (e.personalData && (e.personalData.birthDate || e.personalData.birthday)) ||
                    (e.details && e.details.birthDate) || '',
         hiringDate: e.hiringDate || e.dateOfJoined || e.joinedDate || e.createdAt || '',
         workdays: workdays,
         accumulatedSeconds: detail.accumulatedSeconds || 0,
-        status: e.status 
+        status: e.status
       };
     });
   } catch (e) {
@@ -836,7 +858,7 @@ function isBirthdayToday(dateStr) {
     const today = new Date();
     // Sesame puede devolver YYYY-MM-DD o MM-DD o incluso DD/MM
     let month, day;
-    
+
     if (dateStr.includes('-')) {
       const parts = dateStr.split('-');
       if (parts.length === 3) {
@@ -851,7 +873,7 @@ function isBirthdayToday(dateStr) {
       day = parseInt(parts[0]);
       month = parseInt(parts[1]);
     }
-    
+
     return month === (today.getMonth() + 1) && day === today.getDate();
   } catch(e) { return false; }
 }
@@ -916,7 +938,7 @@ async function loadSavedConfig() {
     const res = await fetch('/config');
     if (!res.ok) return;
     const cfg = await res.json();
-    
+
     STATE.companies = cfg.companies || [];
     STATE.activeId = cfg.activeId || "";
 
@@ -956,7 +978,7 @@ function renderCompanySelector() {
   const select = $('company-select');
   if (!select) return;
   select.innerHTML = '';
-  
+
   STATE.companies.forEach(c => {
     const opt = document.createElement('option');
     opt.value = c.companyId;
@@ -973,13 +995,13 @@ function renderCompanySelector() {
 function applyCompanyBranding(company) {
   const logoContainer = $('company-logo-container');
   const nameDisplay = $('company-name-display');
-  
+
   const name = company.name || 'Pruebas';
   if (nameDisplay) {
     nameDisplay.textContent = name;
     nameDisplay.title = name; // Tooltip para nombres largos
   }
-  
+
   // Custom Branding Logic
   let brandColor = company.brandColor;
   let logoUrl = company.logoUrl || company.logo;
@@ -1020,15 +1042,15 @@ function applyCompanyBranding(company) {
 
   // Inject brand color with contrast adjustment for dark mode
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-  
+
   // Create a lightened version for text/highlights in dark mode if needed
   let accentColor = brandColor;
   if (isDark) {
     // If the color is very dark, we boost its brightness for the UI accents
     // Simple way: if it starts with #00 or #1, it's likely dark.
-    // For a more robust fix, we'll just lighten any color slightly in dark mode 
+    // For a more robust fix, we'll just lighten any color slightly in dark mode
     // to make it "pop" against the near-black background.
-    accentColor = adjustColorBrightness(brandColor, 40); 
+    accentColor = adjustColorBrightness(brandColor, 40);
   }
 
   document.documentElement.style.setProperty('--accent', accentColor);
@@ -1047,11 +1069,11 @@ function adjustColorBrightness(hex, percent) {
     const b = parseInt(hex.substring(4, 6), 16);
 
     const calc = (v) => Math.min(255, Math.max(0, v + (percent * 2.55)));
-    
+
     const newR = Math.round(calc(r)).toString(16).padStart(2, '0');
     const newG = Math.round(calc(g)).toString(16).padStart(2, '0');
     const newB = Math.round(calc(b)).toString(16).padStart(2, '0');
-    
+
     return `#${newR}${newG}${newB}`;
   } catch (e) {
     return `#${hex}`; // Fallback
@@ -1061,14 +1083,14 @@ function adjustColorBrightness(hex, percent) {
 async function handleDeleteCompany() {
   const cid = STATE.companyId;
   if (!cid) return;
-  
+
   const company = STATE.companies.find(c => c.companyId === cid);
   const name = company ? (company.name || cid) : cid;
-  
+
   if (!confirm(`\u26A0\uFE0F \u00BFEst\u00E1s seguro de que quieres eliminar la empresa "${name}"?\n\nEsta acci\u00F3n no se puede deshacer.`)) {
     return;
   }
-  
+
   showLoading(true);
   try {
     const res = await fetch('/delete-config', {
@@ -1076,7 +1098,7 @@ async function handleDeleteCompany() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ companyId: cid })
     });
-    
+
     if (res.ok) {
       // Clear localStorage so it doesn't try to reload the deleted company
       clearCredentials();
@@ -1096,15 +1118,15 @@ async function handleDeleteCompany() {
 function switchCompany(cid) {
   const next = STATE.companies.find(c => c.companyId === cid);
   if (!next) return;
-  
+
   STATE.token = next.token || null;
   STATE.companyId = next.companyId;
   STATE.backendUrl = next.backendUrl;
   saveCredentials();
-  
+
   // Apply branding immediately for better UX
   applyCompanyBranding(next);
-  
+
   // Persist choice to server
   if (isLocalProxy()) {
     fetch('/save-config', {
@@ -1134,7 +1156,7 @@ function switchCompany(cid) {
   localStorage.removeItem('ssm_path_checks');
   // Nota: NO borramos ssm_company_mode ni ssm_bi_waf porque son correctos por empresa
   // Solo los borramos si el admin cambió el rol del usuario en Sesame.
-  
+
   // Cargamos TODO de la nueva empresa (Metadatos + Calendario)
   loadInitialData();
   startAutoRefresh();
@@ -1150,7 +1172,7 @@ function startAutoRefresh() {
     if (isAppVisible && !STATE.isLoading && STATE.companyId && (STATE.token || hasProxyUnlockSession())) {
       await loadData();
     }
-  }, 5 * 60 * 1000); 
+  }, 5 * 60 * 1000);
 }
 
 /**
@@ -1188,7 +1210,7 @@ async function init() {
 
   if (!isUnlocked) {
     showScreen('lock-screen');
-    
+
     const handleUnlock = async () => {
       const val = passInput.value.trim().toUpperCase();
       const errEl = $('lock-error');
@@ -1262,22 +1284,22 @@ function showScreen(screenId) {
 function switchModule(module, options = {}) {
   STATE.currentModule = module;
   localStorage.setItem('ssm_current_module', module);
-  
+
   // Actualizar estados visuales de los botones del switcher
   $$('.module-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.module === module);
   });
-  
+
   // Ocultar/Mostrar wrappers de cada módulo con sus clases correspondientes
   $$('.module-wrapper').forEach(w => {
     w.style.display = 'none';
     w.classList.remove('active');
   });
-  
+
   let activeWrapper = document.getElementById(`module-${module}-wrapper`);
   // Fallback para nombres antiguos o simplificados
   if (!activeWrapper && module === 'vacaciones') activeWrapper = document.getElementById('calendar-wrapper');
-  
+
   if (activeWrapper) {
     activeWrapper.style.display = 'block';
     activeWrapper.classList.add('active');
@@ -1287,13 +1309,13 @@ function switchModule(module, options = {}) {
   const vacacionesNav = document.getElementById('vacaciones-nav');
   const absenceSection = document.getElementById('absence-section');
   const employeeSection = document.getElementById('employee-section');
-  
+
   if (module === 'fichajes') {
     if (vacacionesNav) vacacionesNav.classList.add('is-module-hidden');
     if (absenceSection) absenceSection.style.display = 'none';
     // Mantenemos la sección de empleados visible para permitir el filtrado múltiple
     if (employeeSection) employeeSection.style.display = 'block';
-    
+
     // Inicialización específica de Fichajes
     FichajesModule.init();
     if (!options.skipLoad) FichajesModule.loadData();
@@ -1448,7 +1470,7 @@ async function startApp() {
       FichajesModule.toggleAll();
     }
   });
-  
+
   $('sidebar-toggle').addEventListener('click', () => {
     STATE.sidebarCollapsed = !STATE.sidebarCollapsed;
     document.body.classList.toggle('sidebar-collapsed', STATE.sidebarCollapsed);
@@ -1492,14 +1514,14 @@ async function startApp() {
   // Wire employee filters
   const empSearch = $('employee-search');
   if(empSearch) empSearch.addEventListener('input', renderEmployeeFilterList);
-  
+
   const empSelAll = $('emp-sel-all');
   if(empSelAll) empSelAll.addEventListener('click', (e) => {
     e.preventDefault();
     STATE.hiddenEmployeeIds.clear();
     refreshAllViews();
   });
-  
+
   const empSelNone = $('emp-sel-none');
   if(empSelNone) empSelNone.addEventListener('click', (e) => {
     e.preventDefault();
@@ -1528,7 +1550,7 @@ async function startApp() {
     const active = STATE.companies.find(c => String(c.companyId).trim() === String(STATE.companyId).trim())
                 || STATE.companies.find(c => String(c.companyId).trim() === String(selectedId).trim())
                 || STATE.companies[0];
-    
+
     if (active) {
       showSetup(active);
     } else {
@@ -1593,7 +1615,7 @@ function showSetup(editData = null) {
 
   const isEditing = !!editData;
   SETUP_EDITING_COMPANY_ID = isEditing ? String(editData.companyId || '') : null;
-  
+
   // Actualizar Título
   const titleEl = $('setup-title');
   if (titleEl) titleEl.textContent = (isEditing || STATE.token) ? 'Editar Configuración' : 'Configuración Inicial';
@@ -1601,7 +1623,7 @@ function showSetup(editData = null) {
   // Actualizar Texto Botón
   const btnText = $('connect-btn-text');
   if (btnText) btnText.textContent = (isEditing || STATE.token) ? 'Guardar Cambios' : 'Sincronizar Panel';
-  
+
   // Mostrar/Ocultar Cancelar
   const cancelBtn = $('cancel-setup-btn');
   if (cancelBtn) {
@@ -1681,7 +1703,7 @@ async function handleConnect() {
     const meData = await fetchMe();
     const companyData = meData.company || {};
     STATE.currentUser = meData.employee || (Array.isArray(meData) ? meData[0] : meData);
-    
+
     await finalizeLogin(companyData);
   } catch (e) {
     showSetupError(`No se pudo conectar: ${e.message}. Verifica el token y el Company ID.`);
@@ -1768,11 +1790,11 @@ async function loadInitialData() {
   if (STATE.isLoading) return;
   STATE.isLoading = true;
   showLoading(true);
-  
+
   // Limpieza preventiva de listas antes de la nueva carga
   STATE.allEmployees.clear();
   STATE.presenceMap.clear();
-  
+
   try {
     // 1. Parallel fetch of core metadata (siempre datos reales)
     const [absTypes, meData, teamEmps, presenceData] = await Promise.all([
@@ -1789,7 +1811,7 @@ async function loadInitialData() {
 
     // 3. Process User & Company Info
     STATE.currentUser = meData.employee || (Array.isArray(meData) ? meData[0] : meData);
-    
+
     if (meData.company) {
       const brand = {
         companyId: STATE.companyId,
@@ -1798,10 +1820,10 @@ async function loadInitialData() {
         logoUrl: meData.company.logo
       };
       applyCompanyBranding(brand);
-      
+
       if (!STATE.companies.some(c => c.companyId === STATE.companyId)) {
         await persistConfigToServer(brand.name, brand.brandColor, brand.logoUrl);
-        await loadSavedConfig(); 
+        await loadSavedConfig();
       }
     }
     renderUserInfo(STATE.currentUser);
@@ -1809,7 +1831,7 @@ async function loadInitialData() {
     // 4. Process Employee Directory
     const me = STATE.currentUser;
     const teamArray = Array.isArray(teamEmps) ? teamEmps : (teamEmps?.data || []);
-    
+
     // COSECHA ESPECIAL: Si encontramos al usuario actual en el directorio de empleados,
     // fusionamos los datos porque el directorio suele traer más campos (contratos, cargos, etc)
     const detailedMe = teamArray.find(e => String(e.id) === String(me?.id));
@@ -1954,7 +1976,7 @@ async function loadDataInternal() {
         });
 
         const rawType = ct.calendar_type || {};
-        
+
         // Registrar dinámicamente el tipo si no existía (ej. ausencias históricas o parciales no devueltas en /absence-types)
         if (rawType.id && !STATE.absenceTypes.find(t => t.id === rawType.id)) {
           STATE.absenceTypes.push({
@@ -1967,7 +1989,7 @@ async function loadDataInternal() {
         }
 
         const masterType = STATE.absenceTypes.find(t => t.id === rawType.id) || {};
-        
+
         return {
           type: {
             ...rawType,
@@ -2030,7 +2052,7 @@ function renderFilters() {
     chip.className = 'absence-filter-chip' + (STATE.activeFilters.has(type.id) ? ' active' : '');
     chip.innerHTML = `
       <span class="filter-dot" style="background:${color}"></span>
-      <span class="filter-name">${type.name}</span>
+      <span class="filter-name">${escapeHTML(type.name || 'Ausencia')}</span>
       <span class="filter-count">${count}</span>
     `;
     chip.addEventListener('click', () => toggleFilter(type.id, chip));
@@ -2055,50 +2077,61 @@ function renderEmployeeFilterList() {
   const container = $('employee-filters');
   const title = $('emp-filter-title');
   const search = $('employee-search') ? $('employee-search').value.toLowerCase().trim() : '';
-  
+
   if (!container) return;
   container.innerHTML = '';
-  
+
   const emps = Array.from(STATE.allEmployees.values()).sort((a,b) => {
     const na = `${a.firstName||''} ${a.lastName||''}`.toLowerCase();
     const nb = `${b.firstName||''} ${b.lastName||''}`.toLowerCase();
     return na.localeCompare(nb);
   });
-  
+
   emps.forEach(emp => {
     const name = `${emp.firstName||''} ${emp.lastName||''}`.trim();
     if (search && !name.toLowerCase().includes(search)) return;
-    
+
     const isHidden = STATE.hiddenEmployeeIds.has(String(emp.id));
-    
     const presenceStatus = STATE.presenceMap?.get(String(emp.id)) || 'out';
-    const initials = name.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2);
-    
+    const presenceClass = safeClassToken(presenceStatus, 'out');
+    const safePresence = escapeHTML(presenceStatus);
+    const safeId = escapeHTML(emp.id);
+    const safeName = escapeHTML(name || 'Empleado');
+    const safeJobTitle = escapeHTML(emp.jobTitle || '');
+    const safePhoto = safeHttpUrlAttr(emp.imageProfileURL);
+    const initials = escapeHTML(getInitials(name));
+
     const label = document.createElement('label');
     label.className = 'emp-filter-item-premium';
     label.innerHTML = `
       <div class="emp-filter-main">
-        <input type="checkbox" value="${emp.id}" ${isHidden ? '' : 'checked'} class="ssm-checkbox">
-        <div class="emp-avatar-filter" style="${emp.imageProfileURL ? '' : `background: linear-gradient(135deg, var(--accent), var(--accent2));`}">
-          ${emp.imageProfileURL 
-            ? `<img src="${emp.imageProfileURL}" alt="${name}" onerror="this.parentElement.innerHTML='${initials}'; this.parentElement.style.background='linear-gradient(135deg, var(--accent), var(--accent2))'">` 
+        <input type="checkbox" value="${safeId}" ${isHidden ? '' : 'checked'} class="ssm-checkbox">
+        <div class="emp-avatar-filter" style="${safePhoto ? '' : `background: linear-gradient(135deg, var(--accent), var(--accent2));`}">
+          ${safePhoto
+            ? `<img src="${safePhoto}" alt="${safeName}" referrerpolicy="no-referrer">`
             : initials}
-          <span class="status-indicator ${presenceStatus}" title="Estado: ${presenceStatus}"></span>
+          <span class="status-indicator ${presenceClass}" title="Estado: ${safePresence}"></span>
         </div>
         <div class="emp-filter-info" style="margin-left: 12px;">
-          <span class="emp-filter-name" title="${name}" style="font-weight: 600;">${name}</span>
-          ${emp.jobTitle ? `<span class="emp-filter-job" style="font-size: 0.65rem;">${emp.jobTitle}</span>` : ''}
+          <span class="emp-filter-name" title="${safeName}" style="font-weight: 600;">${safeName}</span>
+          ${safeJobTitle ? `<span class="emp-filter-job" style="font-size: 0.65rem;">${safeJobTitle}</span>` : ''}
         </div>
       </div>
     `;
-    
+    const avatar = label.querySelector('.emp-avatar-filter');
+    label.querySelector('.emp-avatar-filter img')?.addEventListener('error', event => {
+      event.currentTarget.remove();
+      avatar?.insertAdjacentText('afterbegin', getInitials(name));
+      if (avatar) avatar.style.background = 'linear-gradient(135deg, var(--accent), var(--accent2))';
+    });
+
     label.querySelector('input').addEventListener('change', (e) => {
       if (e.target.checked) STATE.hiddenEmployeeIds.delete(String(emp.id));
       else STATE.hiddenEmployeeIds.add(String(emp.id));
-      
+
       refreshAllViews();
     });
-    
+
     container.appendChild(label);
   });
 
@@ -2115,20 +2148,28 @@ function renderEmployeeFilterList() {
 function renderUserInfo(user) {
   if (!user) return;
   const name = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email || 'Usuario';
-  const initials = name.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2) || '?';
+  const safeName = escapeHTML(name);
+  const safeRole = escapeHTML(user.jobTitle || user.email || 'Sesame HR');
+  const safePhoto = safeHttpUrlAttr(user.imageProfileURL);
+  const initials = escapeHTML(getInitials(name));
 
   $('user-info').innerHTML = `
     <div class="user-avatar">
-      ${user.imageProfileURL
-        ? `<img src="${user.imageProfileURL}" alt="${name}" onerror="this.style.display='none'" />`
+      ${safePhoto
+        ? `<img src="${safePhoto}" alt="${safeName}" referrerpolicy="no-referrer" />`
         : initials}
     </div>
     <div class="user-details">
-      <div class="user-name">${name}</div>
-      <div class="user-role">${user.jobTitle || user.email || 'Sesame HR'}</div>
+      <div class="user-name">${safeName}</div>
+      <div class="user-role">${safeRole}</div>
     </div>
   `;
-  
+  const userAvatar = $('user-info')?.querySelector('.user-avatar');
+  userAvatar?.querySelector('img')?.addEventListener('error', event => {
+    event.currentTarget.remove();
+    userAvatar.textContent = getInitials(name);
+  });
+
   // Actualizar widgets adicionales si tenemos los datos
   updateProfileWidgets(user);
 }
@@ -2142,19 +2183,19 @@ function updateProfileWidgets(user) {
       const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
       const today = new Date();
       const todayDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-      
+
       let years = today.getFullYear() - start.getFullYear();
       let months = today.getMonth() - start.getMonth();
-      
+
       if (months < 0 || (months === 0 && today.getDate() < start.getDate())) {
         years--;
         months += 12;
       }
-      
+
       let text = `${years} ${years === 1 ? 'año' : 'años'}`;
       if (months > 0) text += ` y ${months} ${months === 1 ? 'mes' : 'meses'}`;
       if (years === 0 && months === 0) text = "¡Recién llegado! ✨";
-      
+
       const el = $('seniority-text');
       if (el) el.textContent = text;
     }
@@ -2171,7 +2212,7 @@ function updateProfileWidgets(user) {
         if (subEl) subEl.textContent = "Consulta restringida";
         return;
       }
-      
+
       const total = balance.daysTotal || balance.totalDays || balance.maxDays || 22;
       const used = balance.daysUsed || balance.usedDays || 0;
       const left = total - used;
@@ -2179,7 +2220,7 @@ function updateProfileWidgets(user) {
 
       if (leftEl) leftEl.textContent = `${left} días`;
       if (barEl) barEl.style.width = `${percent}%`;
-      
+
       if (subEl) {
         let label = `${used} consumidos de ${total}`;
         if (balance.isAutocalculated) label += " (Auto)";
@@ -2194,7 +2235,7 @@ function updateProfileWidgets(user) {
 function updateMonthLabel() {
   const y = STATE.currentDate.getFullYear();
   const m = STATE.currentDate.getMonth();
-  
+
   if (STATE.calView === 'day') {
     const days = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
     $('current-month-label').textContent = `${days[STATE.currentDate.getDay()]} ${STATE.currentDate.getDate()} de ${MONTHS_ES[m]} ${y}`;
@@ -2212,7 +2253,7 @@ function updateMonthLabel() {
   if (STATE.calView === 'day') range = getDayRange(STATE.currentDate);
   else if (STATE.calView === 'week') range = getWeekRange(STATE.currentDate);
   else range = getMonthRange(STATE.currentDate);
-  
+
   let total = 0;
   Object.entries(STATE.calendarData).forEach(([date, entries]) => {
     if (date >= range.from && date <= range.to) {
@@ -2250,7 +2291,7 @@ function renderCalendar() {
 
   // Monthly View (Default)
   grid.style.gridTemplateColumns = 'repeat(7, 1fr)';
-  
+
   const firstDay = new Date(y, m, 1);
   let startDow = firstDay.getDay(); // 0=Sun
   if (startDow === 0) startDow = 7; // make Sun=7
@@ -2300,7 +2341,7 @@ function buildDayCell(date, otherMonth) {
     html += `<div class="holiday-label" title="${holidayName}">🏛️ ${holidayName}</div>`;
   }
   html += `<div class="day-events"></div>`;
-  
+
   cell.innerHTML = html;
 
   const events = STATE.calendarData[dateStr] || [];
@@ -2321,19 +2362,19 @@ function buildDayCell(date, otherMonth) {
     const bg     = hexToRgba(color, isDark ? 0.35 : 0.22);
     const pill   = document.createElement('div');
     pill.className = 'day-event-pill';
-    
+
     // Mejor contraste y grosor de borde
     pill.style.cssText = `
-      background: ${bg}; 
-      border-left: 3px solid ${color}; 
-      font-weight: 700; 
+      background: ${bg};
+      border-left: 3px solid ${color};
+      font-weight: 700;
       color: ${isDark ? '#ffffff' : '#1e293b'};
       margin-bottom: 3px;
     `;
-    
+
     pill.innerHTML = `
       <span class="event-dot" style="background:${color}; width:8px; height:8px; box-shadow: 0 0 5px ${color}80"></span>
-      ${evt.type.name || 'Ausencia'} <span style="opacity:0.8; font-size:0.9em">(${evt.numEmployees})</span>
+      ${escapeHTML(evt.type.name || 'Ausencia')} <span style="opacity:0.8; font-size:0.9em">(${evt.numEmployees})</span>
     `;
     eventsContainer.appendChild(pill);
   });
@@ -2371,9 +2412,10 @@ function buildAvatar(emp, size = 28) {
   div.style.cssText = `width:${size}px;height:${size}px;font-size:${size*0.4}px`;
   div.title = name;
 
-  if (emp.imageProfileURL) {
+  const safePhoto = isSafeHttpUrl(emp.imageProfileURL) ? emp.imageProfileURL : '';
+  if (safePhoto) {
     const img = document.createElement('img');
-    img.src = emp.imageProfileURL;
+    img.src = safePhoto;
     img.alt = name;
     img.loading = 'lazy';
     img.onerror = () => {
@@ -2397,7 +2439,7 @@ function refreshAllViews() {
   renderCalendar();
   renderEmployeeList();
   renderStats();
-  
+
   // Sincronizar Fichajes si el módulo está cargado
   if (typeof FichajesModule !== 'undefined' && FichajesModule.initialized) {
     FichajesModule.renderTable();
@@ -2419,7 +2461,7 @@ function renderEmployeeList() {
       evt.employees.forEach(emp => {
         if (STATE.hiddenEmployeeIds.has(String(emp.id))) return;
         if (!empMap[emp.id]) empMap[emp.id] = { emp, absences: new Map() };
-        
+
         const typeId = evt.type.id;
         const entry = empMap[emp.id].absences.get(typeId) || { type: evt.type, dates: [] };
         const day = date.split('-')[2];
@@ -2442,16 +2484,20 @@ function renderEmployeeList() {
 
   empList.forEach(({ emp, absences }) => {
     const name = `${emp.firstName||''} ${emp.lastName||''}`.trim();
-    const initials = name.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2) || '?';
+    const safeName = escapeHTML(name || 'Empleado');
+    const safePhoto = safeHttpUrlAttr(emp.imageProfileURL);
+    const initials = escapeHTML(getInitials(name));
     const totalDays = [...absences.values()].reduce((s,v)=>s+v.dates.length, 0);
 
     const tags = [...absences.entries()].map(([,v]) => {
       const color = resolveColor(v.type.color);
       const bg = hexToRgba(color, 0.25);
       const daysStr = v.dates.sort().join(', ');
+      const safeTypeName = escapeHTML(v.type.name || 'Ausencia');
+      const safeDaysStr = escapeHTML(daysStr);
       return `<span class="emp-absence-tag" style="background:${bg};border:1px solid ${color}40">
         <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${color}"></span>
-        ${v.type.name || 'Ausencia'} · ${v.dates.length}d <span style="opacity:0.7;font-size:0.85em;margin-left:4px">(${daysStr})</span>
+        ${safeTypeName} · ${v.dates.length}d <span style="opacity:0.7;font-size:0.85em;margin-left:4px">(${safeDaysStr})</span>
       </span>`;
     }).join('');
 
@@ -2459,19 +2505,22 @@ function renderEmployeeList() {
     card.className = 'emp-card';
     card.innerHTML = `
       <div class="emp-avatar">
-        ${emp.imageProfileURL
-          ? `<img src="${emp.imageProfileURL}" alt="${name}" onerror="this.style.display='none'" />${initials}`
+        ${safePhoto
+          ? `<img src="${safePhoto}" alt="${safeName}" referrerpolicy="no-referrer" />${initials}`
           : initials}
       </div>
       <div class="emp-info">
-        <div class="emp-name">${name}</div>
+        <div class="emp-name">${safeName}</div>
         <div class="emp-absences">${tags}</div>
       </div>
       <div class="emp-days">
         <div class="emp-days-count">${totalDays}</div>
-        <div class="emp-days-label">días</div>
+      <div class="emp-days-label">días</div>
       </div>
     `;
+    card.querySelector('.emp-avatar img')?.addEventListener('error', event => {
+      event.currentTarget.remove();
+    });
     container.appendChild(card);
   });
 }
@@ -2482,18 +2531,18 @@ function renderStats() {
   container.innerHTML = '<div class="stats-loading">Generando gráficos...</div>';
 
   const range = getMonthRange(STATE.currentDate);
-  const typeTotals = {}; 
+  const typeTotals = {};
   const employeeTotals = {};
   const dailyData = {};
   let totalAbsences = 0;
 
   Object.entries(STATE.calendarData).forEach(([date, entries]) => {
     if (date < range.from || date > range.to) return;
-    
+
     const visibleInDay = entries.reduce((acc, evt) => {
       if (!STATE.activeFilters.has(evt.type.id)) return acc;
       const visibleEmps = evt.employees.filter(e => !STATE.hiddenEmployeeIds.has(String(e.id)));
-      
+
       const id = evt.type.id;
       if (!typeTotals[id]) typeTotals[id] = { name: evt.type.name, total: 0, color: resolveColor(evt.type.color) };
       typeTotals[id].total += visibleEmps.length;
@@ -2503,7 +2552,7 @@ function renderStats() {
         const ename = `${e.firstName} ${e.lastName}`;
         employeeTotals[ename] = (employeeTotals[ename] || 0) + 1;
       });
-      
+
       return acc + visibleEmps.length;
     }, 0);
 
@@ -2550,7 +2599,7 @@ function renderStats() {
   `;
 
   const isDark = STATE.theme === 'dark';
-  
+
   // Colores de alto contraste garantizado para AMBOS temas
   const theme = {
     text: isDark ? '#FFFFFF' : '#000000',      // Blanco puro o Negro puro
@@ -2574,11 +2623,11 @@ function renderStats() {
       }]
     },
     options: {
-      plugins: { 
-        legend: { 
-          position: 'right', 
-          labels: { color: theme.text, font: { size: 12, weight: '800' }, padding: 15, usePointStyle: true } 
-        } 
+      plugins: {
+        legend: {
+          position: 'right',
+          labels: { color: theme.text, font: { size: 12, weight: '800' }, padding: 15, usePointStyle: true }
+        }
       },
       responsive: true, maintainAspectRatio: false,
       cutout: '65%',
@@ -2601,10 +2650,10 @@ function renderStats() {
       }]
     },
     options: {
-      scales: { 
-        y: { 
-          beginAtZero: true, grid: { color: theme.grid }, 
-          ticks: { color: theme.secondary, precision: 0, font: { weight: '800' } } 
+      scales: {
+        y: {
+          beginAtZero: true, grid: { color: theme.grid },
+          ticks: { color: theme.secondary, precision: 0, font: { weight: '800' } }
         },
         x: { grid: { display: false }, ticks: { color: theme.secondary, font: { weight: '800' } } }
       },
@@ -2628,14 +2677,14 @@ function renderStats() {
     },
     options: {
       indexAxis: 'y',
-      scales: { 
-        x: { 
-          beginAtZero: true, grid: { color: theme.grid }, 
-          ticks: { color: theme.secondary, stepSize: 1, font: { weight: '800' } } 
+      scales: {
+        x: {
+          beginAtZero: true, grid: { color: theme.grid },
+          ticks: { color: theme.secondary, stepSize: 1, font: { weight: '800' } }
         },
-        y: { 
-          grid: { display: false }, 
-          ticks: { color: theme.text, font: { size: 12, weight: '800' } } 
+        y: {
+          grid: { display: false },
+          ticks: { color: theme.text, font: { size: 12, weight: '800' } }
         }
       },
       plugins: { legend: { display: false } },
@@ -2655,41 +2704,51 @@ function openModal(dateStr, events) {
 
   events.forEach(evt => {
     const color = resolveColor(evt.type.color);
+    const safeTypeName = escapeHTML(evt.type.name || 'Ausencia');
     const section = document.createElement('div');
     section.className = 'modal-type-section';
     section.innerHTML = `
       <div class="modal-type-header">
         <span class="modal-type-dot" style="background:${color}"></span>
-        ${evt.type.name || 'Ausencia'}
+        ${safeTypeName}
         <span class="pill" style="margin-left:auto">${evt.employees.length}</span>
       </div>
     `;
     evt.employees.forEach(emp => {
       const name = `${emp.firstName||''} ${emp.lastName||''}`.trim();
-      const initials = name.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2)||'?';
+      const safeName = escapeHTML(name || 'Empleado');
+      const safePhoto = safeHttpUrlAttr(emp.imageProfileURL);
+      const initials = escapeHTML(getInitials(name));
       const row = document.createElement('div');
       row.className = 'modal-employee';
+      const safeWorkStatus = emp.workStatus ? escapeHTML(emp.workStatus) : '';
+      const statusClass = emp.workStatus ? safeClassToken(emp.workStatus) : '';
       row.innerHTML = `
         <div class="modal-emp-avatar">
-          ${emp.imageProfileURL
-            ? `<img src="${emp.imageProfileURL}" alt="${name}" onerror="this.parentNode.textContent='${initials}'" />`
+          ${safePhoto
+            ? `<img src="${safePhoto}" alt="${safeName}" referrerpolicy="no-referrer" />`
             : initials}
         </div>
         <div class="modal-emp-name">
-          ${name}
+          ${safeName}
           ${(() => {
             const tk = String(emp.id || '') + '_' + dateStr;
             const ti = STATE.absenceTimesIndex && STATE.absenceTimesIndex.get(tk);
             if (!ti || !ti.startTime || !ti.endTime) return '';
             const durH = ti.seconds ? Math.floor(ti.seconds / 3600) : 0;
             const durTxt = durH ? ' <span class="modal-emp-duration">(' + durH + 'h)</span>' : '';
-            return '<span class="modal-emp-time">\u{1F550} ' + ti.startTime.substring(0,5) + ' \u2013 ' + ti.endTime.substring(0,5) + durTxt + '</span>';
+            return '<span class="modal-emp-time">\u{1F550} ' + escapeHTML(ti.startTime.substring(0,5)) + ' \u2013 ' + escapeHTML(ti.endTime.substring(0,5)) + durTxt + '</span>';
           })()}
         </div>
-        ${emp.workStatus 
-          ? `<span class="pill status-${emp.workStatus.toLowerCase().replace(/\s+/g, '-')}" style="margin-left:auto">${emp.workStatus}</span>` 
+        ${emp.workStatus
+          ? `<span class="pill status-${statusClass}" style="margin-left:auto">${safeWorkStatus}</span>`
           : ''}
       `;
+      const modalAvatar = row.querySelector('.modal-emp-avatar');
+      modalAvatar?.querySelector('img')?.addEventListener('error', event => {
+        event.currentTarget.remove();
+        modalAvatar.textContent = getInitials(name);
+      });
       section.appendChild(row);
     });
     body.appendChild(section);
@@ -2712,7 +2771,7 @@ function exportToIcal() {
   Object.entries(STATE.calendarData).forEach(([dateStr, dayEntries]) => {
     dayEntries.forEach(evt => {
       if (!STATE.activeFilters.has(evt.type.id)) return;
-      
+
       const visibleEmps = evt.employees.filter(emp => !STATE.hiddenEmployeeIds.has(String(emp.id)));
       if (visibleEmps.length === 0) return;
 
@@ -2721,7 +2780,7 @@ function exportToIcal() {
       endDate.setDate(endDate.getDate() + 1);
       const end = fmtDate(endDate).replace(/-/g, '');
       const typeName = evt.type.name || 'Ausencia';
-      
+
       visibleEmps.forEach(emp => {
         const empName = `${emp.firstName || ''} ${emp.lastName || ''}`.trim();
         events.push([
@@ -2767,23 +2826,23 @@ async function showSubscriptionModal() {
     alert("Esta función requiere que la app corra a través de server.py");
     return;
   }
-  
+
   try {
     const secret = "sesame-vacation-secret-9182";
     const msgBuffer = new TextEncoder().encode(`${STATE.companyId}${secret}`);
     const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     const token = hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 16);
-    
+
     const url = `${window.location.origin}/feed.ics?token=${token}`;
-    
+
     const choice = confirm(
       `🔗 Enlace de Suscripción para Google Calendar:\n\n` +
       `${url}\n\n` +
       `¿Deseas intentar copiar este enlace al portapapeles?\n` +
       `En Google Calendar móvil/web: Añadir -> 'Desde URL'.`
     );
-    
+
     if (choice) {
       navigator.clipboard.writeText(url).then(() => {
         alert("✅ Enlace copiado. Pégalo en Google Calendar -> Añadir desde URL.");
@@ -2804,10 +2863,10 @@ function shiftPeriod(dir) {
   } else {
     STATE.currentDate.setMonth(STATE.currentDate.getMonth() + dir);
   }
-  
+
   // Persistir fecha para que no se resetee al cambiar de módulo
   sessionStorage.setItem('ssm_current_date', STATE.currentDate.toISOString());
-  
+
   loadData();
 }
 
@@ -2867,11 +2926,11 @@ async function loadWeather() {
   try {
     // Zaragoza: Lat 41.65, Lon -0.87
     const url = 'https://api.open-meteo.com/v1/forecast?latitude=41.6561&longitude=-0.8773&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code&hourly=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=Europe%2FMadrid&forecast_days=3';
-    
+
     const res = await fetch(url);
     if (!res.ok) throw new Error('API error');
     const data = await res.json();
-    
+
     renderWeather(data);
   } catch (e) {
     console.error("Weather error:", e);
@@ -2883,7 +2942,7 @@ function renderWeather(data) {
   const current = data.current;
   const daily = data.daily;
   const info = $('weather-info');
-  
+
   const weatherIcons = {
     0: '☀️', 1: '🌤️', 2: '⛅', 3: '☁️',
     45: '🌫️', 48: '🌫️',
@@ -2946,23 +3005,23 @@ const FichajesModule = {
     this.initialized = true;
     this.setupEventListeners();
   },
-  
+
   setupEventListeners() {
     // Navegación Temporal
     document.getElementById('prev-month-signings')?.addEventListener('click', () => {
       if (this.currentView === 'day') this.currentDate.setDate(this.currentDate.getDate() - 1);
       else if (this.currentView === 'week') this.currentDate.setDate(this.currentDate.getDate() - 7);
       else this.currentDate.setMonth(this.currentDate.getMonth() - 1);
-      
+
       this.updateMonthLabel();
       this.loadData();
     });
-    
+
     document.getElementById('next-month-signings')?.addEventListener('click', () => {
       if (this.currentView === 'day') this.currentDate.setDate(this.currentDate.getDate() + 1);
       else if (this.currentView === 'week') this.currentDate.setDate(this.currentDate.getDate() + 7);
       else this.currentDate.setMonth(this.currentDate.getMonth() + 1);
-      
+
       this.updateMonthLabel();
       this.loadData();
     });
@@ -2980,27 +3039,27 @@ const FichajesModule = {
       btn.addEventListener('click', (e) => {
         const target = e.target.closest('.vt-btn');
         if (!target) return;
-        
+
         const view = target.dataset.fichajeView;
         if (!view) return;
-        
+
         // Actualizar UI activa
         viewButtons.forEach(b => b.classList.remove('active'));
         target.classList.add('active');
-        
+
         // Cargar datos
         this.currentView = view;
         this.updateMonthLabel();
         this.loadData();
       });
     });
-    
+
     // Búsqueda en tiempo real
     document.getElementById('signings-employee-search')?.addEventListener('input', (e) => {
       this.searchQuery = e.target.value.toLowerCase();
       this.renderTable();
     });
-    
+
     // Exportar a CSV
     document.getElementById('export-signings-csv')?.addEventListener('click', () => {
       this.exportToCSV();
@@ -3008,7 +3067,7 @@ const FichajesModule = {
     document.getElementById('export-signings-json')?.addEventListener('click', () => {
       this.exportToJSON();
     });
-    
+
     // Filtro por Empleado
     document.getElementById('signings-employee-select')?.addEventListener('change', (e) => {
       this.selectedEmployee = e.target.value;
@@ -3032,7 +3091,7 @@ const FichajesModule = {
 
     // Kiosko Mode
     document.getElementById('kiosko-mode-btn')?.addEventListener('click', () => this.toggleKioskoMode());
-    
+
     // Listen for fullscreen change to sync state
     document.addEventListener('fullscreenchange', () => {
       if (!document.fullscreenElement) {
@@ -3071,7 +3130,7 @@ const FichajesModule = {
   toggleKioskoMode() {
     this.kioskoMode = !this.kioskoMode;
     document.body.classList.toggle('kiosko-mode-active', this.kioskoMode);
-    
+
     if (this.kioskoMode) {
       if (!document.fullscreenElement) {
         document.documentElement.requestFullscreen().catch(err => {
@@ -3108,11 +3167,11 @@ const FichajesModule = {
       }
     });
   },
-  
+
   updateMonthLabel() {
     const el = document.getElementById('current-month-signings');
     if (!el) return;
-    
+
     if (this.currentView === 'day') {
       const hoy = new Date();
       if (this.currentDate.toDateString() === hoy.toDateString()) {
@@ -3126,7 +3185,7 @@ const FichajesModule = {
       start.setDate(start.getDate() - day + 1);
       const end = new Date(start);
       end.setDate(start.getDate() + 6);
-      
+
       el.textContent = `${start.toLocaleDateString('es-ES', {day: 'numeric', month: 'short'})} al ${end.toLocaleDateString('es-ES', {day: 'numeric', month: 'short', year: 'numeric'})}`;
     } else {
       el.textContent = this.currentDate.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
@@ -3140,8 +3199,8 @@ const FichajesModule = {
 
     const today = new Date();
     if (dateDisplay) {
-      dateDisplay.textContent = today.toLocaleDateString('es-ES', { 
-        weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' 
+      dateDisplay.textContent = today.toLocaleDateString('es-ES', {
+        weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
       });
     }
 
@@ -3192,7 +3251,7 @@ const FichajesModule = {
 
       if (updatedCount > 0) {
         console.log(`Deep Birthday Harvest: Updated ${updatedCount} profiles.`);
-        this.renderBirthdays(); 
+        this.renderBirthdays();
       }
 
       // Si después del BI seguimos sin datos, iniciamos escaneo serial (uno a uno)
@@ -3214,13 +3273,13 @@ const FichajesModule = {
       .slice(0, 40); // Limitamos a 40 para evitar baneo del WAF
 
     console.log(`Serial Scan: ${employees.length} candidates.`);
-    
+
     for (const emp of employees) {
       if (!this.isScanning) break;
       try {
         // Pequeña pausa para no saturar el WAF
         await new Promise(r => setTimeout(r, 500));
-        
+
         const res = await apiFetch(`/api/v3/employees/${emp.id}`);
         const full = res.data || res;
         // IGUAL que showContactCard: siempre upsertear si el perfil tiene id
@@ -3283,11 +3342,11 @@ const FichajesModule = {
     }
 
     let html = '<div class="birthday-full-year">';
-    
+
     if (this.isScanning) {
       html += `
         <div class="sync-banner">
-          <span class="spinner-sm"></span> 
+          <span class="spinner-sm"></span>
           <span>Sincronizando perfiles... (${birthdayList.length} encontrados)</span>
         </div>
       `;
@@ -3326,11 +3385,11 @@ const FichajesModule = {
       </div>
     `;
   },
-  
+
   async loadData(ignoreCache = false) {
     let startDate = new Date(this.currentDate);
     let endDate = new Date(this.currentDate);
-    
+
     if (this.currentView === 'day') {
       // startDate and endDate are the same
     } else if (this.currentView === 'week') {
@@ -3345,8 +3404,8 @@ const FichajesModule = {
 
     const start = `${startDate.getFullYear()}-${String(startDate.getMonth()+1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`;
     const end = `${endDate.getFullYear()}-${String(endDate.getMonth()+1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
-    
-    
+
+
     try {
       // 0. Cache check: Si ya tenemos los datos en esta sesión, mostrarlos inmediatamente
       const cacheKey = `ssm_fichajes_cache_${STATE.companyId}_${this.currentView}_${start}_${end}`;
@@ -3369,11 +3428,11 @@ const FichajesModule = {
       }
 
       this.renderSkeletons();
-      
+
       // RESTAURACIÓN DEL SELECTOR: Cargamos el desplegable nada más empezar
       // para que el usuario pueda filtrar aunque la carga de datos falle.
       this.populateEmployeeSelect();
-      
+
       // Claves de configuración por empresa (scope externo para ser accesibles en todo loadData)
       const BI_SCHEMA_CACHE_KEY = `ssm_bi_schema_${STATE.companyId}`;
       const BI_WAF_KEY          = `ssm_bi_waf_${STATE.companyId}`;
@@ -3562,7 +3621,7 @@ const FichajesModule = {
         if (!enrichmentOk && biData.length > 0) {
           console.info(`BI Engine [${STATE.companyId.substring(0,8)}]: Fichajes OK · Sin geolocalización/IP (campos eliminados del esquema BI de esta empresa).`);
         }
-        
+
         // --- FALLBACK: Escaneo de metadatos de fichajes para encontrar jornada teórica ---
         // A veces Sesame inyecta el dato en cada fichaje aunque no lo pidamos explícitamente
         biData.forEach(row => {
@@ -3600,7 +3659,7 @@ const FichajesModule = {
       } catch (biErr) {
         console.warn("BI Engine data fetch error:", biErr);
       }
-      
+
       // 2. Cargar ausencias/festivos
       // Envuelto en try/catch: si el token no tiene permisos de equipo (403 permisos)
       // detectamos "modo empleado" y usamos endpoints personales en su lugar.
@@ -3700,10 +3759,11 @@ const FichajesModule = {
       if (_coreApiIs403 && !STATE.currentUser) {
         const company = STATE.companies.find(c => c.companyId === STATE.companyId);
         const companyName = company?.name || STATE.companyId?.substring(0, 8) || 'Esta empresa';
+        const safeCompanyName = escapeHTML(companyName);
         document.getElementById('signings-tbody').innerHTML = `
           <tr><td colspan="4" style="text-align:center; padding: 50px 30px;">
             <div style="font-size:2rem; margin-bottom:12px;">🔑</div>
-            <div style="font-size:1.1rem; font-weight:600; color:var(--warn); margin-bottom:8px;">Token de ${companyName} caducado</div>
+            <div style="font-size:1.1rem; font-weight:600; color:var(--warn); margin-bottom:8px;">Token de ${safeCompanyName} caducado</div>
             <div style="font-size:0.85rem; color:var(--text-muted); max-width:480px; margin:0 auto 20px;">
               Sesame ha rechazado el acceso (403 Forbidden).<br>El token necesita renovarse.
             </div>
@@ -3731,7 +3791,7 @@ const FichajesModule = {
       const modeBar = document.getElementById('employee-mode-bar');
       if (modeBar) modeBar.style.display = _employeeMode ? 'flex' : 'none';
 
-      
+
       // Sincronizar perfiles desde presencia (a veces trae fotos que otros no)
       presenceRes.forEach(p => {
         if (p.employee) upsertEmployee(p.employee);
@@ -3767,10 +3827,10 @@ const FichajesModule = {
 
           // 1. Intentar Búsqueda Global (Manager View) — solo en modo equipo
           let globalData = null;
-          
+
           if (DISCOVERY.workingChecks !== 'DISABLED') {
-            const candidates = DISCOVERY.workingChecks 
-              ? [DISCOVERY.workingChecks] 
+            const candidates = DISCOVERY.workingChecks
+              ? [DISCOVERY.workingChecks]
               : [
                 '/api/v3/statistics/daily-computed-hour-stats',
                 '/api/v3/work-entries/search',
@@ -3781,12 +3841,12 @@ const FichajesModule = {
               try {
                 let path = rawPath.replace('{companyId}', STATE.companyId || '');
                 const res = await apiFetch(path, { from: start, to: end, limit: 1000 });
-                
+
                 let records = [];
                 if (res && res.data) {
                   records = Array.isArray(res.data) ? res.data : (res.data.items || []);
                 }
-                
+
                 if (records.length > 0) {
                   globalData = records;
                   if (!DISCOVERY.workingChecks) {
@@ -3825,11 +3885,11 @@ const FichajesModule = {
 
              this.realSignings = globalData;
              this.data = this.parseRealSignings(globalData, localAbsences);
-             return; 
+             return;
           }
 
           // 2. Si lo anterior falla (403/404), procedemos al fallback individual
-          
+
           // Asegurarnos de tener la lista completa de IDs de la empresa
           if (STATE.allEmployees.size <= 1) {
              const freshEmps = await fetchEmployees();
@@ -3837,7 +3897,7 @@ const FichajesModule = {
           }
 
           let allIds = Array.from(STATE.allEmployees.keys());
-          
+
           // Asegurar que estamos nosotros mismos
           const myId = getCurrentEmployeeId();
           if (myId && !allIds.includes(String(myId))) {
@@ -3865,7 +3925,7 @@ const FichajesModule = {
                const chunk = targetIds.slice(i, i + 8).filter(id => !this.failedIds.has(id));
                if (chunk.length === 0) continue;
 
-               const reqs = chunk.map(id => 
+               const reqs = chunk.map(id =>
                  apiFetch(`/api/v3/employees/${id}/checks?from=${start}&to=${end}&includeOut=true`, { method: 'GET' })
                  .then(res => ({ id, res }))
                  .catch(err => {
@@ -3877,7 +3937,7 @@ const FichajesModule = {
                     return { id, err: msg };
                  })
                );
-               
+
                const results = await Promise.all(reqs);
                results.forEach(({ id, res }) => {
                  if (res && res.data && res.data.length > 0) {
@@ -3907,8 +3967,8 @@ const FichajesModule = {
           AUDIT.isSearching = false;
         }
       }
-      
-      // FINAL MERGE: Si seguimos sin datos pero hay gente PRESENTE (fetchPresence), 
+
+      // FINAL MERGE: Si seguimos sin datos pero hay gente PRESENTE (fetchPresence),
       // generamos registros "fantasma" para que al menos se vean en la lista.
       if (this.data.length === 0 && this.realtimePresence.length > 0) {
         this.realtimePresence.forEach(p => {
@@ -3931,7 +3991,7 @@ const FichajesModule = {
 
       if (this.data.length === 0) {
         const msg = AUDIT.isSearching ? "Buscando puerta de enlace alternativa..." : (isLocalProxy() ? "Sesame no ha devuelto registros para este periodo." : "Sin datos.");
-        
+
         // Reporte de Auditoría para el usuario
         const auditInfo = [
           `Estadísticas(BI): ${AUDIT.lastBiStatus || '?' }`,
@@ -3939,13 +3999,16 @@ const FichajesModule = {
           `Presencia: ${AUDIT.lastPresenceStatus || '?' }`,
           `Perfil Me: ${AUDIT.lastMeStatus || '?' }`
         ].join(' | ');
+        const safeMsg = escapeHTML(msg);
+        const safeAuditInfo = escapeHTML(auditInfo);
+        const safePresencePath = escapeHTML(DISCOVERY.workingPresence || 'Buscando...');
 
         document.getElementById('signings-tbody').innerHTML = `
           <tr>
             <td colspan="4" style="text-align:center; padding: 60px 40px; color: var(--text-muted);">
-              <div style="font-size: 1.1rem; font-weight: 500; margin-bottom: 12px;">${msg}</div>
-              <div style="font-size: 11px; opacity: 0.5; font-family: monospace;">Diagnóstico: ${auditInfo}</div>
-              <div style="font-size: 10px; opacity: 0.4; margin-top: 4px;">Ruta pres. activa: ${DISCOVERY.workingPresence || 'Buscando...'}</div>
+              <div style="font-size: 1.1rem; font-weight: 500; margin-bottom: 12px;">${safeMsg}</div>
+              <div style="font-size: 11px; opacity: 0.5; font-family: monospace;">Diagnóstico: ${safeAuditInfo}</div>
+              <div style="font-size: 10px; opacity: 0.4; margin-top: 4px;">Ruta pres. activa: ${safePresencePath}</div>
               <div style="margin-top: 20px;">
                 <button class="btn-secondary" onclick="FichajesModule.loadData()" style="font-size: 0.75rem;">Reintentar auditoría profunda</button>
               </div>
@@ -3957,10 +4020,10 @@ const FichajesModule = {
         this.renderTable();
       }
 
-      
+
       // REFRESCAR BARRA LATERAL: Para que los puntos de estado se vean al instante tras la carga
       renderEmployeeFilterList();
-      
+
       // GUARDAR EN CACHÉ
       sessionStorage.setItem(cacheKey, JSON.stringify({
         data: this.data,
@@ -3979,13 +4042,15 @@ const FichajesModule = {
       const is401 = err.message.includes('401') || err.message.includes('caducada');
       const company = STATE.companies.find(c => c.companyId === STATE.companyId);
       const companyName = company?.name || 'Esta empresa';
+      const safeCompanyName = escapeHTML(companyName);
+      const safeErrorMessage = escapeHTML(err.message || 'Error desconocido');
 
       if (is403 || is401) {
         document.getElementById('signings-tbody').innerHTML = `
           <tr><td colspan="4" style="text-align:center; padding: 50px 30px;">
             <div style="font-size:2rem; margin-bottom:12px;">🔑</div>
             <div style="font-size:1.1rem; font-weight:600; color:var(--warn); margin-bottom:8px;">
-              Token de ${companyName} caducado
+              Token de ${safeCompanyName} caducado
             </div>
             <div style="font-size:0.85rem; color:var(--text-muted); max-width:480px; margin:0 auto 20px;">
               Sesame rechaza el acceso con el token guardado (${is401 ? '401 Unauthorized' : '403 Forbidden'}).<br>
@@ -4009,7 +4074,7 @@ const FichajesModule = {
       } else {
         document.getElementById('signings-tbody').innerHTML = `
           <tr><td colspan="4" style="text-align:center; padding: 40px; color: #ff5555;">
-            Error al conectar con Sesame: ${err.message}
+            Error al conectar con Sesame: ${safeErrorMessage}
             <br><button class="btn-secondary" onclick="FichajesModule.loadData()" style="margin-top:12px; font-size:0.75rem;">🔄 Reintentar</button>
           </td></tr>`;
       }
@@ -4043,7 +4108,7 @@ const FichajesModule = {
 
   setupAutoRefresh() {
     if (this.refreshInterval) clearInterval(this.refreshInterval);
-    
+
     const isToday = this.currentDate.toDateString() === new Date().toDateString();
     if (this.currentView === 'day' && isToday) {
       this.refreshInterval = setInterval(() => {
@@ -4053,15 +4118,15 @@ const FichajesModule = {
       }, 120000); // 2 minutos
     }
   },
-  
+
   populateEmployeeSelect() {
     const select = document.getElementById('signings-employee-select');
     if (!select) return;
-    
+
     // Guardar selección actual
     const current = select.value;
     select.innerHTML = '<option value="all">👥 Ver a todo el equipo</option>';
-    
+
     const sorted = Array.from(STATE.allEmployees.values()).sort((a,b) => a.firstName.localeCompare(b.firstName));
     sorted.forEach(emp => {
       const opt = document.createElement('option');
@@ -4069,11 +4134,11 @@ const FichajesModule = {
       opt.textContent = `${emp.firstName} ${emp.lastName}`;
       select.appendChild(opt);
     });
-    
+
     select.value = current;
     if (select.value === "") select.value = "all";
   },
-  
+
   /**
    * Algoritmo de orquestación y cruce (Smart Match).
    * Transforma los registros RAW de Sesame BI en una estructura agrupada por empleado/día,
@@ -4088,7 +4153,7 @@ const FichajesModule = {
       // Manejo de checkIn/Out como objetos o strings
       const inStr = (c.checkIn && typeof c.checkIn === 'object') ? c.checkIn.date : c.checkIn;
       const outStr = (c.checkOut && typeof c.checkOut === 'object') ? c.checkOut.date : c.checkOut;
-      
+
       // Helper para extraer coordenadas de forma robusta
       const extractCoord = (obj, field) => {
         if (!obj || typeof obj !== 'object') return null;
@@ -4131,8 +4196,8 @@ const FichajesModule = {
         performedByIdOut: c.performedByIdOut || (c.checkOut && c.checkOut.performedByEmployeeId) || '',
         secondsWorked: c.secondsWorked || c.accumulatedSeconds || c.seconds || 0,
         type: (c.checkType || c.type || c.entryType || 'work').toLowerCase(),
-        employeeName: c.employeeName || 
-                      (c.employee ? `${c.employee.firstName} ${c.employee.lastName}` : null) || 
+        employeeName: c.employeeName ||
+                      (c.employee ? `${c.employee.firstName} ${c.employee.lastName}` : null) ||
                       (() => {
                         const eId = String(c.employeeId || (c.employee && c.employee.id) || c.employee_id || '');
                         const stored = STATE.allEmployees.get(eId);
@@ -4161,12 +4226,12 @@ const FichajesModule = {
             const rawType = ct.calendar_type || {};
             const masterType = STATE.absenceTypes.find(t => t.id === rawType.id) || {};
             absenceLabel = masterType.name || rawType.name || "Ausencia";
-            
+
             // Búsqueda exhaustiva de horarios en múltiples formatos y sub-objetos
             let sTimeRaw = myAbs.start_time || myAbs.startTime || myAbs.time_start || myAbs.timeStart || myAbs.time_from || myAbs.timeFrom || myAbs.start ||
                              (myAbs.partialDay && (myAbs.partialDay.start_time || myAbs.partialDay.startTime)) ||
                              (myAbs.details && (myAbs.details.start_time || myAbs.details.startTime));
-            
+
             let eTimeRaw = myAbs.end_time || myAbs.endTime || myAbs.time_end || myAbs.timeEnd || myAbs.time_to || myAbs.timeTo || myAbs.end ||
                              (myAbs.partialDay && (myAbs.partialDay.end_time || myAbs.partialDay.endTime)) ||
                              (myAbs.details && (myAbs.details.end_time || myAbs.details.endTime));
@@ -4207,7 +4272,7 @@ const FichajesModule = {
         const dObj = new Date(record.date + 'T00:00:00');
         let dayName = dObj.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric' });
         dayName = dayName.charAt(0).toUpperCase() + dayName.slice(1);
-        
+
         grouped[key] = {
           employeeId: record.employeeId,
           employeeName: (record.employeeName || `Empleado #${record.employeeId || '?' }`).trim(),
@@ -4219,7 +4284,7 @@ const FichajesModule = {
           entries: []
         };
       }
-      
+
       let inTime = "--:--";
       if (record.checkIn) {
         const inD = new Date(record.checkIn);
@@ -4230,14 +4295,14 @@ const FichajesModule = {
         const outD = new Date(record.checkOut);
         outTime = `${String(outD.getHours()).padStart(2,'0')}:${String(outD.getMinutes()).padStart(2,'0')}`;
       }
-      
+
       // CRUCE INTELIGENTE: Si el fichaje solapa con una ausencia programada, usar ese tipo
       let typeClass = record.type === 'work' ? 'work' : (record.type === 'pause' ? 'pause' : 'special');
       let typeLabel = record.type === 'work' ? 'Trabajo' : (record.type === 'pause' ? 'Pausa' : record.type);
-      
+
       const dayAbsences = grouped[key].absenceSegments || [];
       const entryStart = record.checkIn ? new Date(record.checkIn).getTime() : 0;
-      
+
       // SOLO emparejar si no es un fichaje de trabajo o pausa real (para evitar tapar fichajes reales)
       if (record.type !== 'work' && record.type !== 'pause') {
         for (const abs of dayAbsences) {
@@ -4246,15 +4311,15 @@ const FichajesModule = {
           const absDate = new Date(record.date + 'T00:00:00');
           absDate.setHours(h, m, 0);
           const absStartTs = absDate.getTime();
-          
+
           const [eH, eM] = (abs.end || "23:59:59").split(':').map(Number);
           const absEndDate = new Date(record.date + 'T00:00:00');
           absEndDate.setHours(eH, eM, 0);
           const absEndTs = absEndDate.getTime();
-          
+
           // Emparejar solo si el fichaje empieza dentro del bloque exacto de la ausencia parcial
           // Margen de 15 min al inicio, y debe empezar antes del final de la ausencia para no pisar el fichaje de vuelta
-          if (entryStart >= (absStartTs - 900000) && entryStart < (absEndTs - 60000)) { 
+          if (entryStart >= (absStartTs - 900000) && entryStart < (absEndTs - 60000)) {
              typeClass = 'private';
              typeLabel = abs.label;
              break;
@@ -4302,29 +4367,29 @@ const FichajesModule = {
          recordCreatedAt: record.recordCreatedAt || '',
          recordUpdatedAt: record.recordUpdatedAt || ''
        });
-      
+
        if (record.type === 'work') {
          grouped[key].totalWorkedSeconds += (record.secondsWorked || 0);
        }
     }
-    
+
     // Transform groups to array format expected by renderTable
     const todayStr = new Date().toISOString().split('T')[0];
     for (const key in grouped) {
       const g = grouped[key];
       // Sort entries by checkIn
       g.entries.sort((a,b) => (a.inOriginal > b.inOriginal ? 1 : -1));
-      
+
       // Detect if "LIVE" (any entry still open today)
       const isLive = g.date === todayStr && g.entries.some(e => (!e.outOriginal || e.out === "--:--"));
-      
+
       // Recuperar la jornada teórica y datos extra del empleado
       const emp = STATE.allEmployees.get(String(g.employeeId));
-      
+
       // Forzar lectura en hora local para evitar desajustes de día de la semana
-      const dObj = new Date(g.date + 'T00:00:00'); 
-      const dayOfWeek = dObj.getDay(); 
-      
+      const dObj = new Date(g.date + 'T00:00:00');
+      const dayOfWeek = dObj.getDay();
+
       // Prioridad 1: DATO MAESTRO DEL BI ENGINE (La verdad absoluta de Sesame)
       // Prioridad 2: Excepción del Calendario (ej: jornada intensiva, víspera festivo)
       // Prioridad 3: Plantilla Semanal del empleado
@@ -4332,7 +4397,7 @@ const FichajesModule = {
       let theoreticSeconds = 28800;
       let compensatedSeconds = 0;
       const overrideKey = `${g.employeeId}_${g.date}`;
-      
+
       if (this.biTheoreticMap && this.biTheoreticMap.has(overrideKey)) {
         // El BI Engine ya nos da la jornada teórica final calculada por Sesame
         theoreticSeconds = this.biTheoreticMap.get(overrideKey);
@@ -4345,11 +4410,11 @@ const FichajesModule = {
       } else if (emp && emp.workdays && typeof emp.workdays[dayOfWeek] !== 'undefined') {
         theoreticSeconds = emp.workdays[dayOfWeek];
       }
-      
+
       // IMPORTANTE: Ya no ponemos la jornada teórica a 0 si hay ausencia.
       // Sesame sigue mostrando la jornada teórica (ej: 7h o 8h) aunque sea festivo/ausencia.
       // Lo que hace es "compensar" las horas.
-      
+
       // --- Computed enriched metrics for the detail panel ---
       const workEntries = g.entries.filter(e => e.type === 'work' || e.type === 'special' || e.type === 'private');
       const pauseEntries = g.entries.filter(e => e.type === 'pause');
@@ -4361,12 +4426,12 @@ const FichajesModule = {
       const officesUsed = [...new Set(g.entries.map(e => e.officeNameIn).filter(Boolean))];
       const thirdPartyEdits = g.entries.filter(e => e.performedByNameIn && String(e.performedByIdIn) !== String(g.employeeId));
       const hasBeenEdited = g.entries.some(e => {
-        const isThirdParty = (e.performedByNameIn && String(e.performedByIdIn) !== String(g.employeeId)) || 
-                             e.originIn === 'request' || 
+        const isThirdParty = (e.performedByNameIn && String(e.performedByIdIn) !== String(g.employeeId)) ||
+                             e.originIn === 'request' ||
                              e.originOut === 'request';
         return isThirdParty;
       });
-      
+
       // El total trabajado para el balance incluye lo fichado + lo compensado (permisos retribuidos)
       const totalEquivalentSeconds = g.totalWorkedSeconds + compensatedSeconds;
       const balanceSec = totalEquivalentSeconds - theoreticSeconds;
@@ -4463,16 +4528,16 @@ const FichajesModule = {
     }
 
     tbody.innerHTML = '';
-    
+
     if (this.currentView === 'balance') {
       this.renderBalanceTable();
       return;
     }
-    
+
     const myId = getCurrentEmployeeId();
     const isTeamView = !this.selectedEmployee || this.selectedEmployee === 'all';
     const isOtherEmployeeSelected = this.selectedEmployee && this.selectedEmployee !== 'all' && String(this.selectedEmployee) !== String(myId);
-    
+
     // UI Hint: Restricted Access (Detección de 403 en esta sesión)
     // Mostramos el aviso si:
     // 1. Estamos viendo todo el equipo y hay restricciones.
@@ -4497,15 +4562,15 @@ const FichajesModule = {
        `;
        tbody.appendChild(warningRow);
     }
-    
+
     let filtered = this.getFilteredRows();
-    
+
     // Refresh insights whenever the table filters update
     this.renderOperationalInsights();
 
     // Sort: Las más recientes primero
     filtered.sort((a,b) => (b.date || '').localeCompare(a.date || '') || (a.employeeName || '').localeCompare(b.employeeName || ''));
-    
+
     if (filtered.length === 0) {
       const emptyRow = document.createElement('tr');
       emptyRow.innerHTML = `
@@ -4518,7 +4583,7 @@ const FichajesModule = {
 
     let totalWorked = 0;
     let totalTheoretic = 0;
-    
+
     // ── Helpers: HTML de ausencias (sin backticks anizados) ──────────────
     const _absTimelineHtml = (segs) => {
       if (!segs || !segs.length) return '';
@@ -4529,7 +4594,7 @@ const FichajesModule = {
         const ps = ((p[0] + (p[1]||0)/60) / 24) * 100;
         const pw = (((q[0] + (q[1]||0)/60) - (p[0] + (p[1]||0)/60)) / 24) * 100;
         const lbl = (abs.label || 'Ausencia') + ': ' + abs.start.substring(0,5) + '-' + abs.end.substring(0,5);
-        return '<div class="mini-timeline-bar absence" style="left:' + ps.toFixed(2) + '%;width:' + pw.toFixed(2) + '%;" title="' + lbl + '"></div>';
+        return '<div class="mini-timeline-bar absence" style="left:' + ps.toFixed(2) + '%;width:' + pw.toFixed(2) + '%;" title="' + escapeHTML(lbl) + '"></div>';
       }).join('');
     };
     const _absTableRowsHtml = (segs, entries) => {
@@ -4565,7 +4630,7 @@ const FichajesModule = {
         }
         const st = abs.start ? abs.start.substring(0,5) : '00:00';
         const et = abs.end   ? abs.end.substring(0,5)   : '23:59';
-        const lbl = abs.label || 'Ausencia';
+        const lbl = escapeHTML(abs.label || 'Ausencia');
         return '<tr class="row-is-absence" style="background:rgba(139,92,246,0.06);">'
           + '<td><strong>' + st + ' \u2013 ' + et + '</strong></td>'
           + '<td><span class="td-duration">' + durStr + '</span></td>'
@@ -4588,11 +4653,22 @@ const FichajesModule = {
 
         const empName = String(row.employeeName || 'Empleado');
         const empId = String(row.employeeId || '');
+        const safeEmpName = escapeHTML(empName);
+        const safeEmpId = escapeHTML(empId);
+        const safePhoto = safeHttpUrlAttr(row.photoUrl);
+        const initials = escapeHTML(getInitials(empName));
+        const safeAbsenceLabel = row.absenceLabel ? escapeHTML(row.absenceLabel) : '';
+        const safeDayName = escapeHTML(row.dayName || '');
+        const safeBalanceLabel = escapeHTML(row.balanceLabel || '');
+        const safeWeeklyBalanceLabel = escapeHTML(row.weeklyBalanceLabel || '');
+        const safeInTime = escapeHTML(row.inTime || '--:--');
+        const safeOutTime = escapeHTML(row.outTime || '--:--');
+        const safePauseLabel = escapeHTML(row.pauseLabel || '0m');
 
         const workedH = Math.floor(worked / 3600);
         const workedM = Math.floor((worked % 3600) / 60);
         const theoH = Math.floor(theoretic / 3600);
-        
+
         let alertHtml = "";
         if (worked > 0) {
           if (worked < theoretic * 0.95 && !row.isLive) {
@@ -4612,7 +4688,9 @@ const FichajesModule = {
             if (isNaN(hIn) || isNaN(hOut)) return "";
             const ps = ((hIn + (mIn||0)/60) / 24) * 100;
             const pw = (((hOut + (mOut||0)/60) - (hIn + (mIn||0)/60)) / 24) * 100;
-            return '<div class="timeline-bar ' + (e.type||'work') + '" style="left:' + ps + '%;width:' + pw + '%" title="' + (e.typeLabel||'Trabajo') + ': ' + e.in + ' - ' + e.out + '"></div>';
+            const typeClass = safeClassToken(e.type || 'work', 'work');
+            const title = `${e.typeLabel || 'Trabajo'}: ${e.in} - ${e.out}`;
+            return '<div class="timeline-bar ' + typeClass + '" style="left:' + ps + '%;width:' + pw + '%" title="' + escapeHTML(title) + '"></div>';
           }),
           ...(row.absenceSegments || []).filter(a => !a.isFullDay).map(abs => {
             const [hIn, mIn] = abs.start.split(':').map(Number);
@@ -4620,33 +4698,44 @@ const FichajesModule = {
             if (isNaN(hIn) || isNaN(hOut)) return "";
             const ps = ((hIn + (mIn||0)/60) / 24) * 100;
             const pw = (((hOut + (mOut||0)/60) - (hIn + (mIn||0)/60)) / 24) * 100;
-            return '<div class="timeline-bar absence" style="left:' + ps + '%;width:' + pw + '%" title="' + (abs.label||'Ausencia') + ': ' + abs.start.substring(0,5) + ' - ' + abs.end.substring(0,5) + '"></div>';
+            const title = `${abs.label || 'Ausencia'}: ${abs.start.substring(0,5)} - ${abs.end.substring(0,5)}`;
+            return '<div class="timeline-bar absence" style="left:' + ps + '%;width:' + pw + '%" title="' + escapeHTML(title) + '"></div>';
           })
         ].join('');
-        
+
         const tr = document.createElement('tr');
         tr.className = 'row-expandable';
         tr.innerHTML = `
           <td class="col-employee">
             <div class="employee-cell">
-              <div class="emp-avatar-sm clickable" onclick="event.stopPropagation(); showContactCard('${empId}')" style="${row.photoUrl ? '' : `background: linear-gradient(135deg, var(--accent), var(--accent2));`}">
-                ${row.photoUrl 
-                  ? `<img src="${row.photoUrl}" alt="${empName}" onerror="this.parentElement.innerHTML='${empName.substring(0,2).toUpperCase()}';">` 
-                  : empName.substring(0,2).toUpperCase()}
+              <div class="emp-avatar-sm clickable" data-employee-id="${safeEmpId}" style="${safePhoto ? '' : `background: linear-gradient(135deg, var(--accent), var(--accent2));`}">
+                ${safePhoto
+                  ? `<img src="${safePhoto}" alt="${safeEmpName}" referrerpolicy="no-referrer">`
+                  : initials}
               </div>
               <div class="employee-info-cell">
-                <span style="font-weight: 600;">${empName}</span>
-                ${row.absenceLabel ? `<span class="badge-absence">📌 ${row.absenceLabel}</span>` : ''}
+                <span style="font-weight: 600;">${safeEmpName}</span>
+                ${safeAbsenceLabel ? `<span class="badge-absence">📌 ${safeAbsenceLabel}</span>` : ''}
               </div>
               ${row.isLive ? '<span class="pulse-dot green"></span>' : ''}
             </div>
           </td>
-          <td class="col-date">${row.dayName || ''}</td>
+          <td class="col-date">${safeDayName}</td>
           <td class="col-hours text-center">
              <strong>${workedH}h ${workedM}m</strong> / ${theoH}h ${alertHtml}
           </td>
           <td class="col-timeline"><div class="timeline-track">${timelineSegments}</div></td>
         `;
+        tr.querySelector('.emp-avatar-sm.clickable')?.addEventListener('click', event => {
+          event.stopPropagation();
+          showContactCard(empId);
+        });
+        const rowAvatar = tr.querySelector('.emp-avatar-sm.clickable');
+        rowAvatar?.querySelector('img')?.addEventListener('error', event => {
+          event.currentTarget.remove();
+          rowAvatar.textContent = getInitials(empName);
+          rowAvatar.style.background = 'linear-gradient(135deg, var(--accent), var(--accent2))';
+        });
 
         const trDetails = document.createElement('tr');
         trDetails.className = 'row-details';
@@ -4656,22 +4745,22 @@ const FichajesModule = {
           <td colspan="10">
             <div class="details-container">
               <div class="details-layout-split">
-                <div class="signings-stats-panel" id="stats-panel-${empId}-${row.date}">
+                <div class="signings-stats-panel" id="stats-panel-${safeClassToken(empId, 'emp')}-${safeClassToken(row.date, 'date')}">
                    <!-- COL 1: OVERVIEW -->
                    <div class="stats-bento-section">
                      <div class="info-title">📊 RESUMEN JORNADA</div>
                      <div class="stat-value">${workedH}h ${workedM}m</div>
                      <div class="stat-subtext">Real fichado</div>
-                     
+
                      ${row.compensatedSeconds > 0 ? `
                      <div class="stat-value" style="font-size: 1.1rem; color: var(--success); margin-top: 8px;">+ ${Math.floor(row.compensatedSeconds/3600)}h ${Math.round((row.compensatedSeconds%3600)/60)}m</div>
                      <div class="stat-subtext">Compensado (Retribuido)</div>
                      ` : ''}
-                     
+
                      <div class="detail-divider"></div>
                      <div class="detail-meta-grid">
-                       <div class="detail-meta-item"><span class="detail-meta-label">Balance Día</span><span class="detail-meta-val" style="color: ${row.balanceSec >= 0 ? '#4ade80' : '#f87171'}">${row.balanceLabel}</span></div>
-                       <div class="detail-meta-item"><span class="detail-meta-label">Balance Sem.</span><span class="detail-meta-val" style="color: ${row.weeklyBalanceSec >= 0 ? '#4ade80' : '#f87171'}">${row.weeklyBalanceLabel}</span></div>
+                       <div class="detail-meta-item"><span class="detail-meta-label">Balance Día</span><span class="detail-meta-val" style="color: ${row.balanceSec >= 0 ? '#4ade80' : '#f87171'}">${safeBalanceLabel}</span></div>
+                       <div class="detail-meta-item"><span class="detail-meta-label">Balance Sem.</span><span class="detail-meta-val" style="color: ${row.weeklyBalanceSec >= 0 ? '#4ade80' : '#f87171'}">${safeWeeklyBalanceLabel}</span></div>
                      </div>
 
                      ${theoretic > 0 ? (() => {
@@ -4697,13 +4786,15 @@ const FichajesModule = {
                          const [hOut, mOut] = e.out.split(':').map(Number);
                          const start = ((hIn + (mIn||0)/60) / 24) * 100;
                          const width = (((hOut + (mOut||0)/60) - (hIn + (mIn||0)/60)) / 24) * 100;
-                         return `<div class="mini-timeline-bar ${e.type || 'work'}" style="left: ${start}%; width: ${width}%;" title="${e.typeLabel}: ${e.in}-${e.out}"></div>`;
+                         const typeClass = safeClassToken(e.type || 'work', 'work');
+                         const title = `${e.typeLabel || 'Trabajo'}: ${e.in}-${e.out}`;
+                         return `<div class="mini-timeline-bar ${typeClass}" style="left: ${start}%; width: ${width}%;" title="${escapeHTML(title)}"></div>`;
                        }).join('')}
                      </div>
 
                      <div class="detail-meta-grid">
-                       <div class="detail-meta-item"><span class="detail-meta-label">Primera Entrada</span><span class="detail-meta-val">${row.inTime}</span></div>
-                       <div class="detail-meta-item"><span class="detail-meta-label">Última Salida</span><span class="detail-meta-val">${row.outTime}</span></div>
+                       <div class="detail-meta-item"><span class="detail-meta-label">Primera Entrada</span><span class="detail-meta-val">${safeInTime}</span></div>
+                       <div class="detail-meta-item"><span class="detail-meta-label">Última Salida</span><span class="detail-meta-val">${safeOutTime}</span></div>
                      </div>
 
                      <div class="detail-divider"></div>
@@ -4713,7 +4804,7 @@ const FichajesModule = {
                      </div>
                      ${row.pauseSegments > 0 ? `
                      <div class="detail-stat-row">
-                       <span class="detail-stat-val">☕ ${row.pauseLabel} pausas</span>
+                       <span class="detail-stat-val">☕ ${safePauseLabel} pausas</span>
                        <span class="detail-stat-badge">${row.pauseSegments} tramos</span>
                      </div>
                      ` : ''}
@@ -4727,7 +4818,7 @@ const FichajesModule = {
                            <span class="detail-audit-icon">✏️</span>
                            <div class="detail-audit-text">
                              <strong>Modificado por tercero</strong>
-                             <span>${[...new Set(row.thirdPartyEdits.map(e => e.performedByNameIn))].filter(Boolean).join(', ')}</span>
+                             <span>${escapeHTML([...new Set(row.thirdPartyEdits.map(e => e.performedByNameIn))].filter(Boolean).join(', '))}</span>
                            </div>
                          </div>`
                        : (row.hasBeenEdited ? '<div class="detail-audit-warn"><span>⚠️</span> <span>Registro editado</span></div>' : '<div class="detail-audit-ok"><span>✅</span> <span>Registro original</span></div>')
@@ -4739,44 +4830,44 @@ const FichajesModule = {
                        ${row.originsUsed.map(o => {
                          const ol = o.toLowerCase();
                          const icon = ol.includes('web') ? '🌐' : (ol.includes('app') ? '📱' : (ol.includes('tablet') ? '📟' : '📍'));
-                         return '<span class="detail-chip">' + icon + ' ' + (ol.includes('web')?'Web':ol.includes('app')?'App':ol.includes('tablet')?'Tablet':o) + '</span>';
+                         return '<span class="detail-chip">' + icon + ' ' + escapeHTML(ol.includes('web')?'Web':ol.includes('app')?'App':ol.includes('tablet')?'Tablet':o) + '</span>';
                        }).join('')}
                      </div>
 
                      <div class="detail-divider"></div>
                      <div class="info-title" style="font-size:0.6rem; opacity:0.6">DETALLES TÉCNICOS</div>
                      <div class="detail-chips">
-                       ${row.devicesUsed.map(d => '<span class="detail-chip">💻 ' + d + '</span>').join('')}
-                       ${row.officesUsed.map(o => '<span class="detail-chip">🏢 ' + o + '</span>').join('')}
+                       ${row.devicesUsed.map(d => '<span class="detail-chip">💻 ' + escapeHTML(d) + '</span>').join('')}
+                       ${row.officesUsed.map(o => '<span class="detail-chip">🏢 ' + escapeHTML(o) + '</span>').join('')}
                      </div>
                    </div>
                    <!-- COL 4: SEGURIDAD E HISTORIAL -->
                    <div class="stats-bento-section" style="border-left: 1px solid var(--accent2)">
                      <div class="info-title">🛡️ SEGURIDAD E HISTORIAL</div>
-                     <div class="detail-meta-grid" style="grid-template-columns: 1fr; gap: 4px;" id="audit-level-3-${empId}-${row.date}">
+                     <div class="detail-meta-grid" style="grid-template-columns: 1fr; gap: 4px;" id="audit-level-3-${safeClassToken(empId, 'emp')}-${safeClassToken(row.date, 'date')}">
                         ${(() => {
                            let preAuditHTML = '';
                            const seenEditors = new Set();
-                           
+
                            row.entries.forEach(e => {
-                              const isEditedIn = e.performedByNameIn && String(e.performedByIdIn) !== String(row.employeeId);
-                              const isEditedOut = e.performedByNameOut && String(e.performedByIdOut) !== String(row.employeeId);
-                              
-                              if (isEditedIn && !seenEditors.has('in_'+e.performedByNameIn)) {
+                             const isEditedIn = e.performedByNameIn && String(e.performedByIdIn) !== String(row.employeeId);
+                             const isEditedOut = e.performedByNameOut && String(e.performedByIdOut) !== String(row.employeeId);
+
+                             if (isEditedIn && !seenEditors.has('in_'+e.performedByNameIn)) {
                                  preAuditHTML += `<div class="detail-meta-item" style="flex-direction:row; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.03); padding:4px 8px; border-radius:4px; border:1px solid rgba(251,191,36,0.3)">
                                     <span class="detail-meta-label" style="margin:0; font-size:0.6rem;">✏️ Edición In</span>
-                                    <span class="detail-meta-val" style="font-size:0.6rem; font-weight:600; color:var(--warn)">${e.performedByNameIn}</span>
+                                    <span class="detail-meta-val" style="font-size:0.6rem; font-weight:600; color:var(--warn)">${escapeHTML(e.performedByNameIn)}</span>
                                  </div>`;
                                  seenEditors.add('in_'+e.performedByNameIn);
                               }
                               if (isEditedOut && !seenEditors.has('out_'+e.performedByNameOut)) {
                                  preAuditHTML += `<div class="detail-meta-item" style="flex-direction:row; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.03); padding:4px 8px; border-radius:4px; border:1px solid rgba(251,191,36,0.3)">
                                     <span class="detail-meta-label" style="margin:0; font-size:0.6rem;">✏️ Edición Out</span>
-                                    <span class="detail-meta-val" style="font-size:0.6rem; font-weight:600; color:var(--warn)">${e.performedByNameOut}</span>
+                                    <span class="detail-meta-val" style="font-size:0.6rem; font-weight:600; color:var(--warn)">${escapeHTML(e.performedByNameOut)}</span>
                                  </div>`;
                                  seenEditors.add('out_'+e.performedByNameOut);
                               }
-                              
+
                               if (e.originIn === 'request' && !seenEditors.has('req_in')) {
                                  preAuditHTML += `<div class="detail-meta-item" style="flex-direction:row; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.03); padding:4px 8px; border-radius:4px; border:1px solid rgba(251,191,36,0.3)">
                                     <span class="detail-meta-label" style="margin:0; font-size:0.6rem;">📝 Origen Entrada</span>
@@ -4792,7 +4883,7 @@ const FichajesModule = {
                                  seenEditors.add('req_out');
                               }
                            });
-                           
+
                            return preAuditHTML || '<div class="stat-subtext" style="font-style:italic">Cargando incidencias...</div>';
                         })()}
                      </div>
@@ -4800,7 +4891,7 @@ const FichajesModule = {
                      ${row.absenceLabel ? `
                      <div class="detail-divider"></div>
                      <div class="info-title">📌 NOTA AUSENCIA</div>
-                     <div class="stat-subtext" style="color:var(--accent2); font-weight:600">${row.absenceLabel}</div>
+                     <div class="stat-subtext" style="color:var(--accent2); font-weight:600">${safeAbsenceLabel}</div>
                      ` : ''}
 
                      ${row.isLive ? `
@@ -4815,15 +4906,22 @@ const FichajesModule = {
                   <table class="details-tech-table">
                     <thead><tr><th>HORARIO</th><th>DURACIÓN</th><th>TIPO</th><th>ORIGEN</th><th>UBICACIÓN</th></tr></thead>
                     <tbody>
-                      ${_absTableRowsHtml(row.absenceSegments, row.entries)}
-                      ${(row.entries || []).map(e => {
-                        const icon = e.type === 'work' ? '💼' : (e.type === 'pause' ? '☕' : '🚪');
-                        const typeCls = e.type === 'work' ? 'type-work' : (e.type === 'pause' ? 'type-pause' : 'type-abs');
-                        
-                        const locIn = e.latIn ? `<a href="https://www.google.com/maps?q=${e.latIn},${e.lonIn}" target="_blank" title="Coordenadas entrada: ${e.latIn}, ${e.lonIn}" class="loc-link">📍 In</a>` : (e.addrIn ? `<span class="loc-addr" title="Dirección entrada: ${e.addrIn}">📍 ${e.addrIn}</span>` : '');
-                        const locOut = e.latOut ? `<a href="https://www.google.com/maps?q=${e.latOut},${e.lonOut}" target="_blank" title="Coordenadas salida: ${e.latOut}, ${e.lonOut}" class="loc-link">📍 Out</a>` : (e.addrOut ? `<span class="loc-addr" title="Dirección salida: ${e.addrOut}">📍 ${e.addrOut}</span>` : '');
-                        const locContent = (locIn || locOut) ? `<div class="td-loc-group">${locIn}${locOut}</div>` : `<span style="opacity:0.3" title="Sin datos de geolocalización en este fichaje">--</span>`;
-                        
+	                      ${_absTableRowsHtml(row.absenceSegments, row.entries)}
+	                      ${(row.entries || []).map(e => {
+	                        const icon = e.type === 'work' ? '💼' : (e.type === 'pause' ? '☕' : '🚪');
+	                        const typeCls = e.type === 'work' ? 'type-work' : (e.type === 'pause' ? 'type-pause' : 'type-abs');
+	                        const latIn = Number(e.latIn);
+	                        const lonIn = Number(e.lonIn);
+	                        const latOut = Number(e.latOut);
+	                        const lonOut = Number(e.lonOut);
+	                        const hasCoordIn = Number.isFinite(latIn) && Number.isFinite(lonIn);
+	                        const hasCoordOut = Number.isFinite(latOut) && Number.isFinite(lonOut);
+	                        const safeAddrIn = escapeHTML(e.addrIn || '');
+	                        const safeAddrOut = escapeHTML(e.addrOut || '');
+	                        const locIn = hasCoordIn ? `<a href="https://www.google.com/maps?q=${latIn},${lonIn}" target="_blank" rel="noopener noreferrer" title="Coordenadas entrada: ${latIn}, ${lonIn}" class="loc-link">📍 In</a>` : (safeAddrIn ? `<span class="loc-addr" title="Dirección entrada: ${safeAddrIn}">📍 ${safeAddrIn}</span>` : '');
+	                        const locOut = hasCoordOut ? `<a href="https://www.google.com/maps?q=${latOut},${lonOut}" target="_blank" rel="noopener noreferrer" title="Coordenadas salida: ${latOut}, ${lonOut}" class="loc-link">📍 Out</a>` : (safeAddrOut ? `<span class="loc-addr" title="Dirección salida: ${safeAddrOut}">📍 ${safeAddrOut}</span>` : '');
+	                        const locContent = (locIn || locOut) ? `<div class="td-loc-group">${locIn}${locOut}</div>` : `<span style="opacity:0.3" title="Sin datos de geolocalización en este fichaje">--</span>`;
+
                         // Map origin to nice labels/icons
                         const getOInfo = (val) => {
                           const o = (val || '').toLowerCase();
@@ -4837,10 +4935,10 @@ const FichajesModule = {
 
                         const oIn = getOInfo(e.originIn);
                         const oOut = getOInfo(e.originOut);
-                        
+
                         const isEditedIn = (e.performedByNameIn && String(e.performedByIdIn) !== String(row.employeeId)) || e.originIn === 'request';
                         const isEditedOut = (e.performedByNameOut && String(e.performedByIdOut) !== String(row.employeeId)) || e.originOut === 'request';
-                        
+
                         // Human edit detection: Only if timestamps are > 30 mins apart or edited by someone else
                         let isTimeEdited = false;
                         if (e.recordCreatedAt && e.recordUpdatedAt) {
@@ -4854,28 +4952,36 @@ const FichajesModule = {
                           isEditedIn ? `Entrada por: ${e.performedByNameIn}` : '',
                           isEditedOut ? `Salida por: ${e.performedByNameOut}` : '',
                           e.ipIn ? `IP In: ${e.ipIn}` : '',
-                          e.deviceNameIn ? `Disp: ${e.deviceNameIn}` : ''
-                        ].filter(Boolean).join('\n');
+	                          e.deviceNameIn ? `Disp: ${e.deviceNameIn}` : ''
+	                        ].filter(Boolean).join('\n');
+		                        const safeAuditTooltip = escapeHTML(auditTooltip);
+		                        const safeOriginInLabel = escapeHTML(oIn.label);
+		                        const safeOriginOutLabel = escapeHTML(oOut.label);
+		                        const safeIn = escapeHTML(e.in || '--:--');
+	                        const safeOut = escapeHTML(e.out || '--:--');
+	                        const safeDuration = escapeHTML(e.duration || '--');
+	                        const safeTypeLabel = escapeHTML(e.typeLabel || 'Trabajo');
 
-                        let originContent = `<span class="td-loc" title="${auditTooltip}">${oIn.icon} ${oIn.label}${isEditedIn ? ' ✏️' : ''}</span>`;
-                        if (e.originIn !== e.originOut && e.originOut && e.out !== '--:--') {
-                           originContent = `<div class="td-loc-multi" title="${oIn.label}${isEditedIn ? ' (Editado por '+e.performedByNameIn+')' : ''} → ${oOut.label}${isEditedOut ? ' (Editado por '+e.performedByNameOut+')' : ''}\n${auditTooltip}">
-                             <span class="td-loc">${oIn.icon}${isEditedIn ? '✏️' : ''}</span>
-                             <span style="opacity:0.5; font-size:0.7rem;">→</span>
-                             <span class="td-loc">${oOut.icon}${isEditedOut ? '✏️' : ''}</span>
+	                        let originContent = `<span class="td-loc" title="${safeAuditTooltip}">${oIn.icon} ${safeOriginInLabel}${isEditedIn ? ' ✏️' : ''}</span>`;
+	                        if (e.originIn !== e.originOut && e.originOut && e.out !== '--:--') {
+	                           const multiTitle = `${oIn.label}${isEditedIn ? ' (Editado por '+(e.performedByNameIn || '')+')' : ''} → ${oOut.label}${isEditedOut ? ' (Editado por '+(e.performedByNameOut || '')+')' : ''}\n${auditTooltip}`;
+	                           originContent = `<div class="td-loc-multi" title="${escapeHTML(multiTitle)}">
+	                             <span class="td-loc">${oIn.icon}${isEditedIn ? '✏️' : ''}</span>
+	                             <span style="opacity:0.5; font-size:0.7rem;">→</span>
+	                             <span class="td-loc">${oOut.icon}${isEditedOut ? '✏️' : ''}</span>
                            </div>`;
                         }
 
                         // Use a class that only applies if there is an explicit THIRD PARTY edit or request
                         const highlightClass = (isEditedIn || isEditedOut) ? 'row-is-edited' : '';
 
-                        return `
-                        <tr class="${highlightClass}">
-                          <td><strong title="${auditTooltip}">${e.in} - ${e.out}</strong></td>
-                          <td><span class="td-duration">${e.duration || '--'}</span></td>
-                          <td><span class="signing-type-badge ${typeCls}">${icon} ${e.typeLabel || 'Trabajo'}</span></td>
-                          <td>${originContent}</td>
-                          <td>${locContent}</td>
+	                        return `
+	                        <tr class="${highlightClass}">
+	                          <td><strong title="${safeAuditTooltip}">${safeIn} - ${safeOut}</strong></td>
+	                          <td><span class="td-duration">${safeDuration}</span></td>
+	                          <td><span class="signing-type-badge ${typeCls}">${icon} ${safeTypeLabel}</span></td>
+	                          <td>${originContent}</td>
+	                          <td>${locContent}</td>
                         </tr>`;
                       }).join('')}
                     </tbody>
@@ -4927,13 +5033,13 @@ const FichajesModule = {
   },
 
   async loadDeepAudit(employeeId, date) {
-    const container = document.querySelector(`#audit-level-3-${employeeId}-${date}`);
+    const container = document.querySelector(`#audit-level-3-${safeClassToken(employeeId, 'emp')}-${safeClassToken(date, 'date')}`);
     if (!container) return;
-    
+
     try {
       // Use the individual checks path as the default since it's the fallback that works
       let wePath = `/api/v3/employees/${employeeId}/checks?from=${date}&to=${date}&includeOut=true`;
-      
+
       // Only override if we have a proven working global path
       if (DISCOVERY.workingChecks && !DISCOVERY.workingChecks.includes('DISABLED')) {
         const base = DISCOVERY.workingChecks.split('?')[0];
@@ -4952,13 +5058,14 @@ const FichajesModule = {
       if (!Array.isArray(incidences)) incidences = [];
 
       const auditItems = [];
-      
+
       incidences.forEach(ci => {
         const check = ci.check || {};
         const checkIn = check.checkIn || ci.checkIn || {};
         if (ci.performedByEmployeeName) {
-          const img = ci.performedByEmployeeImageProfile 
-            ? `<img src="${ci.performedByEmployeeImageProfile}" style="width:14px;height:14px;border-radius:50%;margin-right:4px;vertical-align:middle;">` 
+          const safeEditorPhoto = safeHttpUrlAttr(ci.performedByEmployeeImageProfile);
+          const img = safeEditorPhoto
+            ? `<img src="${safeEditorPhoto}" alt="" referrerpolicy="no-referrer" style="width:14px;height:14px;border-radius:50%;margin-right:4px;vertical-align:middle;">`
             : '👤';
           auditItems.push({icon: img, label: 'Autoría', value: ci.performedByEmployeeName});
         }
@@ -4973,7 +5080,7 @@ const FichajesModule = {
 
       workEntries.forEach(we => {
         if (we.comment) auditItems.push({icon: '📝', label: 'Coment.', value: we.comment});
-        
+
         const extractEditor = (obj) => {
           if (!obj) return null;
           // Strategy 1: Direct name field
@@ -4989,7 +5096,7 @@ const FichajesModule = {
 
         const editorIn = extractEditor(we.workEntryIn);
         const editorOut = extractEditor(we.workEntryOut);
-        
+
         const pIdIn = we.workEntryIn?.performedByEmployeeId || we.workEntryIn?.performedByEmployee?.id || we.workEntryIn?.performedBy?.id;
         const pIdOut = we.workEntryOut?.performedByEmployeeId || we.workEntryOut?.performedByEmployee?.id || we.workEntryOut?.performedBy?.id;
 
@@ -5018,8 +5125,8 @@ const FichajesModule = {
         let html = '';
         unique.forEach(a => {
           html += `<div class="detail-meta-item" style="flex-direction:row; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.03); padding:4px 8px; border-radius:4px; border:1px solid rgba(255,255,255,0.05)">
-            <span class="detail-meta-label" style="margin:0; font-size:0.6rem;">${a.icon} ${a.label}</span>
-            <span class="detail-meta-val" style="font-size:0.6rem; font-weight:600">${a.value}</span>
+            <span class="detail-meta-label" style="margin:0; font-size:0.6rem;">${a.icon} ${escapeHTML(a.label)}</span>
+            <span class="detail-meta-val" style="font-size:0.6rem; font-weight:600">${escapeHTML(a.value)}</span>
           </div>`;
         });
         container.insertAdjacentHTML('beforeend', html);
@@ -5037,14 +5144,14 @@ const FichajesModule = {
   exportToCSV() {
     const visibleRows = this.getFilteredRows();
     if (!visibleRows || visibleRows.length === 0) return alert("No hay datos visibles para exportar");
-    
+
     let csv = "Empleado;Fecha;Entrada;Salida;Duracion;Tipo;Localizacion\n";
     visibleRows.forEach(row => {
       row.entries.forEach(e => {
         csv += `${row.employeeName};${row.date};${e.in};${e.out};${e.duration};${e.typeLabel};${e.loc}\n`;
       });
     });
-    
+
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -5056,7 +5163,7 @@ const FichajesModule = {
   exportToJSON() {
     const visibleRows = this.getFilteredRows();
     if (!visibleRows || visibleRows.length === 0) return alert("No hay datos visibles para exportar");
-    
+
     const dataStr = JSON.stringify(visibleRows, null, 2);
     const blob = new Blob([dataStr], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -5139,7 +5246,7 @@ const FichajesModule = {
     const incidents = [];
     const validations = [];
     const anomalies = [];
-    
+
     const selectedId = String(this.selectedEmployee || 'all');
     const isSingleUser = selectedId !== 'all';
 
@@ -5188,18 +5295,18 @@ const FichajesModule = {
       if (isSingleUser) {
         // MODO INDIVIDUAL: Mostrar estado detallado del seleccionado
         const emp = STATE.allEmployees.get(selectedId);
-        
+
         if (emp) {
           // Buscamos el estado en varias fuentes posibles para máxima compatibilidad
           const statusRaw = STATE.presenceMap.get(selectedId) || emp.workStatus || emp.status || 'out';
           const status = String(statusRaw).toLowerCase();
-          
+
           const isWorking = status === 'work' || status === 'working' || status === 'online';
           const isPaused = status === 'pause' || status === 'paused' || status === 'break';
-          
+
           const dotColor = isWorking ? '#22c55e' : (isPaused ? '#f59e0b' : '#ef4444');
           const statusText = isWorking ? 'Trabajando' : (isPaused ? 'En pausa' : 'Desconectado');
-          
+
           radarList.innerHTML = `
             <div style="padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid var(--border);">
               <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
@@ -5240,11 +5347,12 @@ const FichajesModule = {
             const s = String(sRaw).toLowerCase();
             const isWorking = s === 'work' || s === 'working' || s === 'online';
             const dotColor = isWorking ? '#22c55e' : '#f59e0b';
+            const safePeerName = escapeHTML(`${emp.firstName || ''} ${emp.lastName || ''}`.trim() || 'Empleado');
             radarList.innerHTML += `
               <div class="insight-line">
                 <div style="display: flex; align-items: center; gap: 8px;">
                   <div style="width: 8px; height: 8px; background: ${dotColor}; border-radius: 50%;"></div>
-                  <span style="font-size: 0.75rem;">${emp.firstName} ${emp.lastName}</span>
+                  <span style="font-size: 0.75rem;">${safePeerName}</span>
                 </div>
                 <span style="font-size: 0.65rem; opacity: 0.6;">${isWorking ? 'Trabajando' : 'Pausa'}</span>
               </div>
@@ -5256,7 +5364,7 @@ const FichajesModule = {
 
     // Actualizar contadores y cuerpos
     const liveCount = (this.realtimePresence || []).filter(p => ['work', 'working', 'pause', 'paused'].includes(String(p.status || '').toLowerCase())).length;
-    
+
     const setBadge = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
     const setBody = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
 
@@ -5268,7 +5376,7 @@ const FichajesModule = {
     // --- CÁLCULO DE PATRONES REACTIVOS (Hora Media / Jornada Larga) ---
     const targetPatternId = isSingleUser ? selectedId : String(STATE.currentUser?.id || '');
     const patternData = (this.data || []).filter(d => String(d.employeeId) === targetPatternId && !d.isGhost && !d.isLive);
-    
+
     let avgIn = '--:--';
     let maxDay = '--';
 
@@ -5299,8 +5407,8 @@ const FichajesModule = {
     setBody('insight-incidencias-body', incidents.length ? `
       ${incidents.slice(0, 4).map(item => `
         <div class="insight-line">
-          <div><strong>${item.label}</strong><br><span>${item.employeeName}</span></div>
-          <span class="insight-tag warning">${item.meta}</span>
+          <div><strong>${escapeHTML(item.label)}</strong><br><span>${escapeHTML(item.employeeName)}</span></div>
+          <span class="insight-tag warning">${escapeHTML(item.meta)}</span>
         </div>
       `).join('')}
     ` : `<div class="insight-empty">Sin incidencias en este rango.</div>`);
@@ -5308,8 +5416,8 @@ const FichajesModule = {
     setBody('insight-validaciones-body', validations.length ? `
       ${validations.slice(0, 4).map(item => `
         <div class="insight-line">
-          <div><strong>${item.label}</strong><br><span>${item.employeeName}</span></div>
-          <span class="insight-tag danger">${item.meta}</span>
+          <div><strong>${escapeHTML(item.label)}</strong><br><span>${escapeHTML(item.employeeName)}</span></div>
+          <span class="insight-tag danger">${escapeHTML(item.meta)}</span>
         </div>
       `).join('')}
     ` : `<div class="insight-empty">Todo validado correctamente.</div>`);
@@ -5338,8 +5446,8 @@ const FichajesModule = {
     setBody('insight-solicitudes-body', upcoming.length ? `
       ${upcoming.map(item => `
         <div class="insight-line">
-          <div><strong>${item.employeeName}</strong><br><span>${item.typeName}</span></div>
-          <span class="insight-tag success">${item.date}</span>
+          <div><strong>${escapeHTML(item.employeeName)}</strong><br><span>${escapeHTML(item.typeName)}</span></div>
+          <span class="insight-tag success">${escapeHTML(item.date)}</span>
         </div>
       `).join('')}
     ` : `<div class="insight-empty">Sin ausencias próximas para este perfil.</div>`);
@@ -5355,7 +5463,7 @@ const FichajesModule = {
     // Agregamos por empleado ignorando el filtro de "selección individual" para mostrar a todos
     // Pero respetando la búsqueda por nombre
     const stats = new Map();
-    
+
     this.data.forEach(row => {
       const matchSearch = row.employeeName.toLowerCase().includes(this.searchQuery);
       if (!matchSearch) return;
@@ -5373,7 +5481,7 @@ const FichajesModule = {
     });
 
     const rows = Array.from(stats.values());
-    
+
     if (rows.length === 0) {
       tbody.innerHTML = '<tr><td colspan="5" class="text-center" style="padding: 40px; color: var(--text-muted);">No hay datos suficientes para calcular balances en este rango.</td></tr>';
       return;
@@ -5388,7 +5496,7 @@ const FichajesModule = {
 
       const mColor = stat.monthBalance >= 0 ? '#4ade80' : '#f87171';
       const aColor = stat.annualBalance >= 0 ? '#4ade80' : '#f87171';
-      
+
       // Progresión visual (0.5 es neutro, escala +- 20h)
       const progress = Math.min(100, Math.max(0, 50 + (stat.monthBalance / 72000) * 50));
 
@@ -5446,6 +5554,27 @@ async function showContactCard(employeeId) {
     }
   }
 
+  const fullName = `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || 'Empleado';
+  const safeFullName = escapeHTML(fullName);
+  const safeFirstName = escapeHTML(emp.firstName || fullName);
+  const safeJobTitle = escapeHTML(emp.jobTitle || 'Empleado');
+  const safePhoto = safeHttpUrlAttr(emp.imageProfileURL);
+  const initials = escapeHTML(getInitials(fullName));
+  const emailHref = safeMailHref(emp.email);
+  const phoneHref = safeTelHref(emp.phone);
+  const safeEmail = escapeHTML(emp.email || '');
+  const safePhone = escapeHTML(emp.phone || '');
+  const activeCompanyName = STATE.companies.find(c => String(c.companyId || c.id) === String(STATE.companyId))?.name || 'Mi Empresa';
+  const safeCompanyName = escapeHTML(activeCompanyName);
+  const birthDate = emp.birthDate ? new Date(emp.birthDate) : null;
+  const hiringDate = emp.hiringDate ? new Date(emp.hiringDate) : null;
+  const safeBirthLabel = birthDate && !isNaN(birthDate.getTime())
+    ? escapeHTML(birthDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'long' }))
+    : '';
+  const safeHiringLabel = hiringDate && !isNaN(hiringDate.getTime())
+    ? escapeHTML(`${hiringDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'long' })} (${new Date().getFullYear() - hiringDate.getFullYear()} años)`)
+    : '';
+
   const overlay = document.createElement('div');
   overlay.className = 'contact-card-overlay';
   overlay.innerHTML = `
@@ -5453,30 +5582,30 @@ async function showContactCard(employeeId) {
       <button class="contact-card-close">&times;</button>
       <div class="contact-card-header">
         <div class="contact-card-avatar">
-          ${emp.imageProfileURL ? `<img src="${emp.imageProfileURL}" alt="${emp.firstName}">` : emp.firstName.substring(0,2).toUpperCase()}
+          ${safePhoto ? `<img src="${safePhoto}" alt="${safeFirstName}" referrerpolicy="no-referrer">` : initials}
         </div>
         <div class="contact-card-text">
-          <h2>${emp.firstName} ${emp.lastName}</h2>
-          <p>${emp.jobTitle || 'Empleado'}</p>
+          <h2>${safeFullName}</h2>
+          <p>${safeJobTitle}</p>
         </div>
       </div>
       <div class="contact-card-body">
         <div class="contact-info-list">
-          ${emp.email ? `
-            <a href="mailto:${emp.email}" class="contact-info-item">
+          ${emailHref ? `
+            <a href="${emailHref}" class="contact-info-item">
               <span>📧</span>
               <div style="flex:1">
                 <div style="font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 2px;">Email</div>
-                <div>${emp.email}</div>
+                <div>${safeEmail}</div>
               </div>
             </a>
           ` : ''}
-          ${emp.phone ? `
-            <a href="tel:${emp.phone}" class="contact-info-item">
+          ${phoneHref ? `
+            <a href="${phoneHref}" class="contact-info-item">
               <span>📱</span>
               <div style="flex:1">
                 <div style="font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 2px;">Teléfono</div>
-                <div>${emp.phone}</div>
+                <div>${safePhone}</div>
               </div>
             </a>
           ` : ''}
@@ -5484,28 +5613,28 @@ async function showContactCard(employeeId) {
             <span>🏢</span>
             <div style="flex:1">
               <div style="font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 2px;">Empresa</div>
-              <div>${STATE.companies.find(c => String(c.companyId || c.id) === String(STATE.companyId))?.name || 'Mi Empresa'}</div>
+              <div>${safeCompanyName}</div>
             </div>
           </div>
         </div>
 
         <!-- Hitos del Equipo: Cumpleaños y Aniversarios -->
         <div class="contact-milestones">
-          ${emp.birthDate ? `
+          ${safeBirthLabel ? `
             <div class="milestone-pill ${isBirthdayToday(emp.birthDate) ? 'active' : ''}">
               <span class="milestone-icon">🎂</span>
               <div class="milestone-text">
                 <div class="milestone-label">Cumpleaños</div>
-                <div class="milestone-value">${new Date(emp.birthDate).toLocaleDateString('es-ES', { day: 'numeric', month: 'long' })}</div>
+                <div class="milestone-value">${safeBirthLabel}</div>
               </div>
             </div>
           ` : ''}
-          ${emp.hiringDate ? `
+          ${safeHiringLabel ? `
             <div class="milestone-pill ${isAnniversaryToday(emp.hiringDate) ? 'active' : ''}">
               <span class="milestone-icon">🎖️</span>
               <div class="milestone-text">
                 <div class="milestone-label">Aniversario</div>
-                <div class="milestone-value">${new Date(emp.hiringDate).toLocaleDateString('es-ES', { day: 'numeric', month: 'long' })} (${new Date().getFullYear() - new Date(emp.hiringDate).getFullYear()} años)</div>
+                <div class="milestone-value">${safeHiringLabel}</div>
               </div>
             </div>
           ` : ''}
