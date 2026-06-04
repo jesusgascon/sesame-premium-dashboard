@@ -192,15 +192,24 @@
         </button>
       </div>
 
-      <nav class="sidebar-nav" id="vacaciones-nav">
-        <button class="nav-item active" data-view="calendar">
-          <span class="nav-icon">🗓️</span> Calendario
+      <nav class="sidebar-nav view-switcher" id="vacaciones-nav" role="tablist" aria-label="Vista de vacaciones">
+        <button class="nav-item active" data-view="calendar" role="tab" aria-selected="true" title="Calendario">
+          <svg class="nav-svg-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="2" y="4" width="16" height="14" rx="2"/><line x1="2" y1="8" x2="18" y2="8"/><line x1="6" y1="2" x2="6" y2="6"/><line x1="14" y1="2" x2="14" y2="6"/>
+          </svg>
+          <span class="nav-label">Calendario</span>
         </button>
-        <button class="nav-item" data-view="list">
-          <span class="nav-icon">👥</span> Por Empleado
+        <button class="nav-item" data-view="list" role="tab" aria-selected="false" title="Por Empleado">
+          <svg class="nav-svg-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="7" cy="7" r="3"/><circle cx="14" cy="7" r="2.2"/><path d="M1 17c0-3 2.7-5 6-5s6 2 6 5"/><path d="M14 11c2 .5 4 2 4 4"/>
+          </svg>
+          <span class="nav-label">Empleado</span>
         </button>
-        <button class="nav-item" data-view="stats">
-          <span class="nav-icon">📊</span> Estadísticas
+        <button class="nav-item" data-view="stats" role="tab" aria-selected="false" title="Estadísticas">
+          <svg class="nav-svg-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="2" y="11" width="4" height="7" rx="1"/><rect x="8" y="7" width="4" height="11" rx="1"/><rect x="14" y="3" width="4" height="15" rx="1"/>
+          </svg>
+          <span class="nav-label">Stats</span>
         </button>
       </nav>
 
@@ -337,9 +346,10 @@
           </button>
           <div class="month-nav">
             <button id="prev-month" class="btn-icon-round" aria-label="Mes anterior">‹</button>
-            <div class="current-period">
-              <h2 id="current-month-label">Marzo 2026</h2>
+            <div class="current-period" style="position: relative;">
+              <h2 id="current-month-label" class="month-selector-title">Marzo 2026</h2>
               <span id="absence-count-label" class="pill">Cargando…</span>
+              <div id="vacaciones-month-picker" class="month-picker-popover glass"></div>
             </div>
             <button id="next-month" class="btn-icon-round" aria-label="Mes siguiente">›</button>
           </div>
@@ -392,9 +402,9 @@
             </button>
             <div class="month-nav">
               <button id="prev-month-signings" class="btn-icon-round" aria-label="Periodo anterior">‹</button>
-              <div class="current-period">
+              <div class="current-period" style="position: relative;">
                 <div style="display: flex; align-items: center; gap: 12px;">
-                  <h2 id="current-month-signings" style="font-size: 1.15rem; margin: 0;">Abril 2026</h2>
+                  <h2 id="current-month-signings" class="month-selector-title" style="font-size: 1.15rem; margin: 0;">Abril 2026</h2>
                   <span id="profiles-count-badge" class="badge-subtle" style="display:none; font-size: 10px; padding: 2px 8px; border-radius: 10px; background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-muted);">
                     👤 Cargando directorio...
                   </span>
@@ -410,6 +420,7 @@
                     </button>
                   </div>
                 </div>
+                <div id="fichajes-month-picker" class="month-picker-popover glass"></div>
               </div>
               <button id="next-month-signings" class="btn-icon-round" aria-label="Periodo siguiente">›</button>
             </div>
@@ -448,6 +459,12 @@
               <button id="theme-btn-signings" class="theme-toggle btn-icon-round" title="Cambiar tema" aria-label="Cambiar tema">🌙</button>
               <button id="birthdays-btn" class="btn-icon-round" title="Cumpleaños del equipo" aria-label="Abrir cumpleaños del equipo" style="background: var(--accent-glow); color: var(--accent); border: 1px solid var(--accent);">
                 🎂
+              </button>
+              <button id="toggle-all-signings-btn" class="btn-icon-round" title="Expandir/Contraer todos" aria-label="Expandir o contraer todos los fichajes">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;">
+                  <polyline points="7 15 12 20 17 15"></polyline>
+                  <polyline points="7 9 12 4 17 9"></polyline>
+                </svg>
               </button>
               <button id="refresh-signings-btn" class="btn-icon-round" title="Actualizar" aria-label="Actualizar fichajes">🔄</button>
             </div>

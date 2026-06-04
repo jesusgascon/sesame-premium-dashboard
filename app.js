@@ -1305,6 +1305,117 @@ function switchModule(module, options = {}) {
   }
 }
 
+function initMonthPickers() {
+  // ── Portal: mover los popovers a <body> para escapar del stacking context ──
+  // backdrop-filter en .top-bar crea un containing block que atrapa position:fixed.
+  // La solución es elevar los popovers al nivel del <body>.
+  ['vacaciones-month-picker', 'fichajes-month-picker'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el && el.parentElement !== document.body) {
+      document.body.appendChild(el);
+    }
+  });
+
+  // ── Renderiza la cuadrícula de meses dentro del popover ──────────────────
+  const _renderPicker = (pickerEl, year, isSignings) => {
+    const activeDate = isSignings ? FichajesModule.currentDate : STATE.currentDate;
+    const selYear  = activeDate.getFullYear();
+    const selMonth = activeDate.getMonth();
+    pickerEl.innerHTML = `
+      <div class="month-picker-header">
+        <button class="mp-year-btn prev-year" type="button">‹</button>
+        <span class="mp-year-display">${year}</span>
+        <button class="mp-year-btn next-year" type="button">›</button>
+      </div>
+      <div class="month-picker-grid">
+        ${MONTHS_ES.map((m, i) =>
+          `<button type="button" class="mp-month-btn${(year === selYear && i === selMonth) ? ' selected' : ''}" data-month="${i}" data-year="${year}">${m.substring(0, 3)}</button>`
+        ).join('')}
+      </div>`;
+  };
+
+  // ── Posiciona el popover justo debajo del título trigger ─────────────────
+  const _positionPicker = (picker, titleEl) => {
+    const rect = titleEl.getBoundingClientRect();
+    const popoverW = 220;
+    let leftPos = rect.left + rect.width / 2 - popoverW / 2;
+    if (leftPos + popoverW > window.innerWidth - 8) leftPos = window.innerWidth - popoverW - 8;
+    if (leftPos < 8) leftPos = 8;
+    picker.style.top  = (rect.bottom + 8) + 'px';
+    picker.style.left = leftPos + 'px';
+  };
+
+  const _closeAll = () => {
+    document.querySelectorAll('.month-picker-popover.active').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.month-selector-title.active').forEach(t => t.classList.remove('active'));
+  };
+
+  // ── Un único listener por delegación en document ─────────────────────────
+  document.addEventListener('click', (e) => {
+    // Navegación de año (‹ ›)
+    const yearBtn = e.target.closest('.mp-year-btn');
+    if (yearBtn) {
+      e.stopPropagation();
+      const picker = yearBtn.closest('.month-picker-popover');
+      if (!picker) return;
+      const cur = parseInt(picker.querySelector('.mp-year-display').textContent, 10);
+      const newY = yearBtn.classList.contains('prev-year') ? cur - 1 : cur + 1;
+      _renderPicker(picker, newY, picker.id === 'fichajes-month-picker');
+      return;
+    }
+
+    // Selección de mes
+    const monthBtn = e.target.closest('.mp-month-btn');
+    if (monthBtn) {
+      e.stopPropagation();
+      const picker = monthBtn.closest('.month-picker-popover');
+      if (!picker) return;
+      const month = parseInt(monthBtn.dataset.month, 10);
+      const year  = parseInt(monthBtn.dataset.year,  10);
+      const isSignings = picker.id === 'fichajes-month-picker';
+      if (isSignings) {
+        FichajesModule.currentDate = new Date(year, month, 1);
+        FichajesModule.updateMonthLabel();
+        FichajesModule.loadData();
+      } else {
+        STATE.currentDate = new Date(year, month, 1);
+        sessionStorage.setItem('ssm_current_date', STATE.currentDate.toISOString());
+        updateMonthLabel();
+        loadData();
+      }
+      _closeAll();
+      return;
+    }
+
+    // Click en el título → abrir picker
+    const titleEl = e.target.closest('.month-selector-title');
+    if (titleEl) {
+      e.stopPropagation();
+      let pickerId = null, isSignings = false;
+      if      (titleEl.id === 'current-month-label')    { pickerId = 'vacaciones-month-picker'; isSignings = false; }
+      else if (titleEl.id === 'current-month-signings') { pickerId = 'fichajes-month-picker';   isSignings = true;  }
+      if (!pickerId) return;
+      const picker = document.getElementById(pickerId);
+      if (!picker) return;
+      const wasActive = picker.classList.contains('active');
+      _closeAll();
+      if (!wasActive) {
+        const d = isSignings ? FichajesModule.currentDate : STATE.currentDate;
+        _renderPicker(picker, d.getFullYear(), isSignings);
+        _positionPicker(picker, titleEl);
+        picker.classList.add('active');
+        titleEl.classList.add('active');
+      }
+      return;
+    }
+
+    // Click fuera → cerrar todos
+    if (!e.target.closest('.month-picker-popover')) {
+      _closeAll();
+    }
+  }, true); // useCapture=true para mayor fiabilidad
+}
+
 async function startApp() {
   loadCredentials();
 
@@ -1329,6 +1440,14 @@ async function startApp() {
   $('today-btn').addEventListener('click', () => { STATE.currentDate = new Date(); loadData(); });
   $('refresh-btn').addEventListener('click', loadData);
   $('logout-btn').addEventListener('click', logout);
+  initMonthPickers();
+
+  // Expand/Collapse all – delegado en document para no depender del init de FichajesModule
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('#toggle-all-signings-btn')) {
+      FichajesModule.toggleAll();
+    }
+  });
   
   $('sidebar-toggle').addEventListener('click', () => {
     STATE.sidebarCollapsed = !STATE.sidebarCollapsed;
@@ -2937,6 +3056,7 @@ const FichajesModule = {
         e.target.classList.add('hidden');
       }
     });
+
   },
 
   togglePresenceFilter(type) {
@@ -2963,6 +3083,30 @@ const FichajesModule = {
         document.exitFullscreen();
       }
     }
+  },
+
+  toggleAll() {
+    const tbody = document.getElementById('signings-tbody');
+    if (!tbody) return;
+    const detailsRows = Array.from(tbody.querySelectorAll('.row-details'));
+    if (detailsRows.length === 0) return;
+
+    const anyCollapsed = detailsRows.some(row => !row.classList.contains('active'));
+
+    detailsRows.forEach(rowDetails => {
+      if (anyCollapsed) {
+        if (!rowDetails.classList.contains('active')) {
+          rowDetails.classList.add('active');
+          const empId = rowDetails.dataset.employeeId;
+          const date = rowDetails.dataset.date;
+          if (empId && date) {
+            this.loadDeepAudit(empId, date);
+          }
+        }
+      } else {
+        rowDetails.classList.remove('active');
+      }
+    });
   },
   
   updateMonthLabel() {
@@ -4506,6 +4650,8 @@ const FichajesModule = {
 
         const trDetails = document.createElement('tr');
         trDetails.className = 'row-details';
+        trDetails.dataset.employeeId = empId;
+        trDetails.dataset.date = row.date;
         trDetails.innerHTML = `
           <td colspan="10">
             <div class="details-container">

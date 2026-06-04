@@ -1277,17 +1277,92 @@ body {
 }
 .app-sub { font-size: 0.72rem; color: var(--text-muted); font-weight: 500; }
 
-.sidebar-nav { display: flex; flex-direction: column; gap: 3px; }
-.nav-item {
+/* ── View-switcher: segmented control horizontal ── */
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+/* Cuando el nav tiene clase view-switcher pasa a segmented-control */
+.sidebar-nav.view-switcher {
+  flex-direction: row;
+  gap: 0;
+  background: rgba(var(--text-rgb, 255,255,255), 0.07);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 3px;
+  margin: 4px 0 2px;
+}
+
+.sidebar-nav.view-switcher .nav-item {
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 7px 4px;
+  border-radius: 7px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.18s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-nav.view-switcher .nav-item:hover {
+  background: rgba(var(--text-rgb, 255,255,255), 0.06);
+  color: var(--text-primary);
+}
+
+.sidebar-nav.view-switcher .nav-item.active {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(var(--accent-rgb), 0.35);
+}
+
+[data-theme="light"] .sidebar-nav.view-switcher .nav-item.active {
+  color: #fff;
+}
+
+/* SVG icon dentro del segmented control */
+.nav-svg-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  stroke: currentColor;
+  fill: none;
+}
+
+.sidebar-nav.view-switcher .nav-label {
+  display: block;
+  font-size: 0.65rem;
+  line-height: 1;
+}
+
+/* Fallback: nav normal (no view-switcher) mantiene estilo anterior */
+.sidebar-nav:not(.view-switcher) .nav-item {
   display: flex; align-items: center; gap: 10px;
   padding: 9px 12px; border-radius: var(--radius-sm);
   border: none; background: transparent;
   color: var(--text-secondary); font-size: 0.85rem; font-weight: 500;
   cursor: pointer; text-align: left; transition: all var(--transition);
 }
-.nav-item:hover { background: rgba(255,255,255,0.06); color: var(--text-primary); }
-.nav-item.active {
-  background: var(--accent-glow); color: var(--accent);
+.sidebar-nav:not(.view-switcher) .nav-item:hover {
+  background: rgba(255,255,255,0.06);
+  color: var(--text-primary);
+}
+.sidebar-nav:not(.view-switcher) .nav-item.active {
+  background: var(--accent-glow);
+  color: var(--accent);
   font-weight: 600;
 }
 .nav-icon { font-size: 1rem; }
@@ -3743,18 +3818,19 @@ body {
   box-shadow: 0 10px 26px rgba(var(--accent-rgb), 0.24);
 }
 
-.nav-item {
+/* Overrides para nav items normales (NO el segmented control) */
+.sidebar-nav:not(.view-switcher) .nav-item {
   min-height: 38px;
   border: 1px solid transparent;
 }
 
-.nav-item:hover {
+.sidebar-nav:not(.view-switcher) .nav-item:hover {
   background: rgba(var(--text-rgb), 0.055);
   border-color: var(--border);
   transform: translateX(2px);
 }
 
-.nav-item.active {
+.sidebar-nav:not(.view-switcher) .nav-item.active {
   background: rgba(var(--accent-rgb), 0.14);
   border-color: rgba(var(--accent-rgb), 0.24);
   box-shadow: inset 3px 0 0 var(--accent);
@@ -4118,4 +4194,150 @@ body {
   .spinner-ring {
     animation: none !important;
   }
+}
+
+/* ============================================================
+   SELECTOR DE MES Y AÑO EN CABECERA (PICKER POPOVER)
+   ============================================================ */
+
+.current-period {
+  position: relative;
+}
+
+.month-selector-title {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: color 0.2s ease, opacity 0.2s ease;
+  user-select: none;
+}
+
+.month-selector-title:hover {
+  color: var(--accent) !important;
+  opacity: 0.9;
+}
+
+.month-selector-title::after {
+  content: "▼";
+  font-size: 0.6rem;
+  opacity: 0.5;
+  transition: transform 0.2s ease;
+  display: inline-block;
+  margin-left: 2px;
+}
+
+.month-selector-title.active::after {
+  transform: rotate(180deg);
+  color: var(--accent);
+  opacity: 1;
+}
+
+/* Popover container */
+.month-picker-popover {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 9999;
+  width: 220px;
+  background: rgba(20, 26, 46, 0.95);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  font-family: inherit;
+}
+
+.month-picker-popover.active {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+[data-theme="light"] .month-picker-popover {
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.month-picker-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+
+.mp-year-display {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+}
+
+.mp-year-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1.1rem;
+  cursor: pointer;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s;
+}
+
+.mp-year-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--accent);
+}
+
+[data-theme="light"] .mp-year-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.month-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.mp-month-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  padding: 6px 0;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+}
+
+.mp-month-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+  border-color: var(--border-light);
+}
+
+[data-theme="light"] .mp-month-btn:hover {
+  background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+.mp-month-btn.selected {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+  box-shadow: 0 2px 8px rgba(108, 99, 255, 0.3);
 }
