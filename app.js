@@ -1284,12 +1284,12 @@ function switchModule(module, options = {}) {
   }
 
   // Control de visibilidad del sidebar según el módulo
-  const sidebarNav = document.querySelector('.sidebar-nav');
+  const vacacionesNav = document.getElementById('vacaciones-nav');
   const absenceSection = document.getElementById('absence-section');
   const employeeSection = document.getElementById('employee-section');
   
   if (module === 'fichajes') {
-    if (sidebarNav) sidebarNav.style.display = 'none';
+    if (vacacionesNav) vacacionesNav.classList.add('is-module-hidden');
     if (absenceSection) absenceSection.style.display = 'none';
     // Mantenemos la sección de empleados visible para permitir el filtrado múltiple
     if (employeeSection) employeeSection.style.display = 'block';
@@ -1298,7 +1298,7 @@ function switchModule(module, options = {}) {
     FichajesModule.init();
     if (!options.skipLoad) FichajesModule.loadData();
   } else {
-    if (sidebarNav) sidebarNav.style.display = 'block';
+    if (vacacionesNav) vacacionesNav.classList.remove('is-module-hidden');
     if (absenceSection) absenceSection.style.display = 'block';
     if (employeeSection) employeeSection.style.display = 'block';
     if (!options.skipLoad) loadData();

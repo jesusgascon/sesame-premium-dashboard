@@ -1286,8 +1286,9 @@ body {
 
 /* Cuando el nav tiene clase view-switcher pasa a segmented-control */
 .sidebar-nav.view-switcher {
-  display: grid;
+  display: grid !important;
   grid-template-columns: repeat(3, 1fr);
+  grid-auto-flow: column;
   width: 100%;
   box-sizing: border-box;
   background: rgba(var(--text-rgb, 255,255,255), 0.07);
@@ -1297,12 +1298,16 @@ body {
   margin: 4px 0 2px;
 }
 
+.sidebar-nav.view-switcher.is-module-hidden {
+  display: none !important;
+}
+
 .sidebar-nav.view-switcher .nav-item {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 5px;
   padding: 7px 4px;
   border-radius: 7px;
   border: none;
@@ -1315,6 +1320,8 @@ body {
   text-align: center;
   transition: all 0.18s ease;
   overflow: hidden;
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .sidebar-nav.view-switcher .nav-item:hover {
@@ -1335,8 +1342,8 @@ body {
 
 /* SVG icon dentro del segmented control */
 .nav-svg-icon {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
   stroke: currentColor;
   fill: none;
@@ -1344,7 +1351,11 @@ body {
 
 .sidebar-nav.view-switcher .nav-label {
   display: block;
-  font-size: 0.65rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.68rem;
   line-height: 1;
 }
 
