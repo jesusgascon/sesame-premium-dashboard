@@ -2567,9 +2567,12 @@ function renderStats() {
     return;
   }
 
-  container.innerHTML = `
-    <!-- Summary Row -->
-    <div class="stats-summary-row" style="grid-column: 1 / -1; display: flex; gap: 15px; margin-bottom: 10px;">
+  const sortedDates = Object.keys(dailyData).sort();
+  const topEmps = Object.entries(employeeTotals).sort((a,b) => b[1] - a[1]).slice(0, 10);
+  const chartColors = ['#6C63FF', '#00D4AA', '#FF6B8A', '#FFB547', '#4ADE80', '#60A5FA', '#A78BFA', '#FB923C', '#2DD4BF', '#F87171'];
+
+  const summaryHtml = `
+    <div class="stats-summary-row">
       <div class="stat-card" style="flex:1; padding: 15px;">
         <div class="stat-label">Total Ausencias</div>
         <div class="stat-value" style="font-size: 1.5rem;">${totalAbsences}</div>
@@ -2582,7 +2585,71 @@ function renderStats() {
         <div class="stat-label">Promedio/Emp</div>
         <div class="stat-value" style="font-size: 1.5rem;">${avgDays} d</div>
       </div>
-    </div>
+    </div>`;
+
+  if (!window.Chart) {
+    const typeRows = Object.values(typeTotals).sort((a, b) => b.total - a.total);
+    const maxType = Math.max(...typeRows.map(t => t.total), 1);
+    const dailyRows = sortedDates.map(date => ({ date, total: dailyData[date] }));
+    const maxDaily = Math.max(...dailyRows.map(row => row.total), 1);
+    const maxEmp = Math.max(...topEmps.map(row => row[1]), 1);
+
+    container.innerHTML = `
+      ${summaryHtml}
+      <div class="stats-fallback-notice" role="status">
+        <strong>Gráficos no disponibles</strong>
+        <span>Chart.js no se ha cargado. Se muestra una lectura tabular con los mismos datos.</span>
+      </div>
+      <div class="stats-fallback-card">
+        <h3>Reparto por Tipo de Ausencia</h3>
+        <div class="stats-fallback-list">
+          ${typeRows.map((type, index) => {
+            const pct = Math.round((type.total / maxType) * 100);
+            const color = chartColors[index % chartColors.length];
+            return `
+              <div class="stats-fallback-row">
+                <span class="stats-fallback-label"><i style="background:${color}"></i>${escapeHTML(type.name || 'Ausencia')}</span>
+                <span class="stats-fallback-value">${type.total}</span>
+                <span class="stats-fallback-bar"><b style="width:${pct}%;background:${color}"></b></span>
+              </div>`;
+          }).join('')}
+        </div>
+      </div>
+      <div class="stats-fallback-card">
+        <h3>Carga Diaria</h3>
+        <div class="stats-fallback-list stats-fallback-list-compact">
+          ${dailyRows.map(row => {
+            const pct = Math.round((row.total / maxDaily) * 100);
+            const day = escapeHTML(row.date.split('-').reverse().slice(0, 2).join('/'));
+            return `
+              <div class="stats-fallback-row">
+                <span class="stats-fallback-label">${day}</span>
+                <span class="stats-fallback-value">${row.total}</span>
+                <span class="stats-fallback-bar"><b style="width:${pct}%"></b></span>
+              </div>`;
+          }).join('')}
+        </div>
+      </div>
+      <div class="stats-fallback-card stats-fallback-card-wide">
+        <h3>Ránking de Ausencias (Top 10)</h3>
+        <div class="stats-fallback-list">
+          ${topEmps.map(([name, total]) => {
+            const pct = Math.round((total / maxEmp) * 100);
+            return `
+              <div class="stats-fallback-row">
+                <span class="stats-fallback-label">${escapeHTML(name || 'Empleado')}</span>
+                <span class="stats-fallback-value">${total}</span>
+                <span class="stats-fallback-bar"><b style="width:${pct}%"></b></span>
+              </div>`;
+          }).join('')}
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = `
+    ${summaryHtml}
 
     <div class="stats-chart-container glass">
       <h3>Reparto por Tipo de Ausencia</h3>
@@ -2607,8 +2674,6 @@ function renderStats() {
     grid: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)',
     border: isDark ? '#131621' : '#ffffff'
   };
-
-  const chartColors = ['#6C63FF', '#00D4AA', '#FF6B8A', '#FFB547', '#4ADE80', '#60A5FA', '#A78BFA', '#FB923C', '#2DD4BF', '#F87171'];
 
   // Chart 1: Types (Donut)
   new Chart($('typeChart'), {
@@ -2636,7 +2701,6 @@ function renderStats() {
   });
 
   // Chart 2: Daily Load (Line/Area)
-  const sortedDates = Object.keys(dailyData).sort();
   new Chart($('dailyChart'), {
     type: 'line',
     data: {
@@ -2663,7 +2727,6 @@ function renderStats() {
   });
 
   // Chart 3: Top Employees (Horizontal Bar)
-  const topEmps = Object.entries(employeeTotals).sort((a,b) => b[1] - a[1]).slice(0, 10);
   new Chart($('empChart'), {
     type: 'bar',
     data: {

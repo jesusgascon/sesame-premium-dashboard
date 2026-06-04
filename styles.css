@@ -2221,6 +2221,124 @@ body {
 .stats-chart-container h3 { margin-bottom: 20px; font-size: 1.1rem; color: var(--text-primary); }
 .stats-chart-container canvas { flex: 1; min-height: 0; }
 
+.stats-summary-row {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 15px;
+  margin-bottom: 10px;
+}
+
+.stats-fallback-notice,
+.stats-fallback-card {
+  background: var(--bg-card-solid);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+}
+
+.stats-fallback-notice {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  color: var(--text-secondary);
+}
+
+.stats-fallback-notice strong {
+  color: var(--text-primary);
+}
+
+.stats-fallback-card {
+  padding: 22px;
+  min-height: 260px;
+}
+
+.stats-fallback-card-wide {
+  grid-column: 1 / -1;
+}
+
+.stats-fallback-card h3 {
+  margin-bottom: 18px;
+  font-size: 1.05rem;
+  color: var(--text-primary);
+}
+
+.stats-fallback-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.stats-fallback-list-compact {
+  gap: 8px;
+}
+
+.stats-fallback-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) auto minmax(120px, 35%);
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.stats-fallback-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stats-fallback-label i {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.stats-fallback-value {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-fallback-bar {
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  overflow: hidden;
+}
+
+.stats-fallback-bar b {
+  display: block;
+  height: 100%;
+  min-width: 4px;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+@media (max-width: 700px) {
+  .stats-summary-row,
+  .stats-fallback-notice {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .stats-fallback-row {
+    grid-template-columns: 1fr auto;
+  }
+
+  .stats-fallback-bar {
+    grid-column: 1 / -1;
+  }
+}
+
 /* ============================================================
    FICHAJES MODULE
    ============================================================ */
