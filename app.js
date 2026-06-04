@@ -2112,9 +2112,9 @@ function renderEmployeeFilterList() {
             : initials}
           <span class="status-indicator ${presenceClass}" title="Estado: ${safePresence}"></span>
         </div>
-        <div class="emp-filter-info" style="margin-left: 12px;">
-          <span class="emp-filter-name" title="${safeName}" style="font-weight: 600;">${safeName}</span>
-          ${safeJobTitle ? `<span class="emp-filter-job" style="font-size: 0.65rem;">${safeJobTitle}</span>` : ''}
+        <div class="emp-filter-info">
+          <span class="emp-filter-name" title="${safeName}">${safeName}</span>
+          ${safeJobTitle ? `<span class="emp-filter-job">${safeJobTitle}</span>` : ''}
         </div>
       </div>
     `;
@@ -2140,7 +2140,7 @@ function renderEmployeeFilterList() {
     const total = STATE.allEmployees.size;
     const hidden = STATE.hiddenEmployeeIds.size;
     const selected = total - hidden;
-    title.innerHTML = `Empleados <span style="font-size:0.75rem; color:var(--text-muted); font-weight:normal">(${selected}/${total})</span>`;
+    title.innerHTML = `Empleados <span class="emp-filter-count">(${selected}/${total})</span>`;
   }
 }
 
@@ -2478,7 +2478,7 @@ function renderEmployeeList() {
   });
 
   if (empList.length === 0) {
-    container.innerHTML = `<div style="text-align:center;color:var(--text-muted);padding:60px 0">Sin ausencias en este período</div>`;
+    container.innerHTML = '<div class="empty-state-inline">Sin ausencias en este período</div>';
     return;
   }
 
@@ -2495,9 +2495,9 @@ function renderEmployeeList() {
       const daysStr = v.dates.sort().join(', ');
       const safeTypeName = escapeHTML(v.type.name || 'Ausencia');
       const safeDaysStr = escapeHTML(daysStr);
-      return `<span class="emp-absence-tag" style="background:${bg};border:1px solid ${color}40">
-        <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${color}"></span>
-        ${safeTypeName} · ${v.dates.length}d <span style="opacity:0.7;font-size:0.85em;margin-left:4px">(${safeDaysStr})</span>
+      return `<span class="emp-absence-tag" style="background:${bg};border-color:${color}40">
+        <span class="emp-absence-dot" style="background:${color}"></span>
+        ${safeTypeName} · ${v.dates.length}d <span class="emp-absence-dates">(${safeDaysStr})</span>
       </span>`;
     }).join('');
 
@@ -2573,17 +2573,17 @@ function renderStats() {
 
   const summaryHtml = `
     <div class="stats-summary-row">
-      <div class="stat-card" style="flex:1; padding: 15px;">
+      <div class="stat-card stats-summary-card">
         <div class="stat-label">Total Ausencias</div>
-        <div class="stat-value" style="font-size: 1.5rem;">${totalAbsences}</div>
+        <div class="stat-value stats-summary-value">${totalAbsences}</div>
       </div>
-      <div class="stat-card" style="flex:1; padding: 15px;">
+      <div class="stat-card stats-summary-card">
         <div class="stat-label">Personas</div>
-        <div class="stat-value" style="font-size: 1.5rem;">${totalEmployees}</div>
+        <div class="stat-value stats-summary-value">${totalEmployees}</div>
       </div>
-      <div class="stat-card" style="flex:1; padding: 15px;">
+      <div class="stat-card stats-summary-card">
         <div class="stat-label">Promedio/Emp</div>
-        <div class="stat-value" style="font-size: 1.5rem;">${avgDays} d</div>
+        <div class="stat-value stats-summary-value">${avgDays} d</div>
       </div>
     </div>`;
 
@@ -2659,7 +2659,7 @@ function renderStats() {
       <h3>Carga Diaria (Ausencias/Día)</h3>
       <canvas id="dailyChart"></canvas>
     </div>
-    <div class="stats-chart-container glass" style="grid-column: 1 / -1; height: 350px;">
+    <div class="stats-chart-container stats-chart-container-wide glass">
       <h3>Ránking de Ausencias (Top 10)</h3>
       <canvas id="empChart"></canvas>
     </div>
@@ -2774,7 +2774,7 @@ function openModal(dateStr, events) {
       <div class="modal-type-header">
         <span class="modal-type-dot" style="background:${color}"></span>
         ${safeTypeName}
-        <span class="pill" style="margin-left:auto">${evt.employees.length}</span>
+        <span class="pill pill-trailing">${evt.employees.length}</span>
       </div>
     `;
     evt.employees.forEach(emp => {
@@ -2804,7 +2804,7 @@ function openModal(dateStr, events) {
           })()}
         </div>
         ${emp.workStatus
-          ? `<span class="pill status-${statusClass}" style="margin-left:auto">${safeWorkStatus}</span>`
+          ? `<span class="pill pill-trailing status-${statusClass}">${safeWorkStatus}</span>`
           : ''}
       `;
       const modalAvatar = row.querySelector('.modal-emp-avatar');
@@ -4777,7 +4777,7 @@ const FichajesModule = {
                   : initials}
               </div>
               <div class="employee-info-cell">
-                <span style="font-weight: 600;">${safeEmpName}</span>
+                <span class="employee-info-name">${safeEmpName}</span>
                 ${safeAbsenceLabel ? `<span class="badge-absence">📌 ${safeAbsenceLabel}</span>` : ''}
               </div>
               ${row.isLive ? '<span class="pulse-dot green"></span>' : ''}
@@ -5371,12 +5371,12 @@ const FichajesModule = {
           const statusText = isWorking ? 'Trabajando' : (isPaused ? 'En pausa' : 'Desconectado');
 
           radarList.innerHTML = `
-            <div style="padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid var(--border);">
-              <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
-                <div style="width: 12px; height: 12px; background: ${dotColor}; border-radius: 50%; box-shadow: 0 0 8px ${dotColor}66;"></div>
-                <strong style="font-size: 0.85rem; color: var(--text-primary);">${statusText}</strong>
+            <div class="radar-status-card">
+              <div class="radar-status-head">
+                <div class="radar-status-dot" style="--radar-color:${dotColor};"></div>
+                <strong>${statusText}</strong>
               </div>
-              <div style="font-size: 0.75rem; color: var(--text-muted); line-height: 1.4;">
+              <div class="radar-status-copy">
                 ${isWorking ? 'Actualmente registrando jornada laboral.' : (isPaused ? 'El empleado ha pausado su jornada.' : 'No hay actividad en tiempo real registrada hoy.')}
               </div>
             </div>
@@ -5405,22 +5405,22 @@ const FichajesModule = {
         if (activePeers.length === 0) {
           radarList.innerHTML = '<div class="insight-empty">Nadie conectado en la empresa.</div>';
         } else {
-          activePeers.slice(0, 5).forEach(emp => {
+          radarList.innerHTML = activePeers.slice(0, 5).map(emp => {
             const sRaw = STATE.presenceMap.get(String(emp.id)) || emp.workStatus || emp.status || 'out';
             const s = String(sRaw).toLowerCase();
             const isWorking = s === 'work' || s === 'working' || s === 'online';
             const dotColor = isWorking ? '#22c55e' : '#f59e0b';
             const safePeerName = escapeHTML(`${emp.firstName || ''} ${emp.lastName || ''}`.trim() || 'Empleado');
-            radarList.innerHTML += `
+            return `
               <div class="insight-line">
-                <div style="display: flex; align-items: center; gap: 8px;">
-                  <div style="width: 8px; height: 8px; background: ${dotColor}; border-radius: 50%;"></div>
-                  <span style="font-size: 0.75rem;">${safePeerName}</span>
+                <div class="radar-peer-main">
+                  <div class="radar-peer-dot" style="--radar-color:${dotColor};"></div>
+                  <span>${safePeerName}</span>
                 </div>
-                <span style="font-size: 0.65rem; opacity: 0.6;">${isWorking ? 'Trabajando' : 'Pausa'}</span>
+                <span class="radar-peer-state">${isWorking ? 'Trabajando' : 'Pausa'}</span>
               </div>
             `;
-          });
+          }).join('');
         }
       }
     }
@@ -5657,8 +5657,8 @@ async function showContactCard(employeeId) {
           ${emailHref ? `
             <a href="${emailHref}" class="contact-info-item">
               <span>📧</span>
-              <div style="flex:1">
-                <div style="font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 2px;">Email</div>
+              <div class="contact-info-copy">
+                <div class="contact-info-label">Email</div>
                 <div>${safeEmail}</div>
               </div>
             </a>
@@ -5666,16 +5666,16 @@ async function showContactCard(employeeId) {
           ${phoneHref ? `
             <a href="${phoneHref}" class="contact-info-item">
               <span>📱</span>
-              <div style="flex:1">
-                <div style="font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 2px;">Teléfono</div>
+              <div class="contact-info-copy">
+                <div class="contact-info-label">Teléfono</div>
                 <div>${safePhone}</div>
               </div>
             </a>
           ` : ''}
           <div class="contact-info-item">
             <span>🏢</span>
-            <div style="flex:1">
-              <div style="font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 2px;">Empresa</div>
+            <div class="contact-info-copy">
+              <div class="contact-info-label">Empresa</div>
               <div>${safeCompanyName}</div>
             </div>
           </div>

@@ -252,6 +252,10 @@ body {
   letter-spacing: 0.03em;
 }
 
+.pill-trailing {
+  margin-left: auto;
+}
+
 [data-theme="light"] .pill {
   background: rgba(90, 82, 230, 0.12);
   color: #4338ca;
@@ -1886,9 +1890,26 @@ body {
   padding: 3px 10px; border-radius: 99px;
   font-size: 0.72rem; font-weight: 600; color: #fff;
 }
+.emp-absence-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.emp-absence-dates {
+  margin-left: 4px;
+  font-size: 0.85em;
+  opacity: 0.7;
+}
 .emp-days { margin-left: auto; text-align: right; flex-shrink: 0; }
 .emp-days-count { font-size: 1.4rem; font-weight: 800; color: var(--accent); }
 .emp-days-label { font-size: 0.68rem; color: var(--text-muted); }
+
+.empty-state-inline {
+  padding: 60px 0;
+  text-align: center;
+  color: var(--text-muted);
+}
 
 /* ============================================================
    STATS VIEW
@@ -2226,6 +2247,20 @@ body {
   display: flex;
   gap: 15px;
   margin-bottom: 10px;
+}
+
+.stats-summary-card {
+  flex: 1;
+  padding: 15px;
+}
+
+.stats-summary-value {
+  font-size: 1.5rem;
+}
+
+.stats-chart-container-wide {
+  grid-column: 1 / -1;
+  height: 350px;
 }
 
 .stats-fallback-notice,
@@ -2600,6 +2635,10 @@ body {
   gap: 1px;
 }
 
+.employee-info-name {
+  font-weight: 600;
+}
+
 .compliance-mini-bar {
   width: 100%;
   height: 4px;
@@ -2727,12 +2766,13 @@ body {
 .emp-filter-info {
   display: flex;
   flex-direction: column;
+  margin-left: 12px;
   overflow: hidden;
 }
 
 .emp-filter-name {
   font-size: 0.85rem;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -2740,11 +2780,17 @@ body {
 }
 
 .emp-filter-job {
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.emp-filter-count {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 400;
 }
 
 .ssm-checkbox {
@@ -2943,6 +2989,66 @@ body {
 
 .insight-line strong {
   color: var(--text-primary);
+}
+
+.radar-status-card {
+  padding: 10px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.radar-status-head,
+.radar-peer-main {
+  display: flex;
+  align-items: center;
+}
+
+.radar-status-head {
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.radar-status-head strong {
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+
+.radar-status-copy {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.radar-status-dot,
+.radar-peer-dot {
+  border-radius: 50%;
+  background: var(--radar-color);
+}
+
+.radar-status-dot {
+  width: 12px;
+  height: 12px;
+  box-shadow: 0 0 8px color-mix(in srgb, var(--radar-color) 60%, transparent);
+}
+
+.radar-peer-main {
+  gap: 8px;
+}
+
+.radar-peer-main span {
+  font-size: 0.75rem;
+}
+
+.radar-peer-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+}
+
+.radar-peer-state {
+  font-size: 0.65rem;
+  opacity: 0.6;
 }
 
 .insight-kpi {
@@ -3239,6 +3345,17 @@ body.kiosko-mode-active #current-month-signings {
 }
 
 .contact-info-item:hover { background: rgba(var(--accent-rgb), 0.1); color: var(--accent); transform: translateX(5px); }
+
+.contact-info-copy {
+  flex: 1;
+}
+
+.contact-info-label {
+  margin-bottom: 2px;
+  color: var(--text-muted);
+  font-size: 0.65rem;
+  text-transform: uppercase;
+}
 
 .contact-card-close {
   position: absolute; top: 15px; right: 15px;
