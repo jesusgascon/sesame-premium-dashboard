@@ -1010,6 +1010,26 @@ function renderTeamPresenceSummary(presenceList = STATE.presenceList, options = 
   if (outBtn) outBtn.classList.toggle('active', !!outPopover && !outPopover.classList.contains('hidden'));
 }
 
+async function refreshPresenceSummaryFromTodaySignings() {
+  if (STATE.currentModule === 'fichajes') return;
+  if (typeof FichajesModule === 'undefined' || FichajesModule.isLoading) return;
+  if (!STATE.companyId || !(STATE.token || hasProxyUnlockSession())) return;
+
+  const previousDate = new Date(FichajesModule.currentDate);
+  const previousView = FichajesModule.currentView;
+
+  try {
+    FichajesModule.currentDate = new Date();
+    FichajesModule.currentView = 'day';
+    await FichajesModule.loadData(true, { silent: true });
+  } catch (err) {
+    console.warn('Presence summary signing snapshot failed:', err.message);
+  } finally {
+    FichajesModule.currentDate = previousDate;
+    FichajesModule.currentView = previousView;
+  }
+}
+
 /**
  * Obtiene los calendarios detallados (incluyendo excepciones de jornada)
  */
@@ -2238,6 +2258,7 @@ async function loadInitialData() {
 
     // 5. Initial calendar load
     await loadDataInternal();
+    await refreshPresenceSummaryFromTodaySignings();
 
     // 6. Sincronizar Módulo de Fichajes si está activo
     if (typeof FichajesModule !== 'undefined' && FichajesModule.initialized) {
