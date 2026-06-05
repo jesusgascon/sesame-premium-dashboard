@@ -576,6 +576,40 @@
     </div>
   </div>
 
+  <!-- ========== LOCATION MAP MODAL ========== -->
+  <div id="location-modal" class="modal-overlay hidden">
+    <div class="modal glass location-modal" role="dialog" aria-modal="true" aria-labelledby="location-modal-title">
+      <div class="modal-header location-modal-header">
+        <div class="location-title-group">
+          <span class="location-title-icon">📍</span>
+          <div>
+            <span class="location-modal-kicker">Mapa de fichaje</span>
+            <h3 id="location-modal-title">Ubicación del fichaje</h3>
+            <p id="location-modal-subtitle" class="location-modal-subtitle"></p>
+          </div>
+        </div>
+        <button id="location-modal-close" class="btn-icon-round" aria-label="Cerrar mapa">✕</button>
+      </div>
+      <div class="location-modal-body">
+        <div class="location-map-shell">
+          <iframe id="location-map-frame" class="location-map-frame" title="Mapa de ubicación del fichaje" loading="lazy" referrerpolicy="no-referrer-when-downgrade" width="100%" height="480"></iframe>
+          <div class="location-map-controls" aria-label="Controles de zoom del mapa">
+            <button id="location-zoom-out" class="location-map-control" type="button" aria-label="Alejar mapa">−</button>
+            <span id="location-zoom-label" class="location-zoom-label">15</span>
+            <button id="location-zoom-in" class="location-map-control" type="button" aria-label="Acercar mapa">+</button>
+          </div>
+        </div>
+        <div class="location-meta">
+          <div>
+            <span class="location-meta-label">Coordenadas</span>
+            <strong id="location-coords">--</strong>
+          </div>
+          <a id="location-open-external" class="btn-secondary location-external-link" href="#" target="_blank" rel="noopener noreferrer">Abrir en Google Maps</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ========== LOADING OVERLAY ========== -->
   <div id="loading-overlay" class="loading-overlay hidden">
     <div class="loading-content glass">

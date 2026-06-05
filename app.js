@@ -323,6 +323,12 @@ const DISCOVERY = {
   workingBalance:  localStorage.getItem('ssm_path_balance')  || null
 };
 
+const LOCATION_MODAL_STATE = {
+  lat: null,
+  lon: null,
+  zoom: 15
+};
+
 // Función de Descubrimiento Inteligente: Prueba POST, si falla 405/404, prueba GET
 async function discoverEndpoint(candidates, payload = null) {
   for (let path of candidates) {
@@ -1578,6 +1584,10 @@ async function startApp() {
 
   $('modal-close').addEventListener('click', closeModal);
   $('day-modal').addEventListener('click', e => { if (e.target === $('day-modal')) closeModal(); });
+  $('location-modal-close')?.addEventListener('click', closeLocationModal);
+  $('location-modal')?.addEventListener('click', e => { if (e.target === $('location-modal')) closeLocationModal(); });
+  $('location-zoom-in')?.addEventListener('click', () => updateLocationZoom(1));
+  $('location-zoom-out')?.addEventListener('click', () => updateLocationZoom(-1));
 
   const themeToggleButtons = document.querySelectorAll('.theme-toggle');
   themeToggleButtons.forEach(btn => {
@@ -2822,6 +2832,56 @@ function openModal(dateStr, events) {
 
 function closeModal() {
   $('day-modal').classList.add('hidden');
+}
+
+function locationMapUrl(lat, lon, zoom) {
+  return `https://maps.google.com/maps?q=${encodeURIComponent(`${lat},${lon}`)}&z=${zoom}&output=embed`;
+}
+
+function updateLocationMapFrame() {
+  const { lat, lon, zoom } = LOCATION_MODAL_STATE;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+  const frame = $('location-map-frame');
+  if (frame) frame.src = locationMapUrl(lat, lon, zoom);
+  const label = $('location-zoom-label');
+  if (label) label.textContent = zoom;
+}
+
+function updateLocationZoom(delta) {
+  LOCATION_MODAL_STATE.zoom = Math.max(3, Math.min(20, LOCATION_MODAL_STATE.zoom + delta));
+  updateLocationMapFrame();
+}
+
+function openLocationModal({ lat, lon, kind = 'Ubicación', time = '', employee = '' }) {
+  const safeLat = Number(lat);
+  const safeLon = Number(lon);
+  if (!Number.isFinite(safeLat) || !Number.isFinite(safeLon)) return;
+
+  LOCATION_MODAL_STATE.lat = safeLat;
+  LOCATION_MODAL_STATE.lon = safeLon;
+  LOCATION_MODAL_STATE.zoom = 15;
+
+  const title = $('location-modal-title');
+  if (title) title.textContent = `${kind} del fichaje`;
+
+  const subtitleParts = [employee, time].filter(Boolean);
+  const subtitle = $('location-modal-subtitle');
+  if (subtitle) subtitle.textContent = subtitleParts.join(' · ');
+
+  const coords = $('location-coords');
+  if (coords) coords.textContent = `${safeLat.toFixed(6)}, ${safeLon.toFixed(6)}`;
+
+  const external = $('location-open-external');
+  if (external) external.href = `https://www.google.com/maps?q=${safeLat},${safeLon}`;
+
+  updateLocationMapFrame();
+  $('location-modal')?.classList.remove('hidden');
+}
+
+function closeLocationModal() {
+  $('location-modal')?.classList.add('hidden');
+  const frame = $('location-map-frame');
+  if (frame) frame.src = 'about:blank';
 }
 
 // ── Export ──────────────────────────────────────────────────────────────────
@@ -4978,12 +5038,14 @@ const FichajesModule = {
 	                        const latOut = Number(e.latOut);
 	                        const lonOut = Number(e.lonOut);
 	                        const hasCoordIn = Number.isFinite(latIn) && Number.isFinite(lonIn);
-	                        const hasCoordOut = Number.isFinite(latOut) && Number.isFinite(lonOut);
-	                        const safeAddrIn = escapeHTML(e.addrIn || '');
-	                        const safeAddrOut = escapeHTML(e.addrOut || '');
-	                        const locIn = hasCoordIn ? `<a href="https://www.google.com/maps?q=${latIn},${lonIn}" target="_blank" rel="noopener noreferrer" title="Coordenadas entrada: ${latIn}, ${lonIn}" class="loc-link">📍 In</a>` : (safeAddrIn ? `<span class="loc-addr" title="Dirección entrada: ${safeAddrIn}">📍 ${safeAddrIn}</span>` : '');
-	                        const locOut = hasCoordOut ? `<a href="https://www.google.com/maps?q=${latOut},${lonOut}" target="_blank" rel="noopener noreferrer" title="Coordenadas salida: ${latOut}, ${lonOut}" class="loc-link">📍 Out</a>` : (safeAddrOut ? `<span class="loc-addr" title="Dirección salida: ${safeAddrOut}">📍 ${safeAddrOut}</span>` : '');
-	                        const locContent = (locIn || locOut) ? `<div class="td-loc-group">${locIn}${locOut}</div>` : `<span style="opacity:0.3" title="Sin datos de geolocalización en este fichaje">--</span>`;
+		                        const hasCoordOut = Number.isFinite(latOut) && Number.isFinite(lonOut);
+		                        const safeAddrIn = escapeHTML(e.addrIn || '');
+		                        const safeAddrOut = escapeHTML(e.addrOut || '');
+		                        const safeLocInTime = escapeHTML(e.in || '--:--');
+		                        const safeLocOutTime = escapeHTML(e.out || '--:--');
+		                        const locIn = hasCoordIn ? `<button type="button" title="Ver entrada en mapa: ${latIn}, ${lonIn}" class="loc-link" data-lat="${latIn}" data-lon="${lonIn}" data-kind="Entrada" data-time="${safeLocInTime}" data-employee="${safeEmpName}">📍 In</button>` : (safeAddrIn ? `<span class="loc-addr" title="Dirección entrada: ${safeAddrIn}">📍 ${safeAddrIn}</span>` : '');
+		                        const locOut = hasCoordOut ? `<button type="button" title="Ver salida en mapa: ${latOut}, ${lonOut}" class="loc-link" data-lat="${latOut}" data-lon="${lonOut}" data-kind="Salida" data-time="${safeLocOutTime}" data-employee="${safeEmpName}">📍 Out</button>` : (safeAddrOut ? `<span class="loc-addr" title="Dirección salida: ${safeAddrOut}">📍 ${safeAddrOut}</span>` : '');
+		                        const locContent = (locIn || locOut) ? `<div class="td-loc-group">${locIn}${locOut}</div>` : `<span style="opacity:0.3" title="Sin datos de geolocalización en este fichaje">--</span>`;
 
                         // Map origin to nice labels/icons
                         const getOInfo = (val) => {
@@ -5055,14 +5117,26 @@ const FichajesModule = {
           </td>
         `;
 
-        tr.addEventListener('click', () => {
-          const isOpening = !trDetails.classList.contains('active');
-          trDetails.classList.toggle('active');
-          if (isOpening) {
-            FichajesModule.loadDeepAudit(empId, row.date);
-          }
-        });
-        tbody.appendChild(tr);
+	        tr.addEventListener('click', () => {
+	          const isOpening = !trDetails.classList.contains('active');
+	          trDetails.classList.toggle('active');
+	          if (isOpening) {
+	            FichajesModule.loadDeepAudit(empId, row.date);
+	          }
+	        });
+	        trDetails.querySelectorAll('.loc-link').forEach(button => {
+	          button.addEventListener('click', event => {
+	            event.preventDefault();
+	            openLocationModal({
+	              lat: button.dataset.lat,
+	              lon: button.dataset.lon,
+	              kind: button.dataset.kind,
+	              time: button.dataset.time,
+	              employee: button.dataset.employee
+	            });
+	          });
+	        });
+	        tbody.appendChild(tr);
         tbody.appendChild(trDetails);
 
       } catch (err) {
