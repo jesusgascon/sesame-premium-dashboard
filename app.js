@@ -100,7 +100,9 @@ const STATE = {
     'employee-section': localStorage.getItem('sidebar_section_employee_collapsed') === 'true'
   },
   currentModule: localStorage.getItem('ssm_current_module') || 'vacaciones',
-  presenceMap: new Map() // employeeId -> status ('work', 'pause', 'out')
+  presenceMap: new Map(), // employeeId -> status ('work', 'pause', 'out')
+  presenceList: [],
+  presenceSummaryContext: null
 };
 
 let REFRESH_TIMER = null;
@@ -711,10 +713,13 @@ async function fetchPresence() {
 
     // Actualizar el mapa global de presencia para acceso O(1)
     if (Array.isArray(list)) {
+      STATE.presenceList = list;
+      STATE.presenceMap.clear();
       list.forEach(p => {
-        if (p.employeeId) STATE.presenceMap.set(String(p.employeeId), p.status || 'out');
-        else if (p.employee && p.employee.id) STATE.presenceMap.set(String(p.employee.id), p.status || 'out');
+        const employeeId = getPresenceEmployeeId(p);
+        if (employeeId) STATE.presenceMap.set(String(employeeId), classifyPresenceRecord(p));
       });
+      renderTeamPresenceSummary(list);
     }
     return list;
   } catch (e) {
@@ -723,6 +728,286 @@ async function fetchPresence() {
   } finally {
     AUDIT.isSearching = false;
   }
+}
+
+function getPresenceEmployeeId(record) {
+  if (!record || typeof record !== 'object') return null;
+  return record.employeeId ||
+    record.employee?.id ||
+    record.employee?.employeeId ||
+    record.userId ||
+    record.personId ||
+    null;
+}
+
+function classifyPresenceRecord(record) {
+  if (!record) return 'out';
+  const values = typeof record === 'object'
+    ? [
+        record.status,
+        record.workStatus,
+        record.presenceStatus,
+        record.type,
+        record.mode,
+        record.locationType,
+        record.workplaceType,
+        record.workplace,
+        record.origin,
+        record.employee?.status,
+        record.employee?.workStatus
+      ]
+    : [record];
+  const text = values.filter(Boolean).join(' ').toLowerCase();
+
+  if (/teletrab|remote|remoto|home|wfh|work.?from.?home|distance/.test(text)) return 'remote';
+  if (/pause|paused|pausa|break|rest/.test(text)) return 'paused';
+  if (/work|working|trabaj|online|active|clocked.?in|present/.test(text)) return 'working';
+  return 'out';
+}
+
+function getPresenceRank(kind) {
+  if (kind === 'remote') return 3;
+  if (kind === 'paused') return 2;
+  if (kind === 'working') return 1;
+  return 0;
+}
+
+function mergePresenceKind(byEmployee, employeeId, kind) {
+  if (!employeeId || !kind || kind === 'out') return;
+  const key = String(employeeId);
+  const current = byEmployee.get(key) || 'out';
+  if (getPresenceRank(kind) > getPresenceRank(current)) {
+    byEmployee.set(key, kind);
+  }
+}
+
+function classifySigningRowPresence(row) {
+  if (!row?.isLive) return 'out';
+  const entries = Array.isArray(row.entries) ? row.entries : [];
+  const openEntry = [...entries].reverse().find(entry =>
+    !entry.outOriginal || !entry.out || entry.out === '--:--'
+  );
+  const entryKind = classifyPresenceRecord(openEntry || {});
+  return entryKind === 'paused' || entryKind === 'remote' ? entryKind : 'working';
+}
+
+function getLocalDateKey(date = new Date()) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (isNaN(d.getTime())) return '';
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getTeamPresenceStats(presenceList = STATE.presenceList, options = {}) {
+  const stats = { working: 0, paused: 0, remote: 0, out: 0, total: STATE.allEmployees.size };
+  const byEmployee = buildTeamPresenceKindMap(presenceList, options);
+
+  byEmployee.forEach(kind => {
+    if (kind === 'remote') stats.remote++;
+    else if (kind === 'paused') stats.paused++;
+    else if (kind === 'working') stats.working++;
+  });
+
+  const activeCount = stats.working + stats.paused + stats.remote;
+  if (stats.total === 0 && byEmployee.size > 0) stats.total = byEmployee.size;
+  stats.out = Math.max(0, stats.total - activeCount);
+  return stats;
+}
+
+function buildTeamPresenceKindMap(presenceList = STATE.presenceList, options = {}) {
+  const byEmployee = new Map();
+  const records = Array.isArray(presenceList) ? presenceList : [];
+  const rows = Array.isArray(options.rows) ? options.rows : [];
+
+  records.forEach((record, index) => {
+    const key = getPresenceEmployeeId(record) || `presence-${index}`;
+    mergePresenceKind(byEmployee, key, classifyPresenceRecord(record));
+  });
+
+  if (byEmployee.size === 0 && STATE.presenceMap?.size) {
+    STATE.presenceMap.forEach((status, employeeId) => {
+      mergePresenceKind(byEmployee, employeeId, classifyPresenceRecord(status));
+    });
+  }
+
+  if (STATE.presenceMap?.size) {
+    STATE.presenceMap.forEach((status, employeeId) => {
+      mergePresenceKind(byEmployee, employeeId, classifyPresenceRecord(status));
+    });
+  }
+
+  rows.forEach(row => {
+    mergePresenceKind(byEmployee, row.employeeId, classifySigningRowPresence(row));
+  });
+
+  return byEmployee;
+}
+
+function getTeamPresenceEmployeesByKind(kind, presenceList = STATE.presenceList, options = {}) {
+  const byEmployee = buildTeamPresenceKindMap(presenceList, options);
+  const rows = Array.isArray(options.rows) ? options.rows : [];
+  const liveEmployeeIds = new Set();
+
+  rows.forEach(row => {
+    if (!row?.employeeId) return;
+    liveEmployeeIds.add(String(row.employeeId));
+  });
+
+  return Array.from(STATE.allEmployees.values())
+    .filter(emp => {
+      if (!emp?.id) return false;
+      const employeeKind = byEmployee.get(String(emp.id)) || 'out';
+      return employeeKind === kind;
+    })
+    .map(emp => {
+      const name = `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || emp.email || 'Empleado';
+      return {
+        id: String(emp.id),
+        name,
+        initials: getInitials(name),
+        jobTitle: emp.jobTitle || '',
+        photoUrl: emp.imageProfileURL || '',
+        hasTodayRow: liveEmployeeIds.has(String(emp.id))
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+}
+
+function getTeamPresenceOutEmployees(presenceList = STATE.presenceList, options = {}) {
+  return getTeamPresenceEmployeesByKind('out', presenceList, options);
+}
+
+function renderPresencePeoplePopover(popover, kind, employees) {
+  if (!popover) return;
+  const labels = {
+    working: 'Trabajando ahora',
+    paused: 'En pausa',
+    remote: 'Teletrabajando',
+    out: 'Fuera ahora'
+  };
+  const emptyLabels = {
+    working: 'No hay empleados trabajando ahora.',
+    paused: 'No hay empleados en pausa ahora.',
+    remote: 'No hay empleados teletrabajando ahora.',
+    out: 'No hay empleados fuera ahora.'
+  };
+  const safeKind = ['working', 'paused', 'remote', 'out'].includes(kind) ? kind : 'out';
+  const list = Array.isArray(employees) ? employees : [];
+  const fallbackMeta = {
+    working: 'Trabajando ahora',
+    paused: 'En pausa ahora',
+    remote: 'Teletrabajando ahora',
+    out: 'Sin actividad ahora'
+  };
+
+  const listHtml = list.length
+    ? list.map(emp => {
+        const safeName = escapeHTML(emp.name);
+        const safeJobTitle = escapeHTML(emp.jobTitle || fallbackMeta[safeKind]);
+        const safePhoto = safeHttpUrlAttr(emp.photoUrl);
+        const initials = escapeHTML(emp.initials || getInitials(emp.name));
+        return `
+          <div class="presence-out-person">
+            <div class="presence-out-avatar" style="${safePhoto ? '' : 'background: linear-gradient(135deg, var(--accent), var(--accent2));'}">
+              ${safePhoto ? `<img src="${safePhoto}" alt="${safeName}" referrerpolicy="no-referrer">` : initials}
+            </div>
+            <div class="presence-out-info">
+              <strong>${safeName}</strong>
+              <span>${safeJobTitle}</span>
+            </div>
+          </div>
+        `;
+      }).join('')
+    : `<div class="presence-out-empty">${emptyLabels[safeKind]}</div>`;
+
+  popover.innerHTML = `
+    <div class="presence-out-head">
+      <strong>${labels[safeKind]}</strong>
+      <span>${list.length}</span>
+    </div>
+    <div class="presence-out-list">${listHtml}</div>
+  `;
+}
+
+function closeVacacionesPresencePopover() {
+  const popover = document.getElementById('vacaciones-presence-popover');
+  if (!popover) return;
+  popover.classList.add('hidden');
+  popover.style.top = '';
+  popover.style.left = '';
+  popover.style.right = '';
+  document.querySelectorAll('[data-presence-list-trigger].active').forEach(btn => btn.classList.remove('active'));
+}
+
+function positionFixedPopover(popover, anchor, preferredWidth = 280) {
+  if (!popover || !anchor) return;
+  const rect = anchor.getBoundingClientRect();
+  const width = Math.min(preferredWidth, window.innerWidth - 16);
+  let left = rect.left + (rect.width / 2) - (width / 2);
+  if (left + width > window.innerWidth - 8) left = window.innerWidth - width - 8;
+  if (left < 8) left = 8;
+
+  popover.style.width = `${width}px`;
+  popover.style.top = `${rect.bottom + 10}px`;
+  popover.style.left = `${left}px`;
+  popover.style.right = 'auto';
+}
+
+function toggleVacacionesPresencePopover(kind, trigger) {
+  const popover = document.getElementById('vacaciones-presence-popover');
+  if (!popover) return;
+
+  const currentKind = popover.dataset.kind || '';
+  if (!popover.classList.contains('hidden') && currentKind === kind) {
+    closeVacacionesPresencePopover();
+    return;
+  }
+
+  const context = STATE.presenceSummaryContext || { presenceList: STATE.presenceList, options: {} };
+  const employees = getTeamPresenceEmployeesByKind(kind, context.presenceList, context.options);
+  renderPresencePeoplePopover(popover, kind, employees);
+  popover.dataset.kind = kind;
+  popover.classList.remove('hidden');
+  positionFixedPopover(popover, trigger);
+
+  document.querySelectorAll('[data-presence-list-trigger].active').forEach(btn => btn.classList.remove('active'));
+  trigger?.classList.add('active');
+}
+
+function renderTeamPresenceSummary(presenceList = STATE.presenceList, options = {}) {
+  STATE.presenceSummaryContext = { presenceList, options };
+  const stats = getTeamPresenceStats(presenceList, options);
+  const hasTeam = stats.total > 0 || stats.working > 0 || stats.paused > 0 || stats.remote > 0;
+
+  document.querySelectorAll('[data-presence-summary]').forEach(summary => {
+    summary.classList.toggle('is-empty', !hasTeam);
+    summary.title = hasTeam
+      ? `Ahora: ${stats.working} trabajando, ${stats.paused} en pausa, ${stats.remote} teletrabajando, ${stats.out} fuera`
+      : 'Presencia en tiempo real pendiente de sincronizar';
+  });
+
+  Object.entries(stats).forEach(([key, value]) => {
+    document.querySelectorAll(`[data-presence-count="${key}"]`).forEach(el => {
+      el.textContent = value;
+    });
+  });
+
+  let activeFilter = 'all';
+  try {
+    activeFilter = FichajesModule?.presenceFilter || 'all';
+  } catch (_) {
+    activeFilter = 'all';
+  }
+
+  const workingBtn = document.getElementById('filter-live-working');
+  const pausedBtn = document.getElementById('filter-live-paused');
+  const outBtn = document.getElementById('filter-live-out');
+  const outPopover = document.getElementById('presence-out-popover');
+  if (workingBtn) workingBtn.classList.toggle('active', activeFilter === 'working');
+  if (pausedBtn) pausedBtn.classList.toggle('active', activeFilter === 'paused');
+  if (outBtn) outBtn.classList.toggle('active', !!outPopover && !outPopover.classList.contains('hidden'));
 }
 
 /**
@@ -1244,9 +1529,17 @@ function startAutoRefresh() {
   if (REFRESH_TIMER) clearInterval(REFRESH_TIMER);
   REFRESH_TIMER = setInterval(async () => {
     const isAppVisible = !$('app-screen').classList.contains('hidden');
-    if (isAppVisible && !STATE.isLoading && STATE.companyId && (STATE.token || hasProxyUnlockSession())) {
-      await loadData();
+    const canRefresh = isAppVisible && !STATE.isLoading && STATE.companyId && (STATE.token || hasProxyUnlockSession());
+    if (!canRefresh) return;
+
+    if (STATE.currentModule === 'fichajes') {
+      if (typeof FichajesModule !== 'undefined' && FichajesModule.initialized) {
+        await FichajesModule.loadData(true, { silent: true });
+      }
+      return;
     }
+
+    await loadData();
   }, 5 * 60 * 1000);
 }
 
@@ -1359,6 +1652,7 @@ function showScreen(screenId) {
 function switchModule(module, options = {}) {
   STATE.currentModule = module;
   localStorage.setItem('ssm_current_module', module);
+  closeVacacionesPresencePopover();
 
   // Actualizar estados visuales de los botones del switcher
   $$('.module-btn').forEach(btn => {
@@ -1406,7 +1700,7 @@ function initMonthPickers() {
   // ── Portal: mover los popovers a <body> para escapar del stacking context ──
   // backdrop-filter en .top-bar crea un containing block que atrapa position:fixed.
   // La solución es elevar los popovers al nivel del <body>.
-  ['vacaciones-month-picker', 'fichajes-month-picker'].forEach(id => {
+  ['vacaciones-month-picker', 'fichajes-month-picker', 'vacaciones-presence-popover'].forEach(id => {
     const el = document.getElementById(id);
     if (el && el.parentElement !== document.body) {
       document.body.appendChild(el);
@@ -1538,6 +1832,19 @@ async function startApp() {
   $('refresh-btn').addEventListener('click', loadData);
   $('logout-btn').addEventListener('click', logout);
   initMonthPickers();
+
+  document.addEventListener('click', (event) => {
+    const trigger = event.target.closest('[data-presence-list-trigger]');
+    if (trigger) {
+      event.stopPropagation();
+      toggleVacacionesPresencePopover(trigger.dataset.presenceListTrigger, trigger);
+      return;
+    }
+
+    if (!event.target.closest('#vacaciones-presence-popover')) {
+      closeVacacionesPresencePopover();
+    }
+  });
 
   // Expand/Collapse all – delegado en document para no depender del init de FichajesModule
   document.addEventListener('click', (e) => {
@@ -1927,6 +2234,7 @@ async function loadInitialData() {
     teamArray.forEach(emp => {
       upsertEmployee(emp);
     });
+    renderTeamPresenceSummary(presenceData);
 
     // 5. Initial calendar load
     await loadDataInternal();
@@ -3196,6 +3504,7 @@ const FichajesModule = {
   biTheoreticMap: null,
   dayOverrides: null,
   realtimePresence: [],
+  isLoading: false,
   init() {
     if (this.initialized) return;
     this.initialized = true;
@@ -3284,6 +3593,14 @@ const FichajesModule = {
     // Smart Presence Filters
     document.getElementById('filter-live-working')?.addEventListener('click', () => this.togglePresenceFilter('working'));
     document.getElementById('filter-live-paused')?.addEventListener('click', () => this.togglePresenceFilter('paused'));
+    document.getElementById('filter-live-out')?.addEventListener('click', (event) => {
+      event.stopPropagation();
+      this.toggleOutPresencePopover();
+    });
+    document.addEventListener('click', (event) => {
+      if (event.target.closest('#presence-out-popover, #filter-live-out')) return;
+      this.closeOutPresencePopover();
+    });
 
     // Kiosko Mode
     document.getElementById('kiosko-mode-btn')?.addEventListener('click', () => this.toggleKioskoMode());
@@ -3320,7 +3637,69 @@ const FichajesModule = {
     } else {
       this.presenceFilter = type;
     }
+    this.closeOutPresencePopover();
+    renderTeamPresenceSummary(this.realtimePresence?.length ? this.realtimePresence : STATE.presenceList, { rows: this.data });
     this.renderTable();
+  },
+
+  toggleOutPresencePopover() {
+    const popover = document.getElementById('presence-out-popover');
+    if (!popover) return;
+
+    if (!popover.classList.contains('hidden')) {
+      this.closeOutPresencePopover();
+      return;
+    }
+
+    this.presenceFilter = 'all';
+    this.renderTable();
+    this.renderOutPresencePopover();
+  },
+
+  closeOutPresencePopover() {
+    const popover = document.getElementById('presence-out-popover');
+    if (!popover) return;
+    popover.classList.add('hidden');
+    document.getElementById('filter-live-out')?.classList.remove('active');
+  },
+
+  renderOutPresencePopover() {
+    const popover = document.getElementById('presence-out-popover');
+    if (!popover) return;
+
+    const source = this.realtimePresence?.length ? this.realtimePresence : STATE.presenceList;
+    const outEmployees = getTeamPresenceOutEmployees(source, { rows: this.data });
+    const count = outEmployees.length;
+
+    const listHtml = outEmployees.length
+      ? outEmployees.map(emp => {
+          const safeName = escapeHTML(emp.name);
+          const safeJobTitle = escapeHTML(emp.jobTitle || 'Sin actividad ahora');
+          const safePhoto = safeHttpUrlAttr(emp.photoUrl);
+          const initials = escapeHTML(emp.initials || getInitials(emp.name));
+          return `
+            <div class="presence-out-person">
+              <div class="presence-out-avatar" style="${safePhoto ? '' : 'background: linear-gradient(135deg, var(--accent), var(--accent2));'}">
+                ${safePhoto ? `<img src="${safePhoto}" alt="${safeName}" referrerpolicy="no-referrer">` : initials}
+              </div>
+              <div class="presence-out-info">
+                <strong>${safeName}</strong>
+                <span>${safeJobTitle}</span>
+              </div>
+            </div>
+          `;
+        }).join('')
+      : '<div class="presence-out-empty">No hay empleados fuera ahora.</div>';
+
+    popover.innerHTML = `
+      <div class="presence-out-head">
+        <strong>Fuera ahora</strong>
+        <span>${count}</span>
+      </div>
+      <div class="presence-out-list">${listHtml}</div>
+    `;
+    popover.classList.remove('hidden');
+    document.getElementById('filter-live-out')?.classList.add('active');
   },
 
   toggleKioskoMode() {
@@ -3582,7 +3961,34 @@ const FichajesModule = {
     `;
   },
 
-  async loadData(ignoreCache = false) {
+  async loadData(ignoreCache = false, options = {}) {
+    if (typeof ignoreCache === 'object' && ignoreCache !== null) {
+      options = ignoreCache;
+      ignoreCache = !!options.ignoreCache;
+    }
+
+    if (this.isLoading) return;
+    this.isLoading = true;
+
+    const isSilent = !!options.silent;
+    const previousState = isSilent ? {
+      data: Array.isArray(this.data) ? [...this.data] : [],
+      realSignings: Array.isArray(this.realSignings) ? [...this.realSignings] : [],
+      biTheoreticMap: this.biTheoreticMap instanceof Map ? new Map(this.biTheoreticMap) : this.biTheoreticMap,
+      dayOverrides: this.dayOverrides instanceof Map ? new Map(this.dayOverrides) : this.dayOverrides,
+      absenceTimesMap: this.absenceTimesMap instanceof Map ? new Map(this.absenceTimesMap) : this.absenceTimesMap,
+      realtimePresence: Array.isArray(this.realtimePresence) ? [...this.realtimePresence] : []
+    } : null;
+    const restoreSilentState = () => {
+      if (!previousState) return;
+      this.data = previousState.data;
+      this.realSignings = previousState.realSignings;
+      this.biTheoreticMap = previousState.biTheoreticMap;
+      this.dayOverrides = previousState.dayOverrides;
+      this.absenceTimesMap = previousState.absenceTimesMap;
+      this.realtimePresence = previousState.realtimePresence;
+    };
+
     let startDate = new Date(this.currentDate);
     let endDate = new Date(this.currentDate);
 
@@ -3606,7 +4012,7 @@ const FichajesModule = {
       // 0. Cache check: Si ya tenemos los datos en esta sesión, mostrarlos inmediatamente
       const cacheKey = `ssm_fichajes_cache_${STATE.companyId}_${this.currentView}_${start}_${end}`;
       const cached = sessionStorage.getItem(cacheKey);
-      if (cached && !ignoreCache) {
+      if (cached && !ignoreCache && !isSilent) {
         try {
           const parsed = JSON.parse(cached);
           this.data = parsed.data || [];
@@ -3623,11 +4029,15 @@ const FichajesModule = {
         }
       }
 
-      this.renderSkeletons();
+      if (!isSilent) {
+        this.renderSkeletons();
+      }
 
       // RESTAURACIÓN DEL SELECTOR: Cargamos el desplegable nada más empezar
       // para que el usuario pueda filtrar aunque la carga de datos falle.
-      this.populateEmployeeSelect();
+      if (!isSilent) {
+        this.populateEmployeeSelect();
+      }
 
       // Claves de configuración por empresa (scope externo para ser accesibles en todo loadData)
       const BI_SCHEMA_CACHE_KEY = `ssm_bi_schema_${STATE.companyId}`;
@@ -3953,6 +4363,11 @@ const FichajesModule = {
 
       // Si el token está realmente caducado (no es modo empleado), mostrar aviso
       if (_coreApiIs403 && !STATE.currentUser) {
+        if (isSilent) {
+          restoreSilentState();
+          return;
+        }
+
         const company = STATE.companies.find(c => c.companyId === STATE.companyId);
         const companyName = company?.name || STATE.companyId?.substring(0, 8) || 'Esta empresa';
         const safeCompanyName = escapeHTML(companyName);
@@ -4109,11 +4524,11 @@ const FichajesModule = {
             // Barra de progreso visible
             const progressBar = $('signings-progress-bar');
             const progressContainer = $('signings-progress-container');
-            if (progressContainer) progressContainer.classList.remove('hidden');
+            if (progressContainer && !isSilent) progressContainer.classList.remove('hidden');
 
             for (let i = 0; i < targetIds.length; i += 8) {
                // Actualizar barra de progreso
-               if (progressBar) {
+               if (progressBar && !isSilent) {
                   const pct = Math.round((i / targetIds.length) * 100);
                   progressBar.style.width = `${pct}%`;
                }
@@ -4146,11 +4561,13 @@ const FichajesModule = {
             }
 
             // Ocultar barra de progreso
-            if (progressBar) progressBar.style.width = '100%';
-            setTimeout(() => {
-                if (progressContainer) progressContainer.classList.add('hidden');
-                if (progressBar) progressBar.style.width = '0%';
-            }, 600);
+            if (!isSilent) {
+              if (progressBar) progressBar.style.width = '100%';
+              setTimeout(() => {
+                  if (progressContainer) progressContainer.classList.add('hidden');
+                  if (progressBar) progressBar.style.width = '0%';
+              }, 600);
+            }
 
             if (rawData.length > 0) {
                this.data = this.parseRealSignings(rawData, localAbsences);
@@ -4234,6 +4651,11 @@ const FichajesModule = {
 
     } catch (err) {
       console.error("Error al cargar fichajes:", err);
+      if (isSilent) {
+        restoreSilentState();
+        return;
+      }
+
       const is403 = err.message.includes('403') || err.message.includes('Forbidden');
       const is401 = err.message.includes('401') || err.message.includes('caducada');
       const company = STATE.companies.find(c => c.companyId === STATE.companyId);
@@ -4275,7 +4697,7 @@ const FichajesModule = {
           </td></tr>`;
       }
     } finally {
-      // Finalizado
+      this.isLoading = false;
     }
   },
 
@@ -5223,23 +5645,7 @@ const FichajesModule = {
   },
 
   renderPresenceSummaryOnly() {
-    let currentlyWorking = 0;
-    let currentlyPaused = 0;
-    if (this.realtimePresence) {
-      this.realtimePresence.forEach(p => {
-        const s = String(p.status || '').toLowerCase();
-        if (s === 'work' || s === 'working') currentlyWorking++;
-        else if (s === 'pause' || s === 'paused') currentlyPaused++;
-      });
-    }
-    const liveEl = document.getElementById('live-presence-summary');
-    if (liveEl) {
-      liveEl.style.display = (currentlyWorking > 0 || currentlyPaused > 0) ? 'flex' : 'none';
-      const wEl = document.getElementById('live-count-working');
-      const pEl = document.getElementById('live-count-paused');
-      if (wEl) wEl.textContent = currentlyWorking;
-      if (pEl) pEl.textContent = currentlyPaused;
-    }
+    renderTeamPresenceSummary(this.realtimePresence?.length ? this.realtimePresence : STATE.presenceList, { rows: this.data });
   },
 
   async loadDeepAudit(employeeId, date) {
@@ -5404,13 +5810,18 @@ const FichajesModule = {
     }
 
     if (this.presenceFilter && this.presenceFilter !== 'all') {
+      const todayKey = getLocalDateKey();
       filtered = filtered.filter(row => {
-        const presence = (this.realtimePresence || []).find(p => String(p.employeeId) === String(row.employeeId));
-        if (!presence) return false;
-        const status = String(presence.status || '').toLowerCase();
-        return this.presenceFilter === 'working'
-          ? (status === 'work' || status === 'working')
-          : (status === 'pause' || status === 'paused');
+        if (String(row.date || '') !== todayKey) return false;
+        const presence = (this.realtimePresence || []).find(p => String(getPresenceEmployeeId(p)) === String(row.employeeId));
+        const status = [
+          classifyPresenceRecord(presence),
+          classifyPresenceRecord(STATE.presenceMap.get(String(row.employeeId))),
+          classifySigningRowPresence(row)
+        ].sort((a, b) => getPresenceRank(b) - getPresenceRank(a))[0] || 'out';
+        if (this.presenceFilter === 'working') return status === 'working' || status === 'remote';
+        if (this.presenceFilter === 'paused') return status === 'paused';
+        return true;
       });
     }
 

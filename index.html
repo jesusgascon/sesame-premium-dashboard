@@ -349,6 +349,30 @@
             <div class="current-period" style="position: relative;">
               <h2 id="current-month-label" class="month-selector-title">Marzo 2026</h2>
               <span id="absence-count-label" class="pill">Cargando…</span>
+              <div class="team-presence-summary" data-presence-summary aria-label="Pulso del equipo">
+                <span class="team-presence-kicker">Ahora</span>
+                <button class="team-presence-item stats-btn is-working" data-presence-list-trigger="working" title="Ver empleados trabajando ahora">
+                  <span class="presence-dot"></span>
+                  <strong data-presence-count="working">0</strong>
+                  <span class="presence-label">Trab.</span>
+                </button>
+                <button class="team-presence-item stats-btn is-paused" data-presence-list-trigger="paused" title="Ver empleados en pausa">
+                  <span class="presence-dot"></span>
+                  <strong data-presence-count="paused">0</strong>
+                  <span class="presence-label">Pausa</span>
+                </button>
+                <button class="team-presence-item stats-btn is-remote" data-presence-list-trigger="remote" title="Ver empleados teletrabajando">
+                  <span class="presence-dot"></span>
+                  <strong data-presence-count="remote">0</strong>
+                  <span class="presence-label">Tele.</span>
+                </button>
+                <button class="team-presence-item stats-btn is-out" data-presence-list-trigger="out" title="Ver empleados fuera del trabajo">
+                  <span class="presence-dot"></span>
+                  <strong data-presence-count="out">0</strong>
+                  <span class="presence-label">Fuera</span>
+                </button>
+                <div id="vacaciones-presence-popover" class="presence-out-popover hidden" role="dialog" aria-label="Detalle de presencia del equipo"></div>
+              </div>
               <div id="vacaciones-month-picker" class="month-picker-popover glass"></div>
             </div>
             <button id="next-month" class="btn-icon-round" aria-label="Mes siguiente">›</button>
@@ -411,13 +435,29 @@
                 </div>
                 <div style="display: flex; align-items: center; gap: 8px;">
                   <span id="signings-pill" class="pill" style="font-weight: 700; color: var(--accent);"><span id="total-worked-hours">0h 0m</span> / <span id="total-theoretic-hours">0h 0m</span></span>
-                  <div id="live-presence-summary" class="live-stats-badge hidden">
-                    <button id="filter-live-working" class="stats-btn" title="Ver solo trabajando ahora">
-                      <span class="dot green"></span> <span id="live-count-working">0</span>
+                  <div id="live-presence-summary" class="team-presence-summary live-stats-badge" data-presence-summary aria-label="Pulso del equipo">
+                    <span class="team-presence-kicker">Ahora</span>
+                    <button id="filter-live-working" class="team-presence-item stats-btn is-working" title="Ver solo trabajando ahora">
+                      <span class="presence-dot"></span>
+                      <strong id="live-count-working" data-presence-count="working">0</strong>
+                      <span class="presence-label">Trab.</span>
                     </button>
-                    <button id="filter-live-paused" class="stats-btn" title="Ver solo en pausa">
-                      <span class="dot orange"></span> <span id="live-count-paused">0</span>
+                    <button id="filter-live-paused" class="team-presence-item stats-btn is-paused" title="Ver solo en pausa">
+                      <span class="presence-dot"></span>
+                      <strong id="live-count-paused" data-presence-count="paused">0</strong>
+                      <span class="presence-label">Pausa</span>
                     </button>
+                    <span class="team-presence-item is-remote" title="Teletrabajando">
+                      <span class="presence-dot"></span>
+                      <strong data-presence-count="remote">0</strong>
+                      <span class="presence-label">Tele.</span>
+                    </span>
+                    <button id="filter-live-out" class="team-presence-item stats-btn is-out" title="Ver empleados fuera del trabajo">
+                      <span class="presence-dot"></span>
+                      <strong data-presence-count="out">0</strong>
+                      <span class="presence-label">Fuera</span>
+                    </button>
+                    <div id="presence-out-popover" class="presence-out-popover hidden" role="dialog" aria-label="Empleados fuera del trabajo"></div>
                   </div>
                 </div>
                 <div id="fichajes-month-picker" class="month-picker-popover glass"></div>
