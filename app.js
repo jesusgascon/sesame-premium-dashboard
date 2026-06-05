@@ -169,6 +169,72 @@ function getInitials(name) {
     .slice(0, 2) || '?';
 }
 
+const TECHNICAL_ABSENCE_LABELS = {
+  vacation: 'Vacaciones',
+  vacations: 'Vacaciones',
+  holiday: 'Vacaciones',
+  holidays: 'Vacaciones',
+  paid_vacation: 'Vacaciones',
+  paid_holiday: 'Vacaciones',
+  sick: 'Baja médica',
+  sick_leave: 'Baja médica',
+  medical_leave: 'Baja médica',
+  illness: 'Baja médica',
+  personal_day: 'Asuntos propios',
+  personal_days: 'Asuntos propios',
+  own_affairs: 'Asuntos propios',
+  own_business: 'Asuntos propios',
+  paid_leave: 'Permiso retribuido',
+  unpaid_leave: 'Permiso no retribuido',
+  absence: 'Ausencia',
+  leave: 'Ausencia'
+};
+
+function normalizeAbsenceToken(value) {
+  return String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+}
+
+function isTechnicalAbsenceValue(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return false;
+  return /^[a-z0-9_-]+$/.test(raw);
+}
+
+function titleCaseAbsenceToken(value) {
+  return String(value || '')
+    .trim()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\w\S*/g, word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
+}
+
+function displayAbsenceTypeName(type, fallback = 'Ausencia') {
+  const candidates = [
+    type?.alias,
+    type?.label,
+    type?.translatedName,
+    type?.name,
+    type?.category
+  ].filter(Boolean);
+
+  const humanName = candidates.find(value => {
+    const token = normalizeAbsenceToken(value);
+    return !TECHNICAL_ABSENCE_LABELS[token] && !isTechnicalAbsenceValue(value);
+  });
+  if (humanName) return String(humanName).trim();
+
+  const mappedToken = candidates
+    .map(normalizeAbsenceToken)
+    .find(token => TECHNICAL_ABSENCE_LABELS[token]);
+  if (mappedToken) return TECHNICAL_ABSENCE_LABELS[mappedToken];
+
+  const firstValue = candidates[0];
+  if (firstValue && isTechnicalAbsenceValue(firstValue)) {
+    return titleCaseAbsenceToken(firstValue) || fallback;
+  }
+  return firstValue || fallback;
+}
+
 function renderLocalAvatar(name, photoUrl, className = '', extraStyle = '') {
   const safeName = escapeHTML(name);
   const safePhoto = isSafeHttpUrl(photoUrl) ? escapeHTML(photoUrl) : '';
@@ -576,7 +642,10 @@ async function fetchAbsenceTypes() {
     const paletteColor = PREMIUM_PALETTE[i % PREMIUM_PALETTE.length];
     return {
       id:    t.id,
-      name:  t.name || t.alias || 'Ausencia',
+      name:  displayAbsenceTypeName(t),
+      rawName: t.name || '',
+      alias: t.alias || '',
+      category: t.category || '',
       color: paletteColor,
     };
   });
@@ -1925,7 +1994,7 @@ async function loadDataInternal() {
             // La estructura real es: item.calendarType + item.daysOff[].date
             items.forEach(item => {
               const calType = item.calendarType || {};
-              const typeName = calType.name || 'Ausencia';
+              const typeName = displayAbsenceTypeName(calType);
               const typeColor = calType.color || 'ssmv2-purple';
               const typeId = calType.id || 'personal';
 
@@ -1956,7 +2025,9 @@ async function loadDataInternal() {
               if (!STATE.absenceTypes.find(t => t.id === calType.id)) {
                 STATE.absenceTypes.push({
                   id: calType.id,
-                  name: calType.name || 'Ausencia',
+                  name: displayAbsenceTypeName(calType),
+                  rawName: calType.name || '',
+                  alias: calType.alias || '',
                   color: calType.color || 'ssmv2-purple',
                   category: calType.category || 'vacation'
                 });
@@ -1991,7 +2062,9 @@ async function loadDataInternal() {
         if (rawType.id && !STATE.absenceTypes.find(t => t.id === rawType.id)) {
           STATE.absenceTypes.push({
             id: rawType.id,
-            name: rawType.name || 'Ausencia',
+            name: displayAbsenceTypeName(rawType),
+            rawName: rawType.name || '',
+            alias: rawType.alias || '',
             color: rawType.color || 'ssmv2-purple',
             category: rawType.category || 'vacation'
           });
@@ -2003,7 +2076,7 @@ async function loadDataInternal() {
         return {
           type: {
             ...rawType,
-            name: masterType.name || rawType.name || 'Ausencia',
+            name: masterType.name || displayAbsenceTypeName(rawType),
             color: masterType.color || 'ssmv2-purple'
           },
           employees: emps,
@@ -4348,7 +4421,7 @@ const FichajesModule = {
           if (myAbs) {
             const rawType = ct.calendar_type || {};
             const masterType = STATE.absenceTypes.find(t => t.id === rawType.id) || {};
-            absenceLabel = masterType.name || rawType.name || "Ausencia";
+            absenceLabel = masterType.name || displayAbsenceTypeName(rawType);
 
             // Búsqueda exhaustiva de horarios en múltiples formatos y sub-objetos
             let sTimeRaw = myAbs.start_time || myAbs.startTime || myAbs.time_start || myAbs.timeStart || myAbs.time_from || myAbs.timeFrom || myAbs.start ||
