@@ -16,7 +16,44 @@ Dado que las APIs de Sesame imponen políticas estrictas de CORS (Cross-Origin R
 - **Límite de exposición**: `server.py` puede escuchar en `127.0.0.1` o en `0.0.0.0`. El lanzador `start.sh` arranca en modo LAN por defecto para facilitar uso interno, mientras `bash start.sh local` limita el acceso al equipo actual. En ambos casos se bloquean rutas sensibles como `config.secrets.json`, claves TLS, claves de cifrado y carpetas internas.
 - **Sesión local de desbloqueo**: La pantalla de contraseña ya no es solo una barrera visual. Cuando `/validate-password` valida la clave maestra, el servidor emite una cookie `HttpOnly` y de corta duración; el proxy exige esa sesión antes de inyectar tokens guardados o aceptar mutaciones de configuración. La conexión inicial con un token recién pegado puede seguir validando `/me` sin sesión porque todavía no usa secretos guardados.
 
-### 1.2. Resiliencia y Domain Flipping (Failover)
+### 1.2. Origen del Token y Naturaleza de la Integración
+
+La integración no se basa en un API token público generado desde un panel administrativo de Sesame. El proyecto reutiliza la sesión web autenticada del usuario, concretamente:
+
+- `Authorization: Bearer ...`
+- `csid` de empresa
+
+El asistente `get-token.py` levanta un receptor local en `http://localhost:8766/receive` y facilita una captura controlada de las cabeceras que la propia aplicación web de Sesame envía al interactuar con `app.sesametime.com`. Una vez capturadas, las credenciales se guardan en `config.secrets.json`; si `cryptography` está disponible, `server.py` las cifra en reposo mediante Fernet.
+
+Implicación técnica: desde el punto de vista del código, el dashboard consume endpoints web/internos `/api/v3` protegidos por la sesión del usuario. No hay llamadas a un endpoint de creación de tokens, OAuth client credentials, API keys públicas ni panel de generación de API tokens. Si Sesame clasifica estos endpoints como API privada/no documentada, esa clasificación pertenece a Sesame; el comportamiento observable es el de una sesión web con `Bearer` y `csid`.
+
+Los límites de uso autorizado, privacidad y cumplimiento están documentados en `COMPLIANCE.md`. Si Sesame no autoriza este mecanismo o exige API oficial, la integración debe migrarse antes de usar datos reales en producción.
+
+### 1.3. Dominios y Superficie de APIs
+
+El proxy limita los destinos remotos permitidos a tres orígenes:
+
+| Dominio | Uso |
+|---------|-----|
+| `https://back-eu1.sesametime.com` | Backend principal para endpoints REST `/api/v3` |
+| `https://api-eu1.sesametime.com` | Backend alternativo para failover/domain flipping |
+| `https://bi-engine.sesametime.com` | Motor BI para `/api/v3/analytics/report-query` |
+
+Inventario funcional de endpoints usados por la aplicación:
+
+| Área | Endpoints |
+|------|-----------|
+| Sesión | `/api/v3/security/me` |
+| Empleados | `/api/v3/employees`, `/api/v3/companies/{companyId}/employees`, `/api/v3/employees/{employeeId}` |
+| Tipos de ausencia | `/api/v3/companies/{companyId}/absence-types` |
+| Calendario | `/api/v3/companies/{companyId}/calendars-grouped`, `/api/v3/companies/{companyId}/calendars`, `/api/v3/employees/{employeeId}/calendars` |
+| Saldos de vacaciones | `/api/v3/vacation-configuration/employee/{id}`, `/api/v3/statistics/employee/{id}/vacations` |
+| Presencia | `/api/v3/statistics/presence`, `/api/v3/presence-status`, `/api/v3/employees/presence`, `/api/v3/presence`, `/api/v3/attendance/presence`, `/api/v3/work-entries/presence`, `/api/v3/companies/{companyId}/employees/presence` |
+| Fichajes | `/api/v3/employees/{employeeId}/checks`, `/api/v3/work-entries/search`, `/api/v3/checks/search`, `/api/v3/work-entries`, `/api/v3/checks`, `/api/v3/attendance`, `/api/v3/timesheets`, `/api/v3/statistics/daily-computed-hour-stats` |
+| Incidencias | `/api/v3/check-incidences` |
+| BI Analytics | `/api/v3/analytics/report-query` |
+
+### 1.4. Resiliencia y Domain Flipping (Failover)
 La función `apiFetch` en `app.js` es el núcleo de la comunicación. Implementa una heurística de recuperación de errores:
 1. **Intento Primario**: Lanza la petición al subdominio configurado (ej. `back-eu1.sesametime.com`).
 2. **Detección de Caídas**: Si recibe un error `502`, `503`, o un fallo de red (`TypeError: Failed to fetch`), activa el modo de reintento.
@@ -136,4 +173,3 @@ ausencia visible ⟺ no existe ninguna entrada (type ≠ 'work'/'pause')
                     cuyo tramo [eIn, eOut] solape con [absStart, absEnd]
 ```
 Esto garantiza que el tramo 10:16-12:02 aparezca como fila `📌` si no hay ningún fichaje que lo cubra, pero se suprima si ya hay un `🚪` registrado para ese periodo exacto.
-

@@ -20,6 +20,8 @@
   - [4. Calendario Híbrido](#4-calendario-híbrido)
 - [Inteligencia Analítica y Auditoría](#-inteligencia-analítica-y-auditoría)
 - [Stack Tecnológico](#-stack-tecnológico)
+- [Origen de Credenciales y APIs Usadas](#-origen-de-credenciales-y-apis-usadas)
+- [Cumplimiento y Uso Autorizado](#-cumplimiento-y-uso-autorizado)
 - [Guía de Instalación Rápida](#-guía-de-instalación-rápida)
 - [Arquitectura Técnica](#️-arquitectura-técnica)
 - [Changelog Detallado](#-changelog-detallado)
@@ -48,7 +50,7 @@ Un panel forense para auditar el control horario de toda la plantilla.
 - **Kiosko Mode**: Un modo de pantalla completa a prueba de distracciones, ideal para proyectar en pantallas de oficinas, que oculta menús y maximiza los datos en tiempo real.
 
 ### 3. Deep Birthday Harvest
-- **Motor de Extracción Dual**: Dado que las APIs públicas de Sesame censuran las fechas de nacimiento, el dashboard inyecta consultas directas al motor de Business Intelligence (BI). Si falla, ejecuta un escáner secundario perfil a perfil.
+- **Motor de Extracción Dual**: Dado que los listados estándar de empleados de Sesame no siempre incluyen las fechas de nacimiento, el dashboard consulta el motor de Business Intelligence (BI). Si falla, ejecuta un escáner secundario perfil a perfil.
 - **Timeline Anual**: Agrupa los cumpleaños por mes, destacando con insignias pulsantes a los cumpleañeros del día y generando un calendario visual hermoso.
 
 ### 4. Calendario Híbrido
@@ -71,7 +73,58 @@ La verdadera magia ocurre en segundo plano (Backend/JS Engine):
 
 - **Frontend**: `HTML5` semántico, `CSS3` (Vanilla con diseño basado en Glassmorphism, CSS Variables para theming dinámico) y `Javascript ES6+` puro. 0 KB de librerías externas (sin React ni Vue) para máximo rendimiento.
 - **Backend / Proxy**: Servidor local escrito en `Python 3` (módulos `http.server`, `urllib`). Maneja la superación de bloqueos CORS, inyección de certificados SSL locales (HTTPS) y cifrado AES de credenciales.
-- **Seguridad**: Los tokens de API se guardan cifrados (`Fernet/AES-128-CBC`) en el disco duro.
+- **Seguridad**: Los tokens de sesión web/USID se guardan cifrados (`Fernet/AES-128-CBC`) en el disco duro cuando `cryptography` está disponible.
+
+---
+
+## 🔎 Origen de Credenciales y APIs Usadas
+
+Este proyecto no usa un API token público generado desde un panel administrativo de Sesame. La integración funciona sobre la sesión web autenticada del usuario: se captura localmente el token `Authorization: Bearer ...` y el `csid` de empresa que la propia aplicación web de Sesame envía en sus peticiones.
+
+El flujo previsto es local:
+
+1. El usuario inicia sesión en `app.sesametime.com` con permisos legítimos.
+2. `bash start.sh token` ejecuta `get-token.py`.
+3. El extractor local observa llamadas `fetch`/`XMLHttpRequest` del navegador y captura `Authorization` y `csid`.
+4. El token se recibe en `http://localhost:8766/receive` y se guarda en `config.secrets.json`.
+5. El dashboard llama a Sesame mediante el proxy local `/sesame-api/*`; el frontend no necesita exponer el token guardado.
+
+Por tanto, técnicamente la aplicación consume endpoints web/internos de Sesame protegidos por sesión, no una API pública documentada con token administrativo.
+
+### Dominios remotos permitidos
+
+- `https://back-eu1.sesametime.com`
+- `https://api-eu1.sesametime.com`
+- `https://bi-engine.sesametime.com`
+
+### Endpoints principales detectados
+
+| Área | Endpoints |
+|------|-----------|
+| Sesión | `/api/v3/security/me` |
+| Empleados | `/api/v3/employees`, `/api/v3/companies/{companyId}/employees`, `/api/v3/employees/{employeeId}` |
+| Tipos de ausencia | `/api/v3/companies/{companyId}/absence-types` |
+| Calendario | `/api/v3/companies/{companyId}/calendars-grouped`, `/api/v3/companies/{companyId}/calendars`, `/api/v3/employees/{employeeId}/calendars` |
+| Saldos de vacaciones | `/api/v3/vacation-configuration/employee/{id}`, `/api/v3/statistics/employee/{id}/vacations` |
+| Presencia | `/api/v3/statistics/presence`, `/api/v3/presence-status`, `/api/v3/employees/presence`, `/api/v3/presence`, `/api/v3/attendance/presence`, `/api/v3/work-entries/presence`, `/api/v3/companies/{companyId}/employees/presence` |
+| Fichajes | `/api/v3/employees/{employeeId}/checks`, `/api/v3/work-entries/search`, `/api/v3/checks/search`, `/api/v3/work-entries`, `/api/v3/checks`, `/api/v3/attendance`, `/api/v3/timesheets`, `/api/v3/statistics/daily-computed-hour-stats` |
+| Incidencias | `/api/v3/check-incidences` |
+| BI Analytics | `/api/v3/analytics/report-query` en `https://bi-engine.sesametime.com` |
+
+### Nota para soporte de Sesame
+
+Si se investiga desde Sesame, puede no aparecer ningún token de API pública activo en la cuenta porque el dashboard no depende de ese mecanismo. Lo que se reutiliza es la autorización de sesión web del usuario autenticado. Si Sesame lo clasifica internamente como API privada/no documentada, esa clasificación corresponde a Sesame; desde el código del proyecto se observa que son endpoints `/api/v3` llamados con `Bearer` de sesión y `csid`.
+
+## ⚖️ Cumplimiento y Uso Autorizado
+
+Este repositorio incluye una nota específica de cumplimiento en [COMPLIANCE.md](./COMPLIANCE.md). El proyecto debe usarse solo con autorización expresa de la empresa titular de la cuenta, permisos legítimos dentro de Sesame y una finalidad empresarial documentada.
+
+Puntos clave:
+
+- No es asesoramiento legal ni garantiza conformidad contractual con Sesame.
+- Si Sesame no autoriza el uso de endpoints web/internos, debe detenerse este método y migrar a la API oficial.
+- Los datos de empleados, geolocalización, IP, dispositivos, cumpleaños y ausencias deben tratarse bajo base jurídica válida, minimización y control de accesos.
+- La API oficial de Sesame, cuando esté activada para el cliente, debe ser la vía preferente para integraciones estables y auditables.
 
 ---
 
@@ -95,7 +148,7 @@ cd sesame-premium-dashboard
    python -m pip install -r requirements.txt
    ```
 2. **Preparar Configuración**:
-   Copia las plantillas y rellena `config.secrets.json` con tus tokens de Sesame y una contraseña maestra local por empresa. Si introduces valores en claro, `server.py` los migra a cifrado local en el siguiente arranque cuando `cryptography` está disponible.
+   Copia las plantillas y rellena `config.secrets.json` con tus tokens de sesión web/USID de Sesame y una contraseña maestra local por empresa. Si introduces valores en claro, `server.py` los migra a cifrado local en el siguiente arranque cuando `cryptography` está disponible.
    ```bash
    cp config.example.json config.json
    cp config.secrets.example.json config.secrets.json
@@ -133,7 +186,7 @@ bash start.sh token  # Extraer credenciales
 ## 🔐 Seguridad Local
 
 - `bash start.sh` expone el panel en la red local por defecto (`0.0.0.0`). Úsalo solo en redes de confianza, con firewall local y contraseña maestra configurada. Para limitarlo al equipo actual usa `bash start.sh local`.
-- `config.json` contiene solo metadatos. Los tokens USID y contraseñas maestras viven en `config.secrets.json`, que no debe subirse a Git.
+- `config.json` contiene solo metadatos. Los tokens de sesión web/USID y contraseñas maestras viven en `config.secrets.json`, que no debe subirse a Git.
 - `/config` no devuelve tokens ni contraseñas al navegador. El proxy local inyecta la autorización desde el almacén local de secretos.
 - Al desbloquear con la contraseña maestra, el servidor crea una sesión local `HttpOnly` de corta duración. En modo LAN, las llamadas al proxy que usan tokens guardados y las mutaciones de configuración exigen esa sesión.
 - El cierre de sesión bloquea la UI local, pero no borra la configuración. Para eliminar una empresa usa el botón de borrado de empresa.
