@@ -2730,12 +2730,60 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+#module-fichajes-wrapper .month-nav {
+  gap: 12px;
+}
+
+.fichajes-period-shell {
+  min-width: 300px;
+  gap: 6px;
+}
+
+.fichajes-period-main,
+.fichajes-live-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+}
+
+.fichajes-period-main {
+  gap: 9px;
+}
+
+.fichajes-live-row {
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+#current-month-signings {
+  margin: 0;
+  font-size: 1.22rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+#profiles-count-badge {
+  display: none;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(var(--text-rgb), 0.055);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.64rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 #signings-pill {
   font-size: 0.75rem;
   letter-spacing: 0.5px;
   padding: 3px 10px;
   background: rgba(var(--accent-rgb), 0.08);
   border: 1px solid rgba(var(--accent-rgb), 0.15);
+  color: var(--accent);
+  font-weight: 800;
+  white-space: nowrap;
 }
 
 .live-stats-badge {
@@ -3453,6 +3501,9 @@ body {
     flex-wrap: wrap;
     justify-content: flex-end;
   }
+  .fichajes-period-shell {
+    min-width: 260px;
+  }
   .search-group-signings {
     order: 3;
     width: 100%;
@@ -3483,6 +3534,17 @@ body {
   }
   .current-period {
     align-items: flex-start;
+  }
+  .fichajes-period-shell {
+    align-items: center;
+    min-width: 0;
+  }
+  .fichajes-period-main,
+  .fichajes-live-row {
+    width: 100%;
+  }
+  .fichajes-period-main {
+    flex-wrap: wrap;
   }
   .header-actions,
   .search-group-signings,

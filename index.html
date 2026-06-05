@@ -426,15 +426,15 @@
             </button>
             <div class="month-nav">
               <button id="prev-month-signings" class="btn-icon-round" aria-label="Periodo anterior">‹</button>
-              <div class="current-period" style="position: relative;">
-                <div style="display: flex; align-items: center; gap: 12px;">
-                  <h2 id="current-month-signings" class="month-selector-title" style="font-size: 1.15rem; margin: 0;">Abril 2026</h2>
-                  <span id="profiles-count-badge" class="badge-subtle" style="display:none; font-size: 10px; padding: 2px 8px; border-radius: 10px; background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-muted);">
+              <div class="current-period fichajes-period-shell">
+                <div class="fichajes-period-main">
+                  <h2 id="current-month-signings" class="month-selector-title">Abril 2026</h2>
+                  <span id="profiles-count-badge" class="badge-subtle">
                     👤 Cargando directorio...
                   </span>
                 </div>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                  <span id="signings-pill" class="pill" style="font-weight: 700; color: var(--accent);"><span id="total-worked-hours">0h 0m</span> / <span id="total-theoretic-hours">0h 0m</span></span>
+                <div class="fichajes-live-row">
+                  <span id="signings-pill" class="pill"><span id="total-worked-hours">0h 0m</span> / <span id="total-theoretic-hours">0h 0m</span></span>
                   <div id="live-presence-summary" class="team-presence-summary live-stats-badge" data-presence-summary aria-label="Pulso del equipo">
                     <span class="team-presence-kicker">Ahora</span>
                     <button id="filter-live-working" class="team-presence-item stats-btn is-working" title="Ver solo trabajando ahora">
