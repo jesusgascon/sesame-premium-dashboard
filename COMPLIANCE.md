@@ -77,7 +77,21 @@ Si Sesame confirma que no existe API pública activa para el cliente y que no au
 
 Si Sesame habilita la API oficial, se recomienda migrar gradualmente las llamadas posibles a esa API y mantener este documento actualizado con el nuevo alcance.
 
-## 8. Referencias públicas consultadas
+## 8. Balance horario y trazabilidad
+
+La sección **Fichajes > Balances** puede mostrar datos especialmente sensibles desde el punto de vista laboral: horas trabajadas, jornada teórica, saldo horario, pausas, ausencias, vacaciones, permisos retribuidos, horarios medios y detalle diario de fichajes.
+
+Para reducir riesgo de interpretación:
+
+- La interfaz indica si el dato procede de `Sesame Statistics` o de `Calculado local`.
+- Si el endpoint oficial `GET /schedule/v1/reports/worked-hours` no está disponible para la sesión o no devuelve datos, el resultado local debe entenderse como cálculo técnico de soporte, no como certificación oficial de Sesame.
+- Endpoints privados o no disponibles como variantes de `hours-bag-overtime` no se consideran fuente productiva cuando devuelven `403` o `404`.
+- El cálculo local documenta sus reglas: permisos retribuidos como ajuste de jornada, vísperas de festivo, vacaciones separadas de ausencias y exclusión de calendarios de empresa del contador personal.
+- Cualquier discrepancia relevante entre Sesame y el dashboard debe revisarse contra el portal oficial y, si procede, con RRHH antes de tomar decisiones laborales.
+
+El uso de estos datos debe limitarse a personas autorizadas y a finalidades legítimas de control horario, auditoría interna o reporting autorizado.
+
+## 9. Referencias públicas consultadas
 
 - Sesame HR: documentación pública de la API oficial y gestión de token desde `Configuration > Integrations > API`: https://help.sesamehr.com/en_US/api/what-is-the-sesame-api-and-what-is-it-for
 - Sesame HR: documentación de privacidad de datos por roles y accesos: https://help.sesamehr.com/es_ES/roles/gestionar-el-acceso-a-los-datos-de-los-empleados

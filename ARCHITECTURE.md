@@ -173,3 +173,92 @@ ausencia visible ⟺ no existe ninguna entrada (type ≠ 'work'/'pause')
                     cuyo tramo [eIn, eOut] solape con [absStart, absEnd]
 ```
 Esto garantiza que el tramo 10:16-12:02 aparezca como fila `📌` si no hay ningún fichaje que lo cubra, pero se suprima si ya hay un `🚪` registrado para ese periodo exacto.
+
+---
+
+## 8. Motor de Balance Horario
+
+La vista **Fichajes > Balances** combina fuentes oficiales, datos históricos de fichajes y calendario para calcular el saldo horario por empleado con trazabilidad visible.
+
+### 8.1. Orden de prioridad de datos
+
+El diseño evita depender de una única API no garantizada:
+
+1. **Sesame Statistics oficial**: `GET /schedule/v1/reports/worked-hours`.
+   - Parámetros esperados: `from`, `to`, `employeeIds[in]`, `limit`, `page` y, si Sesame lo admite, `withChecks`.
+   - Campos esperados: `employeeId`, `secondsWorked`, `secondsToWork`, `secondsBalance`.
+   - Si hay fila oficial para el empleado/periodo, se usa `secondsBalance` como fuente principal y se marca como `Sesame Statistics`.
+2. **Cálculo local**: fallback cuando el endpoint oficial no devuelve datos, devuelve 403/404, no está habilitado para la sesión o no incluye `secondsBalance`.
+3. **Diagnóstico**: rutas como `hours-bag-overtime` o variantes privadas quedan solo para auditoría técnica. Si Sesame responde `403 Forbidden Access Permission`, no se usan como fuente productiva.
+
+El modal de Balance muestra siempre la fuente usada para evitar ambigüedad entre dato oficial y dato calculado.
+
+### 8.2. Cálculo local
+
+El cálculo local parte de las filas normalizadas por `parseRealSignings`:
+
+- `workedSeconds`: segundos reales de trabajo, excluyendo pausas.
+- `totalPauseSec`: suma de pausas.
+- `theoreticSeconds`: jornada teórica final del día.
+- `balanceSec`: `workedSeconds - theoreticSeconds`.
+- `compensatedSeconds`: permisos retribuidos detectados en calendario.
+- `compensatedAppliedToTheoretic`: parte del permiso retribuido que reduce la jornada a cubrir.
+
+La regla importante es que las ausencias retribuidas por horas **no se suman como trabajo real**. Se muestran como **ajuste de jornada**: reducen la jornada teórica pendiente cuando Sesame no proporciona ya una jornada calculada por BI. Esto evita inflar el tiempo trabajado y permite cuadrar con el portal de Sesame.
+
+### 8.3. Jornada teórica
+
+La jornada teórica diaria se resuelve por prioridad:
+
+1. `biTheoreticMap`: dato calculado por Sesame BI cuando existe.
+2. `dayOverrides`: calendario individual, ausencias de día completo o excepciones.
+3. Plantilla semanal del empleado.
+4. Fallback conservador de 8h.
+
+Después se aplican reglas de empresa:
+
+- **Víspera de festivo/día no laborable**: si el día siguiente laborable está marcado como festivo, no laborable o ausencia de día completo aplicable, la jornada puede limitarse a 7h.
+- **Permiso retribuido parcial**: si Sesame BI no dio ya una jornada final, la duración retribuida reduce la jornada teórica a cubrir.
+- **Gestión Privada**: se muestra como ausencia/nota visual, pero no se trata automáticamente como permiso retribuido salvo que Sesame lo marque así en los datos de calendario.
+
+### 8.4. Ausencias, vacaciones y puentes
+
+Los contadores del modal separan conceptos:
+
+- **Ausencias**: permisos, gestión privada, médico, bajas u otros tipos personales.
+- **Vacaciones**: tipos de calendario asignados al empleado como vacaciones, incluyendo puentes si la empresa los registra así en Sesame.
+- **Calendario de empresa/festivos**: no cuentan como ausencia personal ni como vacaciones del empleado.
+
+Para esto se cruzan dos fuentes:
+
+- `/calendars-grouped`: útil para saber qué empleados tienen eventos en cada día.
+- `/calendars`: más preciso para tipo real, días `daysOff`, horarios parciales y metadatos de ausencia.
+
+El motor deduplica por empleado, fecha y tipo para no contar dos veces el mismo evento si aparece en ambas fuentes.
+
+### 8.5. Rango efectivo del balance anual
+
+En el botón **Balance**, la carga puede consultar el ejercicio completo para preparar el contexto anual. Sin embargo, las métricas equivalentes al portal de Sesame se acotan al rango efectivo mostrado.
+
+Ejemplo: si el ejercicio consultado es `2026-01-01 - 2026-12-31`, pero hoy es `2026-06-06`, el modal muestra y calcula los indicadores de resumen contra `2026-01-01 - 2026-06-06`. Esto evita contar vacaciones futuras o ausencias posteriores a la fecha de comparación.
+
+### 8.6. Métricas del modal de empleado
+
+El modal de Balance muestra:
+
+- Balance usado.
+- Trabajado.
+- Teórico.
+- Ajuste jornada.
+- Pausas.
+- Entrada media.
+- Salida media.
+- Jornada media.
+- Días trabajados / días teóricos.
+- Descansos y promedio de descanso.
+- Ausencias y vacaciones.
+- Comparativa entre local, bolsa y Sesame Statistics.
+- Detalle de ajustes retribuidos.
+- Jornadas desplegables con fichajes diarios.
+
+Las medias de entrada/salida se calculan desde timestamps originales cuando existen; si no, se usa la hora normalizada visible.

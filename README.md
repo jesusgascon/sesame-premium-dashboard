@@ -5,7 +5,7 @@
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Frontend](https://img.shields.io/badge/frontend-Vanilla%20JS%20(ES6+)-yellow.svg)
 ![Backend](https://img.shields.io/badge/backend-Python%20Proxy-green.svg)
-![Version](https://img.shields.io/badge/version-1.6.1-success.svg)
+![Version](https://img.shields.io/badge/version-1.6.2%2B-success.svg)
 ![Status](https://img.shields.io/badge/status-Production%20Ready-success.svg)
 
 ---
@@ -43,6 +43,7 @@ Un panel forense para auditar el control horario de toda la plantilla.
 - **Auditoría de Dispositivos**: Muestra desde qué dispositivo se realizó el fichaje (Web, App iOS/Android, Tablet Kiosko), la dirección IP y el nombre de la red u oficina.
 - **Geolocalización Inyectada**: Convierte las coordenadas crudas en enlaces interactivos a Google Maps para verificar fichajes remotos.
 - **Patrones de Productividad**: Calcula automáticamente la media semanal de la hora de entrada y salida, e identifica el "Día más productivo" del equipo.
+- **Balance del ejercicio**: Resume por empleado el saldo horario del periodo, separando fuente de datos (`Sesame Statistics` o `Calculado local`), horas trabajadas, horas teóricas, ajustes de jornada, pausas, ausencias, vacaciones, días trabajados y métricas equivalentes al portal de Sesame.
 
 ### 2. Radar de Presencia en Vivo
 - **Sincronización Total**: Un semáforo de estado (Trabajando, En Pausa, Ausente) que se propaga por toda la interfaz (Barra lateral, cabecera, tabla de empleados).
@@ -108,8 +109,29 @@ Por tanto, técnicamente la aplicación consume endpoints web/internos de Sesame
 | Saldos de vacaciones | `/api/v3/vacation-configuration/employee/{id}`, `/api/v3/statistics/employee/{id}/vacations` |
 | Presencia | `/api/v3/statistics/presence`, `/api/v3/presence-status`, `/api/v3/employees/presence`, `/api/v3/presence`, `/api/v3/attendance/presence`, `/api/v3/work-entries/presence`, `/api/v3/companies/{companyId}/employees/presence` |
 | Fichajes | `/api/v3/employees/{employeeId}/checks`, `/api/v3/work-entries/search`, `/api/v3/checks/search`, `/api/v3/work-entries`, `/api/v3/checks`, `/api/v3/attendance`, `/api/v3/timesheets`, `/api/v3/statistics/daily-computed-hour-stats` |
+| Balances horarios | `/schedule/v1/reports/worked-hours` como fuente oficial preferente cuando Sesame lo autoriza; `/schedule/v1/reports/worked-hours-by-week-day`, `/schedule/v1/reports/worked-night-hours`, `/schedule/v1/reports/worked-absence-days`, `/schedule/v1/hours-bag-rule-history`, `/schedule/v1/hours-bag-rules` para diagnóstico/contraste si están disponibles |
 | Incidencias | `/api/v3/check-incidences` |
 | BI Analytics | `/api/v3/analytics/report-query` en `https://bi-engine.sesametime.com` |
+
+### Balance horario y fuente de datos
+
+La vista **Fichajes > Balances** intenta priorizar el dato oficial de Sesame cuando está disponible:
+
+1. **Sesame Statistics oficial**: `GET /schedule/v1/reports/worked-hours`, con parámetros de periodo (`from`, `to`), empleados (`employeeIds[in]`) y paginación (`limit`, `page`). Si devuelve `secondsWorked`, `secondsToWork` y `secondsBalance`, el dashboard usa esos valores y marca la fila como `Sesame Statistics`.
+2. **Cálculo local**: si Sesame Statistics no devuelve datos, devuelve 403/404 o no está habilitado para la sesión, el dashboard calcula el balance localmente y marca la fila como `Calculado local`.
+3. **Diagnóstico**: endpoints privados o no disponibles como `hours-bag-overtime` se consideran solo diagnóstico. No son fuente principal de producción si devuelven `403 Forbidden` o `404/no route`.
+
+El cálculo local está diseñado para cuadrar con el portal de Sesame en los casos conocidos:
+
+- Usa fichajes reales y pausas para obtener tiempo trabajado.
+- Usa la jornada teórica calculada por BI cuando Sesame la devuelve.
+- Aplica calendario y plantilla semanal como fallback.
+- Trata permisos retribuidos por horas como **ajuste de jornada**, no como horas extra trabajadas.
+- Gestiona vísperas de festivo/día no laborable: si la empresa aplica jornada reducida, la jornada teórica puede bajar a 7h.
+- Separa vacaciones de ausencias y excluye calendarios de empresa/festivos del contador de ausencias personales.
+- En Balance anual, aunque la carga pueda mirar el ejercicio completo, los indicadores equivalentes a Sesame se acotan hasta la fecha efectiva mostrada, por ejemplo `2026-01-01 - 2026-06-06`.
+
+En el modal de empleado se muestran métricas equivalentes al portal oficial: trabajado, teórico, saldo, entrada media, salida media, jornada media, días trabajados/teóricos, descansos, promedio de descanso, ausencias y vacaciones. También se conserva una comparativa diagnóstica entre balance local y Sesame Statistics si alguna vez Sesame devuelve esos datos.
 
 ### Nota para soporte de Sesame
 
@@ -213,6 +235,15 @@ Para una inmersión profunda en los algoritmos de cruce de datos, heurísticas d
 ---
 
 ## 📜 Changelog Detallado
+
+### [Unreleased] — Balance local alineado con Sesame
+- **Añadido**: Modal ampliado de Balance por empleado con resumen equivalente al portal de Sesame: entrada media, salida media, jornada media, días trabajados/teóricos, descansos, promedio de descanso, ausencias y vacaciones.
+- **Añadido**: Etiquetado visible de fuente de balance: `Sesame Statistics`, `Calculado local`, ajuste de bolsa o error/sin datos.
+- **Mejorado**: El cálculo local de Balance usa permisos retribuidos como ajuste de jornada, no como horas trabajadas adicionales.
+- **Mejorado**: Las vísperas de festivo o día no laborable pueden ajustar la jornada teórica a 7h cuando aplica la regla de empresa.
+- **Corregido**: Los calendarios de empresa/festivos ya no inflan el contador de ausencias personales.
+- **Corregido**: Las vacaciones asignadas al empleado, incluidos puentes registrados como vacaciones, se muestran separadas de ausencias.
+- **Corregido**: El resumen anual de Balance se acota hasta la fecha efectiva mostrada para cuadrar con Sesame Statistics.
 
 ### [v1.6.1] — 2026-06-04 | *Corrección de Ausencias Parciales*
 - **Añadido**: Las ausencias de jornada parcial (visitas médicas, permisos por horas, etc.) ahora se visualizan en **dos niveles**:
