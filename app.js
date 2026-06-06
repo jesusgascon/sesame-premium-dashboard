@@ -83,14 +83,7 @@ const STATE = {
   absenceTypes: [],
   absenceTimesIndex: new Map(),
   activeFilters: new Set(),
-  currentDate:  (function() {
-    const saved = sessionStorage.getItem('ssm_current_date');
-    if (saved) {
-      const d = new Date(saved);
-      if (!isNaN(d.getTime())) return d;
-    }
-    return new Date();
-  })(),
+  currentDate:  readSessionDate('ssm_current_date'),
   calView:      'month', // 'month' | 'week'
   activeView:   'calendar',
   isLoading:    false,  // Guard to prevent redundant loads
@@ -388,7 +381,8 @@ const DISCOVERY = {
   ],
   workingPresence: localStorage.getItem('ssm_path_presence') || null,
   workingChecks:   localStorage.getItem('ssm_path_checks') || null,
-  workingBalance:  localStorage.getItem('ssm_path_balance')  || null
+  workingBalance:  localStorage.getItem('ssm_path_balance')  || null,
+  workingHoursBag: localStorage.getItem('ssm_path_hours_bag') || null
 };
 
 const LOCATION_MODAL_STATE = {
@@ -448,6 +442,7 @@ function clearCredentials() {
   localStorage.removeItem('ssm_backendUrl');
   localStorage.removeItem('ssm_path_presence');
   localStorage.removeItem('ssm_path_checks');
+  localStorage.removeItem('ssm_path_hours_bag');
 }
 
 // ── API layer ──────────────────────────────────────────────────────────────
@@ -800,6 +795,48 @@ function getLocalDateKey(date = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
+function readSessionDate(key, fallback = new Date()) {
+  const saved = sessionStorage.getItem(key);
+  if (!saved) return new Date(fallback);
+  const date = new Date(saved);
+  return isNaN(date.getTime()) ? new Date(fallback) : date;
+}
+
+function getPresenceRecordDateKey(record) {
+  if (!record || typeof record !== 'object') return '';
+  const candidates = [
+    record.date,
+    record.day,
+    record.currentDate,
+    record.checkIn,
+    record.checkInAt,
+    record.clockInAt,
+    record.startedAt,
+    record.startAt,
+    record.updatedAt,
+    record.createdAt,
+    record.lastActivityAt,
+    record.lastSeenAt,
+    record.employee?.updatedAt,
+    record.workEntryIn?.realDate
+  ];
+
+  for (const value of candidates) {
+    if (!value) continue;
+    const date = new Date(value);
+    if (!isNaN(date.getTime())) return getLocalDateKey(date);
+    if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value)) {
+      return value.slice(0, 10);
+    }
+  }
+  return '';
+}
+
+function isCurrentPresenceRecord(record, todayKey = getLocalDateKey()) {
+  const recordDate = getPresenceRecordDateKey(record);
+  return !!recordDate && recordDate === todayKey;
+}
+
 function getTeamPresenceStats(presenceList = STATE.presenceList, options = {}) {
   const stats = { working: 0, paused: 0, remote: 0, out: 0, total: STATE.allEmployees.size };
   const byEmployee = buildTeamPresenceKindMap(presenceList, options);
@@ -820,19 +857,22 @@ function buildTeamPresenceKindMap(presenceList = STATE.presenceList, options = {
   const byEmployee = new Map();
   const records = Array.isArray(presenceList) ? presenceList : [];
   const rows = Array.isArray(options.rows) ? options.rows : [];
+  const currentDayRowsAuthority = !!options.currentDayRowsAuthority;
+  const todayKey = getLocalDateKey();
 
   records.forEach((record, index) => {
+    if (currentDayRowsAuthority && !isCurrentPresenceRecord(record, todayKey)) return;
     const key = getPresenceEmployeeId(record) || `presence-${index}`;
     mergePresenceKind(byEmployee, key, classifyPresenceRecord(record));
   });
 
-  if (byEmployee.size === 0 && STATE.presenceMap?.size) {
+  if (!currentDayRowsAuthority && byEmployee.size === 0 && STATE.presenceMap?.size) {
     STATE.presenceMap.forEach((status, employeeId) => {
       mergePresenceKind(byEmployee, employeeId, classifyPresenceRecord(status));
     });
   }
 
-  if (STATE.presenceMap?.size) {
+  if (!currentDayRowsAuthority && STATE.presenceMap?.size) {
     STATE.presenceMap.forEach((status, employeeId) => {
       mergePresenceKind(byEmployee, employeeId, classifyPresenceRecord(status));
     });
@@ -1186,7 +1226,7 @@ async function fetchEmployees() {
                    (e.details && e.details.birthDate) || '',
         hiringDate: e.hiringDate || e.dateOfJoined || e.joinedDate || e.createdAt || '',
         workdays: workdays,
-        accumulatedSeconds: detail.accumulatedSeconds || 0,
+        accumulatedSeconds: typeof detail.accumulatedSeconds === 'number' ? detail.accumulatedSeconds : undefined,
         status: e.status
       };
     });
@@ -1786,6 +1826,7 @@ function initMonthPickers() {
       const isSignings = picker.id === 'fichajes-month-picker';
       if (isSignings) {
         FichajesModule.currentDate = new Date(year, month, 1);
+        FichajesModule.persistPeriodState();
         FichajesModule.updateMonthLabel();
         FichajesModule.loadData();
       } else {
@@ -1843,12 +1884,16 @@ async function startApp() {
 
   // Wire nav
   $$('.nav-item').forEach(btn => btn.addEventListener('click', () => switchView(btn.dataset.view)));
-  $$('.vt-btn').forEach(btn => btn.addEventListener('click', () => switchCalView(btn.dataset.calView)));
+  $$('[data-cal-view]').forEach(btn => btn.addEventListener('click', () => switchCalView(btn.dataset.calView)));
   $$('.module-btn').forEach(btn => btn.addEventListener('click', () => switchModule(btn.dataset.module)));
 
   $('prev-month').addEventListener('click', () => shiftPeriod(-1));
   $('next-month').addEventListener('click', () => shiftPeriod(1));
-  $('today-btn').addEventListener('click', () => { STATE.currentDate = new Date(); loadData(); });
+  $('today-btn').addEventListener('click', () => {
+    STATE.currentDate = new Date();
+    sessionStorage.setItem('ssm_current_date', STATE.currentDate.toISOString());
+    loadData();
+  });
   $('refresh-btn').addEventListener('click', loadData);
   $('logout-btn').addEventListener('click', logout);
   initMonthPickers();
@@ -3404,8 +3449,9 @@ function switchView(view) {
 }
 
 function switchCalView(calView) {
+  if (!['month', 'week', 'day'].includes(calView)) return;
   STATE.calView = calView;
-  $$('.vt-btn').forEach(b => b.classList.toggle('active', b.dataset.calView === calView));
+  $$('[data-cal-view]').forEach(b => b.classList.toggle('active', b.dataset.calView === calView));
   loadData();
 }
 
@@ -3428,6 +3474,8 @@ async function logout() {
   clearCredentials();
   sessionStorage.removeItem('ssm_unlocked');
   sessionStorage.removeItem('ssm_current_date');
+  sessionStorage.removeItem('ssm_signings_date');
+  sessionStorage.removeItem('ssm_signings_view');
   sessionStorage.removeItem('ssm_fichajes_cache');
 
   STATE.token = STATE.companyId = STATE.currentUser = null;
@@ -3513,8 +3561,11 @@ function renderWeather(data) {
  * exportación de reportes y visualización de la línea de tiempo.
  */
 const FichajesModule = {
-  currentDate: new Date(),
-  currentView: 'month',
+  currentDate: readSessionDate('ssm_signings_date'),
+  currentView: (() => {
+    const saved = sessionStorage.getItem('ssm_signings_view');
+    return ['month', 'week', 'day', 'balance'].includes(saved) ? saved : 'month';
+  })(),
   data: [],
   selectedEmployee: 'all',
   searchQuery: '',
@@ -3524,13 +3575,27 @@ const FichajesModule = {
   biSchemaFields: null,  // { companyId, aliases[] } — esquema BI descubierto para la empresa activa
   biTheoreticMap: null,
   dayOverrides: null,
+  officialHoursBagMap: new Map(),
+  officialHoursBagError: '',
   realtimePresence: [],
   isLoading: false,
   init() {
     if (this.initialized) return;
     this.initialized = true;
     this.setupEventListeners();
+    this.syncViewButtons();
     this.updateMonthLabel();
+  },
+
+  persistPeriodState() {
+    sessionStorage.setItem('ssm_signings_date', this.currentDate.toISOString());
+    sessionStorage.setItem('ssm_signings_view', this.currentView);
+  },
+
+  syncViewButtons() {
+    document.querySelectorAll('#fichajes-view-toggle .vt-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.fichajeView === this.currentView);
+    });
   },
 
   setupEventListeners() {
@@ -3540,6 +3605,7 @@ const FichajesModule = {
       else if (this.currentView === 'week') this.currentDate.setDate(this.currentDate.getDate() - 7);
       else this.currentDate.setMonth(this.currentDate.getMonth() - 1);
 
+      this.persistPeriodState();
       this.updateMonthLabel();
       this.loadData();
     });
@@ -3549,6 +3615,7 @@ const FichajesModule = {
       else if (this.currentView === 'week') this.currentDate.setDate(this.currentDate.getDate() + 7);
       else this.currentDate.setMonth(this.currentDate.getMonth() + 1);
 
+      this.persistPeriodState();
       this.updateMonthLabel();
       this.loadData();
     });
@@ -3556,6 +3623,7 @@ const FichajesModule = {
     // Botón Hoy
     document.getElementById('today-signings')?.addEventListener('click', () => {
       this.currentDate = new Date();
+      this.persistPeriodState();
       this.updateMonthLabel();
       this.loadData();
     });
@@ -3576,6 +3644,7 @@ const FichajesModule = {
 
         // Cargar datos
         this.currentView = view;
+        this.persistPeriodState();
         this.updateMonthLabel();
         this.loadData();
       });
@@ -3660,7 +3729,10 @@ const FichajesModule = {
       this.presenceFilter = type;
     }
     this.closeOutPresencePopover();
-    renderTeamPresenceSummary(this.realtimePresence?.length ? this.realtimePresence : STATE.presenceList, { rows: this.data });
+    renderTeamPresenceSummary(this.realtimePresence?.length ? this.realtimePresence : STATE.presenceList, {
+      rows: this.data,
+      currentDayRowsAuthority: this.currentRangeIncludesToday()
+    });
     this.renderTable();
   },
 
@@ -3690,7 +3762,10 @@ const FichajesModule = {
     if (!popover) return;
 
     const source = this.realtimePresence?.length ? this.realtimePresence : STATE.presenceList;
-    const outEmployees = getTeamPresenceOutEmployees(source, { rows: this.data });
+    const outEmployees = getTeamPresenceOutEmployees(source, {
+      rows: this.data,
+      currentDayRowsAuthority: this.currentRangeIncludesToday()
+    });
     const count = outEmployees.length;
 
     const listHtml = outEmployees.length
@@ -3724,36 +3799,6 @@ const FichajesModule = {
     document.getElementById('filter-live-out')?.classList.add('active');
   },
 
-  getPresenceRecordDateKey(record) {
-    if (!record || typeof record !== 'object') return '';
-    const candidates = [
-      record.date,
-      record.day,
-      record.currentDate,
-      record.checkIn,
-      record.checkInAt,
-      record.clockInAt,
-      record.startedAt,
-      record.startAt,
-      record.updatedAt,
-      record.createdAt,
-      record.lastActivityAt,
-      record.lastSeenAt,
-      record.employee?.updatedAt,
-      record.workEntryIn?.realDate
-    ];
-
-    for (const value of candidates) {
-      if (!value) continue;
-      const date = new Date(value);
-      if (!isNaN(date.getTime())) return getLocalDateKey(date);
-      if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value)) {
-        return value.slice(0, 10);
-      }
-    }
-    return '';
-  },
-
   getCurrentActivityKind(employeeId, rows = this.data) {
     const id = String(employeeId || '');
     if (!id) return 'out';
@@ -3769,9 +3814,65 @@ const FichajesModule = {
 
     const presence = (this.realtimePresence || [])
       .find(p => String(getPresenceEmployeeId(p) || '') === id);
-    if (!presence || this.getPresenceRecordDateKey(presence) !== todayKey) return 'out';
+    if (!presence || getPresenceRecordDateKey(presence) !== todayKey) return 'out';
 
     return classifyPresenceRecord(presence);
+  },
+
+  getCurrentRangeKeys() {
+    const cursor = new Date(this.currentDate);
+    let startDate = new Date(cursor);
+    let endDate = new Date(cursor);
+
+    if (this.currentView === 'week') {
+      const day = startDate.getDay() || 7;
+      startDate.setDate(startDate.getDate() - day + 1);
+      endDate = new Date(startDate);
+      endDate.setDate(startDate.getDate() + 6);
+    } else if (this.currentView !== 'day') {
+      startDate.setDate(1);
+      endDate = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0);
+    }
+
+    return {
+      start: getLocalDateKey(startDate),
+      end: getLocalDateKey(endDate),
+      startDate,
+      endDate
+    };
+  },
+
+  currentRangeIncludesToday() {
+    const todayKey = getLocalDateKey();
+    const { start, end } = this.getCurrentRangeKeys();
+    return start <= todayKey && todayKey <= end;
+  },
+
+  syncCurrentPresenceMap(source = this.realtimePresence, rows = this.data) {
+    const nextMap = new Map();
+    const todayKey = getLocalDateKey();
+
+    (Array.isArray(source) ? source : []).forEach(record => {
+      if (!isCurrentPresenceRecord(record, todayKey)) return;
+      const employeeId = getPresenceEmployeeId(record);
+      const kind = classifyPresenceRecord(record);
+      if (employeeId && kind !== 'out') {
+        mergePresenceKind(nextMap, employeeId, kind);
+      }
+    });
+
+    (Array.isArray(rows) ? rows : []).forEach(row => {
+      if (String(row.date || '') !== todayKey) return;
+      const kind = classifySigningRowPresence(row);
+      if (row.employeeId && kind !== 'out') {
+        mergePresenceKind(nextMap, row.employeeId, kind);
+      }
+    });
+
+    STATE.presenceMap.clear();
+    nextMap.forEach((kind, employeeId) => {
+      STATE.presenceMap.set(String(employeeId), kind);
+    });
   },
 
   toggleKioskoMode() {
@@ -4048,6 +4149,8 @@ const FichajesModule = {
       realSignings: Array.isArray(this.realSignings) ? [...this.realSignings] : [],
       biTheoreticMap: this.biTheoreticMap instanceof Map ? new Map(this.biTheoreticMap) : this.biTheoreticMap,
       dayOverrides: this.dayOverrides instanceof Map ? new Map(this.dayOverrides) : this.dayOverrides,
+      officialHoursBagMap: this.officialHoursBagMap instanceof Map ? new Map(this.officialHoursBagMap) : new Map(),
+      officialHoursBagError: this.officialHoursBagError,
       absenceTimesMap: this.absenceTimesMap instanceof Map ? new Map(this.absenceTimesMap) : this.absenceTimesMap,
       realtimePresence: Array.isArray(this.realtimePresence) ? [...this.realtimePresence] : []
     } : null;
@@ -4057,29 +4160,19 @@ const FichajesModule = {
       this.realSignings = previousState.realSignings;
       this.biTheoreticMap = previousState.biTheoreticMap;
       this.dayOverrides = previousState.dayOverrides;
+      this.officialHoursBagMap = previousState.officialHoursBagMap;
+      this.officialHoursBagError = previousState.officialHoursBagError;
       this.absenceTimesMap = previousState.absenceTimesMap;
       this.realtimePresence = previousState.realtimePresence;
     };
 
-    if (!isSilent) this.updateMonthLabel();
-
-    let startDate = new Date(this.currentDate);
-    let endDate = new Date(this.currentDate);
-
-    if (this.currentView === 'day') {
-      // startDate and endDate are the same
-    } else if (this.currentView === 'week') {
-      const day = startDate.getDay() || 7;
-      startDate.setDate(startDate.getDate() - day + 1);
-      endDate = new Date(startDate);
-      endDate.setDate(startDate.getDate() + 6);
-    } else {
-      startDate.setDate(1);
-      endDate = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0);
+    if (!isSilent) {
+      this.persistPeriodState();
+      this.syncViewButtons();
+      this.updateMonthLabel();
     }
 
-    const start = `${startDate.getFullYear()}-${String(startDate.getMonth()+1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`;
-    const end = `${endDate.getFullYear()}-${String(endDate.getMonth()+1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
+    const { start, end } = this.getCurrentRangeKeys();
 
 
     try {
@@ -4485,7 +4578,7 @@ const FichajesModule = {
       this.data = this.parseRealSignings(biData, localAbsences);
 
       // SUPER FALLBACK: Si no hay datos en BI, pedimos los fichajes emp a emp
-      if (this.data.length === 0) {
+      if (this.data.length === 0 && !(this.currentView === 'balance' && this.officialHoursBagMap.size > 0)) {
         AUDIT.isSearching = true;
         try {
 
@@ -4676,7 +4769,14 @@ const FichajesModule = {
         });
       }
 
-      if (this.data.length === 0) {
+      if (this.currentView === 'balance') {
+        await this.loadOfficialHoursBagBalances(start, end);
+      } else {
+        this.officialHoursBagMap = new Map();
+        this.officialHoursBagError = '';
+      }
+
+      if (this.data.length === 0 && !(this.currentView === 'balance' && this.officialHoursBagMap.size > 0)) {
         const msg = AUDIT.isSearching ? "Buscando puerta de enlace alternativa..." : (isLocalProxy() ? "Sesame no ha devuelto registros para este periodo." : "Sin datos.");
 
         // Reporte de Auditoría para el usuario
@@ -4831,6 +4931,198 @@ const FichajesModule = {
     if (select.value === "") select.value = "all";
   },
 
+  normalizeOfficialHoursBag(employeeId, payload) {
+    if (payload?.message && /no route|not found|unauthenticated/i.test(String(payload.message))) return null;
+    if (payload?.error?.message && /no route|route_not_found|not found/i.test(String(payload.error.message))) return null;
+
+    const data = payload?.data?.item ??
+                 payload?.data?.result ??
+                 payload?.data?.hoursBag ??
+                 payload?.data ??
+                 payload?.item ??
+                 payload?.result ??
+                 payload?.hoursBag ??
+                 payload;
+    const body = Array.isArray(data) ? data[0] : data;
+    if (!body || typeof body !== 'object') return null;
+
+    const balanceSeconds = Number(
+      body.balanceSecondsInSelectedPeriod ??
+      body.balanceSeconds ??
+      body.secondsBalance ??
+      body.currentBalance ??
+      body.balance ??
+      NaN
+    );
+    if (!Number.isFinite(balanceSeconds)) return null;
+
+    const workedSeconds = Number(body.secondsWorked ?? body.workedSeconds ?? NaN);
+    const theoreticSeconds = Number(
+      body.secondsToWork ??
+      body.theoreticSeconds ??
+      body.theoricSeconds ??
+      NaN
+    );
+    const compensationSeconds = Number(body.compensationSeconds ?? 0);
+    const employee = body.employee || body.employeeReference || {};
+
+    return {
+      employeeId: String(employeeId),
+      employeeName: employee.name || body.employeeName || '',
+      periodBalance: balanceSeconds,
+      workedSeconds: Number.isFinite(workedSeconds) ? workedSeconds : null,
+      theoreticSeconds: Number.isFinite(theoreticSeconds) ? theoreticSeconds : null,
+      compensationSeconds: Number.isFinite(compensationSeconds) ? compensationSeconds : 0,
+      source: 'Sesame oficial'
+    };
+  },
+
+  getOfficialHoursBagCandidates(employeeId) {
+    const id = encodeURIComponent(String(employeeId));
+    const candidates = [
+      {
+        key: 'private-employee-back',
+        path: `/private/schedule/v1/hours-bag-overtime/employee/${id}`,
+        backend: 'https://back-eu1.sesametime.com'
+      },
+      {
+        key: 'private-employee-api',
+        path: `/private/schedule/v1/hours-bag-overtime/employee/${id}`,
+        backend: 'https://api-eu1.sesametime.com'
+      },
+      {
+        key: 'employee-back',
+        path: `/schedule/v1/hours-bag-overtime/employee/${id}`,
+        backend: 'https://back-eu1.sesametime.com'
+      },
+      {
+        key: 'employee-api',
+        path: `/schedule/v1/hours-bag-overtime/employee/${id}`,
+        backend: 'https://api-eu1.sesametime.com'
+      },
+      {
+        key: 'private-employees-hours-bags-back',
+        path: `/private/schedule/v1/hours-bag-overtime/employees-hours-bags/${id}`,
+        backend: 'https://back-eu1.sesametime.com'
+      },
+      {
+        key: 'private-employees-hours-bags-api',
+        path: `/private/schedule/v1/hours-bag-overtime/employees-hours-bags/${id}`,
+        backend: 'https://api-eu1.sesametime.com'
+      }
+    ];
+
+    if (DISCOVERY.workingHoursBag && DISCOVERY.workingHoursBag !== 'DISABLED') {
+      const cached = candidates.find(candidate => candidate.key === DISCOVERY.workingHoursBag);
+      if (cached) return [cached, ...candidates.filter(candidate => candidate.key !== cached.key)];
+    }
+    return candidates;
+  },
+
+  describeHoursBagMiss(payload) {
+    if (!payload) return 'Respuesta vacia';
+    if (payload.message) return String(payload.message);
+    if (payload.error?.message) return String(payload.error.message);
+    const keys = Object.keys(payload).slice(0, 6).join(', ');
+    return keys ? `Sin campos de balance (${keys})` : 'Sin campos de balance';
+  },
+
+  async fetchOfficialHoursBagForEmployee(employeeId, start, end) {
+    const id = String(employeeId || '');
+    if (!id) return null;
+
+    const cacheKey = `ssm_hours_bag_${STATE.companyId}_${id}_${start}_${end}`;
+    try {
+      const cached = sessionStorage.getItem(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        return parsed && typeof parsed === 'object' ? parsed : null;
+      }
+    } catch (e) {
+      sessionStorage.removeItem(cacheKey);
+    }
+
+    if (DISCOVERY.workingHoursBag === 'DISABLED') return null;
+
+    const errors = [];
+    for (const candidate of this.getOfficialHoursBagCandidates(id)) {
+      try {
+        const payload = await apiFetch(candidate.path, {
+          from: start,
+          to: end,
+          method: 'GET',
+          overrideBackend: candidate.backend,
+          headers: {
+            'Origin': 'https://app.sesametime.com',
+            'Referer': 'https://app.sesametime.com/employee/portal'
+          }
+        });
+        const normalized = this.normalizeOfficialHoursBag(id, payload);
+        if (normalized) {
+          DISCOVERY.workingHoursBag = candidate.key;
+          localStorage.setItem('ssm_path_hours_bag', candidate.key);
+          try {
+            sessionStorage.setItem(cacheKey, JSON.stringify(normalized));
+          } catch (e) {}
+          return normalized;
+        }
+        errors.push(`${candidate.key}: ${this.describeHoursBagMiss(payload)}`);
+      } catch (e) {
+        errors.push(`${candidate.key}: ${e.message || e}`);
+      }
+    }
+
+    throw new Error(errors.slice(0, 4).join(' | '));
+  },
+
+  async loadOfficialHoursBagBalances(start, end) {
+    this.officialHoursBagMap = new Map();
+    this.officialHoursBagError = '';
+
+    if (this.currentView !== 'balance') return;
+
+    const ids = new Set();
+    if (this.selectedEmployee && this.selectedEmployee !== 'all') {
+      ids.add(String(this.selectedEmployee));
+    } else {
+      (this.data || []).forEach(row => {
+        if (row.employeeId) ids.add(String(row.employeeId));
+      });
+      const myId = getCurrentEmployeeId();
+      if (myId) ids.add(String(myId));
+    }
+
+    const employeeIds = Array.from(ids).slice(0, 80);
+    if (employeeIds.length === 0) return;
+
+    let firstError = '';
+    let routeMisses = 0;
+    for (let i = 0; i < employeeIds.length; i += 4) {
+      const chunk = employeeIds.slice(i, i + 4);
+      const results = await Promise.allSettled(
+        chunk.map(id => this.fetchOfficialHoursBagForEmployee(id, start, end))
+      );
+      results.forEach((result, index) => {
+        const id = chunk[index];
+        if (result.status === 'fulfilled' && result.value) {
+          this.officialHoursBagMap.set(String(id), result.value);
+        } else if (result.status === 'rejected' && !firstError) {
+          firstError = result.reason?.message || String(result.reason || 'No disponible');
+          if (/no route|route_not_found|No route found|404|500|Unknown error/i.test(firstError)) routeMisses += 1;
+        }
+      });
+    }
+
+    this.officialHoursBagError = firstError;
+    if (routeMisses > 0 && this.officialHoursBagMap.size === 0) {
+      DISCOVERY.workingHoursBag = null;
+      localStorage.removeItem('ssm_path_hours_bag');
+    }
+    if (firstError && this.officialHoursBagMap.size === 0) {
+      console.warn('Balance oficial Sesame no disponible, usando cálculo local:', firstError);
+    }
+  },
+
   /**
    * Algoritmo de orquestación y cruce (Smart Match).
    * Transforma los registros RAW de Sesame BI en una estructura agrupada por empleado/día,
@@ -4886,7 +5178,7 @@ const FichajesModule = {
         performedByNameOut: c.performedByNameOut || (c.checkOut && c.checkOut.performedByEmployeeName) || '',
         performedByIdIn: c.performedByIdIn || (c.checkIn && c.checkIn.performedByEmployeeId) || '',
         performedByIdOut: c.performedByIdOut || (c.checkOut && c.checkOut.performedByEmployeeId) || '',
-        secondsWorked: c.secondsWorked || c.accumulatedSeconds || c.seconds || 0,
+        secondsWorked: Number(c.secondsWorked ?? c.workedSeconds ?? c.accumulatedSeconds ?? c.seconds ?? 0),
         type: (c.checkType || c.type || c.entryType || 'work').toLowerCase(),
         employeeName: c.employeeName ||
                       (c.employee ? `${c.employee.firstName} ${c.employee.lastName}` : null) ||
@@ -5066,7 +5358,7 @@ const FichajesModule = {
     }
 
     // Transform groups to array format expected by renderTable
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateKey();
     for (const key in grouped) {
       const g = grouped[key];
       // Sort entries by checkIn
@@ -5088,19 +5380,23 @@ const FichajesModule = {
       // Prioridad 4: 8h por defecto
       let theoreticSeconds = 28800;
       let compensatedSeconds = 0;
+      let theoreticSource = 'Estimado';
       const overrideKey = `${g.employeeId}_${g.date}`;
+      const dayOverride = this.dayOverrides && this.dayOverrides.get(overrideKey);
+      if (dayOverride) {
+        compensatedSeconds = Number(dayOverride.compensatedSeconds || 0);
+      }
 
       if (this.biTheoreticMap && this.biTheoreticMap.has(overrideKey)) {
         // El BI Engine ya nos da la jornada teórica final calculada por Sesame
         theoreticSeconds = this.biTheoreticMap.get(overrideKey);
-      } else if (this.dayOverrides && this.dayOverrides.has(overrideKey)) {
-        const override = this.dayOverrides.get(overrideKey);
-        if (override.workdayOverride !== null) {
-          theoreticSeconds = override.workdayOverride;
-        }
-        compensatedSeconds = override.compensatedSeconds || 0;
+        theoreticSource = compensatedSeconds > 0 ? 'Sesame BI + Calendario' : 'Sesame BI';
+      } else if (dayOverride && dayOverride.workdayOverride !== null) {
+        theoreticSeconds = dayOverride.workdayOverride;
+        theoreticSource = 'Calendario';
       } else if (emp && emp.workdays && typeof emp.workdays[dayOfWeek] !== 'undefined') {
         theoreticSeconds = emp.workdays[dayOfWeek];
+        theoreticSource = compensatedSeconds > 0 ? 'Plantilla + Calendario' : 'Plantilla';
       }
 
       // IMPORTANTE: Ya no ponemos la jornada teórica a 0 si hay ausencia.
@@ -5145,6 +5441,7 @@ const FichajesModule = {
         compensatedSeconds: compensatedSeconds,
         totalEquivalentSeconds: totalEquivalentSeconds,
         theoreticSeconds: theoreticSeconds,
+        theoreticSource: theoreticSource,
         balanceSec: balanceSec,
         balanceLabel: balanceLabel,
         absenceSegments: g.absenceSegments,
@@ -5193,8 +5490,8 @@ const FichajesModule = {
         thead.innerHTML = `
           <tr>
             <th class="col-employee" style="width:250px">Empleado</th>
-            <th class="text-center">Balance Mensual</th>
-            <th class="text-center">Balance Anual (Sesame)</th>
+            <th class="text-center">Balance Periodo</th>
+            <th class="text-center">Acumulado Sesame</th>
             <th class="text-center">Estado</th>
             <th style="min-width:150px">Visualización</th>
           </tr>
@@ -5719,7 +6016,13 @@ const FichajesModule = {
   },
 
   renderPresenceSummaryOnly() {
-    renderTeamPresenceSummary(this.realtimePresence?.length ? this.realtimePresence : STATE.presenceList, { rows: this.data });
+    const source = this.realtimePresence?.length ? this.realtimePresence : STATE.presenceList;
+    const currentDayRowsAuthority = this.currentRangeIncludesToday();
+    if (currentDayRowsAuthority) this.syncCurrentPresenceMap(source, this.data);
+    renderTeamPresenceSummary(source, {
+      rows: this.data,
+      currentDayRowsAuthority
+    });
   },
 
   async loadDeepAudit(employeeId, date) {
@@ -5870,8 +6173,15 @@ const FichajesModule = {
     return `${h}h ${m}m`;
   },
 
-  getFilteredRows() {
+  getFilteredRows(options = {}) {
+    const includePresenceFilter = options.includePresenceFilter !== false;
     let filtered = [...(this.data || [])];
+    const { start, end } = this.getCurrentRangeKeys();
+
+    filtered = filtered.filter(row => {
+      const date = String(row.date || '');
+      return date >= start && date <= end;
+    });
 
     if (this.selectedEmployee && this.selectedEmployee !== 'all') {
       const targetId = String(this.selectedEmployee);
@@ -5883,16 +6193,11 @@ const FichajesModule = {
       filtered = filtered.filter(row => String(row.employeeName || '').toLowerCase().includes(q));
     }
 
-    if (this.presenceFilter && this.presenceFilter !== 'all') {
+    if (includePresenceFilter && this.presenceFilter && this.presenceFilter !== 'all') {
       const todayKey = getLocalDateKey();
       filtered = filtered.filter(row => {
         if (String(row.date || '') !== todayKey) return false;
-        const presence = (this.realtimePresence || []).find(p => String(getPresenceEmployeeId(p)) === String(row.employeeId));
-        const status = [
-          classifyPresenceRecord(presence),
-          classifyPresenceRecord(STATE.presenceMap.get(String(row.employeeId))),
-          classifySigningRowPresence(row)
-        ].sort((a, b) => getPresenceRank(b) - getPresenceRank(a))[0] || 'out';
+        const status = this.getCurrentActivityKind(row.employeeId, [row]);
         if (this.presenceFilter === 'working') return status === 'working' || status === 'remote';
         if (this.presenceFilter === 'paused') return status === 'paused';
         return true;
@@ -6143,45 +6448,165 @@ const FichajesModule = {
     const tbody = document.getElementById('signings-tbody');
     if (!tbody) return;
 
-    // Agregamos por empleado ignorando el filtro de "selección individual" para mostrar a todos
-    // Pero respetando la búsqueda por nombre
+    // Agregamos por empleado usando las mismas filas visibles del periodo activo.
     const stats = new Map();
+    const balanceRows = this.getFilteredRows({ includePresenceFilter: false });
 
-    this.data.forEach(row => {
-      const matchSearch = row.employeeName.toLowerCase().includes(this.searchQuery);
-      if (!matchSearch) return;
-
-      if (!stats.has(row.employeeId)) {
-        const empInfo = STATE.allEmployees.get(String(row.employeeId));
-        stats.set(row.employeeId, {
+    balanceRows.forEach(row => {
+      const rowId = String(row.employeeId);
+      if (!stats.has(rowId)) {
+        const empInfo = STATE.allEmployees.get(rowId);
+        const hasAnnualBalance = typeof empInfo?.accumulatedSeconds === 'number';
+        stats.set(rowId, {
+          employeeId: rowId,
           name: row.employeeName,
           photo: row.photoUrl,
-          monthBalance: 0,
-          annualBalance: empInfo?.accumulatedSeconds || 0
+          periodBalance: 0,
+          localPeriodBalance: 0,
+          localEquivalentSeconds: 0,
+          localTheoreticSeconds: 0,
+          annualBalance: hasAnnualBalance ? empInfo.accumulatedSeconds : null,
+          sources: new Set(),
+          days: 0
         });
       }
-      stats.get(row.employeeId).monthBalance += row.balanceSec;
+      const stat = stats.get(rowId);
+      stat.periodBalance += row.balanceSec;
+      stat.localPeriodBalance += row.balanceSec;
+      stat.localEquivalentSeconds += Number(row.totalEquivalentSeconds || row.workedSeconds || 0);
+      stat.localTheoreticSeconds += Number(row.theoreticSeconds || 0);
+      stat.sources.add(row.theoreticSource || 'Estimado');
+      stat.days += 1;
     });
 
-    const rows = Array.from(stats.values());
+    if (this.officialHoursBagMap?.size) {
+      this.officialHoursBagMap.forEach((official, id) => {
+        const empInfo = STATE.allEmployees.get(String(id));
+        const fallbackName = `${empInfo?.firstName || ''} ${empInfo?.lastName || ''}`.trim();
+        const name = official.employeeName || fallbackName || `Empleado ${id}`;
+        const matchesEmployee = !this.selectedEmployee || this.selectedEmployee === 'all' || String(this.selectedEmployee) === String(id);
+        const matchesSearch = !this.searchQuery || name.toLowerCase().includes(String(this.searchQuery).toLowerCase());
+        if (!matchesEmployee || !matchesSearch) return;
+
+        if (!stats.has(id)) {
+          const hasAnnualBalance = typeof empInfo?.accumulatedSeconds === 'number';
+          stats.set(id, {
+            employeeId: String(id),
+            name,
+            photo: empInfo?.imageProfileURL || '',
+            periodBalance: 0,
+            localPeriodBalance: 0,
+            localEquivalentSeconds: 0,
+            localTheoreticSeconds: 0,
+            annualBalance: hasAnnualBalance ? empInfo.accumulatedSeconds : null,
+            sources: new Set(),
+            days: 0
+          });
+        }
+
+        const stat = stats.get(id);
+        stat.periodBalance = official.periodBalance;
+        stat.hasOfficialBalance = true;
+        stat.officialWorkedSeconds = official.workedSeconds;
+        stat.officialTheoreticSeconds = official.theoreticSeconds;
+        stat.officialCompensationSeconds = official.compensationSeconds;
+        stat.sources = new Set([official.source || 'Sesame oficial']);
+      });
+    }
+
+    const rows = Array.from(stats.values()).sort((a, b) => {
+      return a.periodBalance - b.periodBalance || a.name.localeCompare(b.name, 'es', { sensitivity: 'base' });
+    });
+
+    const totalEquivalent = rows.reduce((sum, stat) => {
+      if (stat.hasOfficialBalance && typeof stat.officialWorkedSeconds === 'number') {
+        return sum + stat.officialWorkedSeconds;
+      }
+      return sum + Number(stat.localEquivalentSeconds || 0);
+    }, 0);
+    const totalTheoretic = rows.reduce((sum, stat) => {
+      if (stat.hasOfficialBalance && typeof stat.officialTheoreticSeconds === 'number') {
+        return sum + stat.officialTheoreticSeconds;
+      }
+      return sum + Number(stat.localTheoreticSeconds || 0);
+    }, 0);
+    const workedEl = document.getElementById('total-worked-hours');
+    const theoreticEl = document.getElementById('total-theoretic-hours');
+    if (workedEl) workedEl.textContent = this.formatDurationCompact(totalEquivalent);
+    if (theoreticEl) theoreticEl.textContent = this.formatDurationCompact(totalTheoretic);
 
     if (rows.length === 0) {
       tbody.innerHTML = '<tr><td colspan="5" class="text-center" style="padding: 40px; color: var(--text-muted);">No hay datos suficientes para calcular balances en este rango.</td></tr>';
       return;
     }
 
-    tbody.innerHTML = rows.map(stat => {
-      const format = (sec) => {
-        const h = Math.floor(Math.abs(sec) / 3600);
-        const m = Math.floor((Math.abs(sec) % 3600) / 60);
-        return (sec >= 0 ? '+' : '-') + `${h}h ${m}m`;
-      };
+    const format = (sec) => {
+      const h = Math.floor(Math.abs(sec) / 3600);
+      const m = Math.floor((Math.abs(sec) % 3600) / 60);
+      return (sec >= 0 ? '+' : '-') + `${h}h ${m}m`;
+    };
+    const officialCount = rows.filter(stat => stat.hasOfficialBalance).length;
+    const localCount = rows.length - officialCount;
+    const sourceAuditHtml = `
+      <tr class="balance-source-audit-row">
+        <td colspan="5" style="padding: 10px 14px; background: rgba(45, 212, 191, 0.07); border-bottom: 1px solid rgba(45, 212, 191, 0.16);">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; font-size:0.72rem; color:var(--text-muted);">
+            <strong style="color:var(--text-primary); font-size:0.74rem;">Fuente del balance</strong>
+            <span style="display:inline-flex; align-items:center; gap:6px;">
+              <span style="width:7px; height:7px; border-radius:50%; background:#2dd4bf;"></span>
+              ${officialCount} Sesame
+            </span>
+            <span style="display:inline-flex; align-items:center; gap:6px;">
+              <span style="width:7px; height:7px; border-radius:50%; background:#f59e0b;"></span>
+              ${localCount} calculado
+            </span>
+            ${this.officialHoursBagError ? `<span title="${escapeHTML(this.officialHoursBagError)}" style="color:#f59e0b;">Endpoint oficial parcialmente no disponible</span>` : ''}
+          </div>
+        </td>
+      </tr>
+    `;
 
-      const mColor = stat.monthBalance >= 0 ? '#4ade80' : '#f87171';
-      const aColor = stat.annualBalance >= 0 ? '#4ade80' : '#f87171';
+    tbody.innerHTML = sourceAuditHtml + rows.map(stat => {
+
+      const balanceTone = stat.periodBalance > 0
+        ? { color: '#4ade80', label: 'Superávit' }
+        : stat.periodBalance < 0
+          ? { color: '#f87171', label: 'Déficit' }
+          : { color: '#60a5fa', label: 'Cuadrado' };
+      const mColor = balanceTone.color;
+      const hasAnnualBalance = typeof stat.annualBalance === 'number';
+      const aColor = !hasAnnualBalance ? 'var(--text-muted)' : (stat.annualBalance >= 0 ? '#4ade80' : '#f87171');
+      const sourceList = Array.from(stat.sources);
+      const sourceLabel = sourceList.length === 1
+        ? sourceList[0]
+        : sourceList.includes('Estimado')
+          ? 'Mixto/estimado'
+          : 'Mixto';
+      const sourceColor = sourceLabel.startsWith('Sesame oficial') || sourceLabel.startsWith('Sesame BI')
+        ? '#2dd4bf'
+        : sourceLabel === 'Estimado' || sourceLabel === 'Mixto/estimado'
+          ? '#f59e0b'
+          : '#60a5fa';
+      const annualTitle = hasAnnualBalance
+        ? 'Acumulado horario devuelto por el perfil de Sesame'
+        : 'Sesame no ha devuelto acumulado horario para este empleado';
+      const sourceBadgeLabel = stat.hasOfficialBalance ? 'Sesame' : 'Calculado';
+      const sourceBadgeColor = stat.hasOfficialBalance ? '#2dd4bf' : '#f59e0b';
+      const localComparison = stat.hasOfficialBalance && stat.days > 0
+        ? ` Calculo local para comparar: ${format(stat.localPeriodBalance)}.`
+        : '';
+      const sourceTitle = sourceLabel === 'Mixto/estimado'
+        ? `Teórico calculado con varias fuentes (${sourceList.join(', ')}). Revisa los días estimados si necesitas auditoría exacta.`
+        : stat.hasOfficialBalance
+          ? `Balance oficial devuelto por Sesame hours-bag-overtime para este periodo.${localComparison}`
+          : `Balance calculado localmente porque Sesame no devolvió balance oficial para este empleado. Fuente del teórico: ${sourceLabel}.`;
+      const daysLabel = stat.days > 0 ? stat.days : 'Of.';
+      const daysTitle = stat.days > 0
+        ? `${stat.days} dias con fichaje en el periodo`
+        : 'Fila creada desde el balance oficial de Sesame';
 
       // Progresión visual (0.5 es neutro, escala +- 20h)
-      const progress = Math.min(100, Math.max(0, 50 + (stat.monthBalance / 72000) * 50));
+      const progress = Math.min(100, Math.max(0, 50 + (stat.periodBalance / 72000) * 50));
 
       return `
         <tr class="balance-row">
@@ -6189,24 +6614,35 @@ const FichajesModule = {
             <div class="user-chip-table" style="display:flex; align-items:center; gap:10px;">
               ${renderLocalAvatar(stat.name, stat.photo, 'balance-avatar', 'width:32px; height:32px; border-radius:50%; object-fit:cover; border: 1px solid var(--border);')}
               <span style="font-weight:600; font-size:0.9rem;">${escapeHTML(stat.name)}</span>
+              <span title="${escapeHTML(daysTitle)}" style="margin-left:auto; min-width:24px; height:20px; display:inline-flex; align-items:center; justify-content:center; border-radius:999px; background:rgba(148,163,184,0.16); color:var(--text-muted); font-size:0.68rem; font-weight:800;">${escapeHTML(String(daysLabel))}</span>
             </div>
           </td>
           <td class="text-center">
-            <span style="font-size: 1.1rem; font-weight: 800; color: ${mColor}">${format(stat.monthBalance)}</span>
+            <div style="display:inline-flex; flex-direction:column; align-items:center; gap:4px;" title="${escapeHTML(sourceTitle)}">
+              <span style="font-size: 1.1rem; font-weight: 800; color: ${mColor}">${format(stat.periodBalance)}</span>
+              <span style="display:inline-flex; align-items:center; gap:5px; padding:2px 7px; border-radius:999px; border:1px solid ${sourceBadgeColor}40; background:${sourceBadgeColor}17; color:${sourceBadgeColor}; font-size:0.58rem; font-weight:900; text-transform:uppercase; letter-spacing:0.4px;">
+                <span style="width:5px; height:5px; border-radius:50%; background:${sourceBadgeColor};"></span>
+                ${sourceBadgeLabel}
+              </span>
+            </div>
           </td>
           <td class="text-center">
-            <span style="font-size: 0.95rem; font-weight: 500; color: ${aColor}; opacity: 0.8">${format(stat.annualBalance)}</span>
+            <span title="${escapeHTML(annualTitle)}" style="font-size: 0.95rem; font-weight: 500; color: ${aColor}; opacity: 0.8">${hasAnnualBalance ? format(stat.annualBalance) : '--'}</span>
           </td>
           <td class="text-center">
              <div style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:20px; background:${mColor}15; border: 1px solid ${mColor}30; color:${mColor}; font-size:0.65rem; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">
                <span style="width:6px; height:6px; border-radius:50%; background:${mColor}"></span>
-               ${stat.monthBalance >= 0 ? 'Superávit' : 'Déficit'}
+               ${balanceTone.label}
              </div>
           </td>
           <td style="vertical-align: middle;">
             <div style="height:6px; width:100%; background:rgba(255,255,255,0.05); border-radius:3px; position:relative; overflow:hidden;">
               <div style="position:absolute; left:0; top:0; height:100%; width:${progress}%; background:${mColor}; opacity:0.5; transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);"></div>
               <div style="position:absolute; left:50%; top:0; height:100%; width:1px; background:rgba(255,255,255,0.2);"></div>
+            </div>
+            <div title="${escapeHTML(sourceTitle)}" style="margin-top:6px; display:inline-flex; align-items:center; gap:5px; color:${sourceColor}; font-size:0.62rem; font-weight:800; text-transform:uppercase; letter-spacing:0.4px;">
+              <span style="width:5px; height:5px; border-radius:50%; background:${sourceColor};"></span>
+              ${escapeHTML(sourceLabel)}
             </div>
           </td>
         </tr>
