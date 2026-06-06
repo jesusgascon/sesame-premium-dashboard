@@ -3699,6 +3699,38 @@ const FichajesModule = {
     });
   },
 
+  requestBalanceTopPin() {
+    if (this.currentView !== 'balance') return;
+    this.balanceTopPinPasses = 3;
+    this.pinBalanceViewTop();
+  },
+
+  consumeBalanceTopPin() {
+    if (this.currentView !== 'balance' || !this.balanceTopPinPasses) return;
+    this.balanceTopPinPasses -= 1;
+    this.pinBalanceViewTop();
+  },
+
+  pinBalanceViewTop() {
+    if (this.currentView !== 'balance') return;
+    const reset = () => {
+      [
+        document.querySelector('.signings-table-container'),
+        document.getElementById('module-fichajes-wrapper'),
+        document.querySelector('.main-content')
+      ].forEach(target => {
+        if (!target) return;
+        target.scrollTop = 0;
+        target.scrollLeft = 0;
+      });
+      if (window.scrollY || window.scrollX) {
+        window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      }
+    };
+    reset();
+    requestAnimationFrame(reset);
+  },
+
   setupEventListeners() {
     // Navegación Temporal
     document.getElementById('prev-month-signings')?.addEventListener('click', () => {
@@ -3747,6 +3779,7 @@ const FichajesModule = {
 
         // Cargar datos
         this.currentView = view;
+        if (view === 'balance') this.requestBalanceTopPin();
         this.persistPeriodState();
         this.updateMonthLabel();
         this.loadData();
@@ -4252,6 +4285,9 @@ const FichajesModule = {
     this.isLoading = true;
 
     const isSilent = !!options.silent;
+    if (!isSilent && this.currentView === 'balance') {
+      this.requestBalanceTopPin();
+    }
     const previousState = isSilent ? {
       data: Array.isArray(this.data) ? [...this.data] : [],
       realSignings: Array.isArray(this.realSignings) ? [...this.realSignings] : [],
@@ -6452,6 +6488,7 @@ const FichajesModule = {
 
     if (this.currentView === 'balance') {
       this.renderBalanceTable();
+      this.consumeBalanceTopPin();
       return;
     }
 
@@ -7741,7 +7778,18 @@ const FichajesModule = {
     });
     document.addEventListener('keydown', onKeydown);
     document.body.appendChild(overlay);
-    overlay.querySelector('.balance-employee-close')?.focus();
+    const pinModalTop = () => {
+      overlay.scrollTop = 0;
+      const modal = overlay.querySelector('.balance-employee-modal');
+      const body = overlay.querySelector('.balance-employee-body');
+      if (modal) modal.scrollTop = 0;
+      if (body) body.scrollTop = 0;
+    };
+    pinModalTop();
+    requestAnimationFrame(pinModalTop);
+    window.setTimeout(pinModalTop, 80);
+    overlay.querySelector('.balance-employee-close')?.focus({ preventScroll: true });
+    pinModalTop();
   },
 
   /**
