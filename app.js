@@ -3577,6 +3577,20 @@ const FichajesModule = {
   dayOverrides: null,
   officialHoursBagMap: new Map(),
   officialHoursBagError: '',
+  officialHoursBagErrors: new Map(),
+  officialHoursBagLoading: false,
+  officialHoursBagRunId: 0,
+  hoursBagRuleHistoryMap: new Map(),
+  hoursBagRuleHistoryErrors: new Map(),
+  hoursBagRuleHistoryError: '',
+  officialHoursBagProgress: {
+    endpoint: '',
+    range: '',
+    total: 0,
+    done: 0,
+    pending: 0,
+    lastError: ''
+  },
   realtimePresence: [],
   isLoading: false,
   init() {
@@ -4151,6 +4165,12 @@ const FichajesModule = {
       dayOverrides: this.dayOverrides instanceof Map ? new Map(this.dayOverrides) : this.dayOverrides,
       officialHoursBagMap: this.officialHoursBagMap instanceof Map ? new Map(this.officialHoursBagMap) : new Map(),
       officialHoursBagError: this.officialHoursBagError,
+      officialHoursBagErrors: this.officialHoursBagErrors instanceof Map ? new Map(this.officialHoursBagErrors) : new Map(),
+      officialHoursBagLoading: this.officialHoursBagLoading,
+      hoursBagRuleHistoryMap: this.hoursBagRuleHistoryMap instanceof Map ? new Map(this.hoursBagRuleHistoryMap) : new Map(),
+      hoursBagRuleHistoryErrors: this.hoursBagRuleHistoryErrors instanceof Map ? new Map(this.hoursBagRuleHistoryErrors) : new Map(),
+      hoursBagRuleHistoryError: this.hoursBagRuleHistoryError,
+      officialHoursBagProgress: { ...(this.officialHoursBagProgress || {}) },
       absenceTimesMap: this.absenceTimesMap instanceof Map ? new Map(this.absenceTimesMap) : this.absenceTimesMap,
       realtimePresence: Array.isArray(this.realtimePresence) ? [...this.realtimePresence] : []
     } : null;
@@ -4162,6 +4182,12 @@ const FichajesModule = {
       this.dayOverrides = previousState.dayOverrides;
       this.officialHoursBagMap = previousState.officialHoursBagMap;
       this.officialHoursBagError = previousState.officialHoursBagError;
+      this.officialHoursBagErrors = previousState.officialHoursBagErrors;
+      this.officialHoursBagLoading = previousState.officialHoursBagLoading;
+      this.hoursBagRuleHistoryMap = previousState.hoursBagRuleHistoryMap;
+      this.hoursBagRuleHistoryErrors = previousState.hoursBagRuleHistoryErrors;
+      this.hoursBagRuleHistoryError = previousState.hoursBagRuleHistoryError;
+      this.officialHoursBagProgress = previousState.officialHoursBagProgress;
       this.absenceTimesMap = previousState.absenceTimesMap;
       this.realtimePresence = previousState.realtimePresence;
     };
@@ -4196,7 +4222,11 @@ const FichajesModule = {
         }
       }
 
-      if (!isSilent) {
+      if (!isSilent && this.currentView === 'balance') {
+        this.prepareOfficialWorkedHoursLoad(start, end);
+        this.populateEmployeeSelect();
+        this.renderTable();
+      } else if (!isSilent) {
         this.renderSkeletons();
       }
 
@@ -4770,13 +4800,12 @@ const FichajesModule = {
       }
 
       if (this.currentView === 'balance') {
-        await this.loadOfficialHoursBagBalances(start, end);
+        this.prepareOfficialWorkedHoursLoad(start, end);
       } else {
-        this.officialHoursBagMap = new Map();
-        this.officialHoursBagError = '';
+        this.resetOfficialWorkedHoursState({ cancel: true });
       }
 
-      if (this.data.length === 0 && !(this.currentView === 'balance' && this.officialHoursBagMap.size > 0)) {
+      if (this.data.length === 0 && this.currentView !== 'balance') {
         const msg = AUDIT.isSearching ? "Buscando puerta de enlace alternativa..." : (isLocalProxy() ? "Sesame no ha devuelto registros para este periodo." : "Sin datos.");
 
         // Reporte de Auditoría para el usuario
@@ -4805,6 +4834,9 @@ const FichajesModule = {
       } else {
         this.populateEmployeeSelect(); // Re-poblar para incluir los empleados recién cosechados
         this.renderTable();
+        if (this.currentView === 'balance') {
+          this.startOfficialWorkedHoursLoad(start, end);
+        }
       }
 
 
@@ -4898,6 +4930,12 @@ const FichajesModule = {
     // La lógica de cálculo ahora vive en renderOperationalInsights para ser reactiva
   },
 
+  syncInsightsVisibility() {
+    const insights = document.getElementById('fichajes-insights');
+    if (!insights) return;
+    insights.classList.toggle('hidden', this.currentView === 'balance');
+  },
+
   setupAutoRefresh() {
     if (this.refreshInterval) clearInterval(this.refreshInterval);
 
@@ -4931,6 +4969,573 @@ const FichajesModule = {
     if (select.value === "") select.value = "all";
   },
 
+  getBalanceEmployeeInfo(employeeId) {
+    const id = String(employeeId || '');
+    const emp = STATE.allEmployees.get(id) || {};
+    const fallbackRow = (this.data || []).find(row => String(row.employeeId) === id) || {};
+    const name = fallbackRow.employeeName ||
+      `${emp.firstName || ''} ${emp.lastName || ''}`.trim() ||
+      emp.name ||
+      `Empleado ${id}`;
+    return {
+      id,
+      name,
+      photo: fallbackRow.photoUrl || emp.imageProfileURL || '',
+      annualBalance: typeof emp.accumulatedSeconds === 'number' ? emp.accumulatedSeconds : null
+    };
+  },
+
+  getBalanceEmployeeIds(options = {}) {
+    const applySearch = !!options.applySearch;
+    const ids = new Set();
+
+    if (this.selectedEmployee && this.selectedEmployee !== 'all') {
+      ids.add(String(this.selectedEmployee));
+    } else {
+      STATE.allEmployees.forEach((_, id) => ids.add(String(id)));
+      (this.data || []).forEach(row => {
+        if (row.employeeId) ids.add(String(row.employeeId));
+      });
+      const myId = getCurrentEmployeeId();
+      if (myId) ids.add(String(myId));
+    }
+
+    const search = String(this.searchQuery || '').trim().toLowerCase();
+    return Array.from(ids).filter(id => {
+      if (!applySearch || !search) return true;
+      const info = this.getBalanceEmployeeInfo(id);
+      return info.name.toLowerCase().includes(search);
+    });
+  },
+
+  getOfficialWorkedHoursSkipKey() {
+    return `ssm_skip_worked_hours_report_${STATE.companyId || 'default'}`;
+  },
+
+  isOfficialWorkedHoursSkipped() {
+    return localStorage.getItem(this.getOfficialWorkedHoursSkipKey()) === '1';
+  },
+
+  useLocalBalanceOnly() {
+    localStorage.setItem(this.getOfficialWorkedHoursSkipKey(), '1');
+    this.resetOfficialWorkedHoursState({ cancel: true });
+    this.renderTable();
+  },
+
+  retryOfficialWorkedHours() {
+    localStorage.removeItem(this.getOfficialWorkedHoursSkipKey());
+    this.loadData(true);
+  },
+
+  resetOfficialWorkedHoursState(options = {}) {
+    if (options.cancel) this.officialHoursBagRunId += 1;
+    this.officialHoursBagMap = new Map();
+    this.officialHoursBagErrors = new Map();
+    this.officialHoursBagError = '';
+    this.hoursBagRuleHistoryMap = new Map();
+    this.hoursBagRuleHistoryErrors = new Map();
+    this.hoursBagRuleHistoryError = '';
+    this.officialHoursBagLoading = false;
+    this.officialHoursBagProgress = {
+      endpoint: '',
+      range: '',
+      total: 0,
+      done: 0,
+      pending: 0,
+      lastError: ''
+    };
+  },
+
+  prepareOfficialWorkedHoursLoad(start, end) {
+    const employeeIds = this.getBalanceEmployeeIds();
+    if (this.isOfficialWorkedHoursSkipped()) {
+      this.officialHoursBagRunId += 1;
+      this.officialHoursBagMap = new Map();
+      this.officialHoursBagErrors = new Map();
+      this.officialHoursBagError = 'Sesame Statistics omitido por el usuario';
+      this.hoursBagRuleHistoryMap = new Map();
+      this.hoursBagRuleHistoryErrors = new Map();
+      this.hoursBagRuleHistoryError = '';
+      this.officialHoursBagLoading = false;
+      this.officialHoursBagProgress = {
+        endpoint: 'calculo-local',
+        range: `${start} -> ${end}`,
+        total: employeeIds.length,
+        done: employeeIds.length,
+        pending: 0,
+        employeeIds,
+        lastError: 'Sesame Statistics omitido por el usuario'
+      };
+      return;
+    }
+
+    this.officialHoursBagRunId += 1;
+    this.officialHoursBagMap = new Map();
+    this.officialHoursBagErrors = new Map();
+    this.officialHoursBagError = '';
+    this.hoursBagRuleHistoryMap = new Map();
+    this.hoursBagRuleHistoryErrors = new Map();
+    this.hoursBagRuleHistoryError = '';
+    this.officialHoursBagLoading = employeeIds.length > 0;
+    this.officialHoursBagProgress = {
+      endpoint: '/schedule/v1/reports/worked-hours',
+      range: `${start} -> ${end}`,
+      total: employeeIds.length,
+      done: 0,
+      pending: employeeIds.length,
+      employeeIds,
+      lastError: ''
+    };
+  },
+
+  normalizeOfficialWorkedHoursRow(row) {
+    if (!row || typeof row !== 'object') return null;
+    const toNullableSeconds = value => {
+      if (value === null || typeof value === 'undefined' || value === '') return null;
+      const num = Number(value);
+      return Number.isFinite(num) ? num : null;
+    };
+    const employeeId = String(row.employeeId ?? row.employee?.id ?? '');
+    if (!employeeId) return null;
+    return {
+      employeeId,
+      secondsWorked: toNullableSeconds(row.secondsWorked),
+      secondsToWork: toNullableSeconds(row.secondsToWork),
+      secondsBalance: toNullableSeconds(row.secondsBalance),
+      source: 'sesame-statistics',
+      rawSource: '/schedule/v1/reports/worked-hours',
+      queryVariant: row.queryVariant || ''
+    };
+  },
+
+  summarizeBalanceApiError(error) {
+    const raw = String(error?.message || error || 'Error desconocido');
+    return raw
+      .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [oculto]')
+      .replace(/Authorization["']?\s*:\s*["'][^"']+["']/gi, 'Authorization: [oculto]')
+      .replace(/Cookie["']?\s*:\s*["'][^"']+["']/gi, 'Cookie: [oculto]')
+      .slice(0, 260);
+  },
+
+  async loadOfficialWorkedHoursReport(startDate, endDate, employeeIds, options = {}) {
+    const endpoint = '/schedule/v1/reports/worked-hours';
+    const ids = Array.from(new Set((employeeIds || []).map(id => String(id)).filter(Boolean)));
+    const resultMap = new Map();
+    const errorMap = new Map();
+    const chunkSize = 40;
+    let processed = 0;
+    let lastError = '';
+    const buildQueryVariants = chunk => [
+      {
+        label: 'employeeIds[in]=csv',
+        params: { 'employeeIds[in]': chunk.join(',') }
+      },
+      {
+        label: 'employeeIds[in]=repeat',
+        params: { 'employeeIds[in]': chunk }
+      },
+      {
+        label: 'sin employeeIds[in]',
+        params: {}
+      }
+    ];
+
+    for (let i = 0; i < ids.length; i += chunkSize) {
+      const chunk = ids.slice(i, i + chunkSize);
+      const chunkSet = new Set(chunk.map(String));
+      const variantErrors = [];
+      let chunkHadResponse = false;
+      let chunkHadRows = false;
+
+      for (const variant of buildQueryVariants(chunk)) {
+        let page = 1;
+        let lastPage = 1;
+        let variantRows = 0;
+        try {
+        do {
+          if (options.runId && options.runId !== this.officialHoursBagRunId) {
+            return { map: resultMap, errors: errorMap, aborted: true, lastError };
+          }
+
+          const payload = await apiFetch(endpoint, {
+            from: startDate,
+            to: endDate,
+            withChecks: true,
+            limit: 100,
+            page,
+            method: 'GET',
+            overrideBackend: 'https://api-eu1.sesametime.com',
+            ...variant.params,
+            headers: {
+              'Origin': 'https://app.sesametime.com',
+              'Referer': 'https://app.sesametime.com/'
+            }
+          });
+
+          const rows = Array.isArray(payload?.data)
+            ? payload.data
+            : (Array.isArray(payload) ? payload : []);
+          const normalizedRows = [];
+          rows.forEach(row => {
+            const normalized = this.normalizeOfficialWorkedHoursRow({ ...row, queryVariant: variant.label });
+            if (normalized?.employeeId) {
+              if (!chunkSet.has(String(normalized.employeeId))) return;
+              resultMap.set(normalized.employeeId, normalized);
+              normalizedRows.push(normalized);
+            }
+          });
+          variantRows += normalizedRows.length;
+          chunkHadResponse = true;
+          if (normalizedRows.length && typeof options.onRows === 'function') {
+            options.onRows(normalizedRows);
+          }
+
+          const meta = payload?.meta || {};
+          const currentPage = Number(meta.currentPage ?? page);
+          lastPage = Number(meta.lastPage ?? currentPage);
+          page = currentPage + 1;
+        } while (page <= lastPage);
+
+          if (variantRows > 0) {
+            chunkHadRows = true;
+            break;
+          }
+        } catch (error) {
+          const summary = this.summarizeBalanceApiError(error);
+          variantErrors.push(`${variant.label}: ${summary}`);
+          lastError = summary;
+          if (/403|401|Forbidden|Unauthorized/i.test(summary)) break;
+        }
+      }
+
+      if (!chunkHadRows) {
+        const message = variantErrors.length
+          ? variantErrors.slice(0, 3).join(' | ')
+          : (chunkHadResponse ? 'Sesame Statistics respondio sin filas para este rango' : 'Sin respuesta Sesame Statistics');
+        chunk.forEach(id => errorMap.set(String(id), message));
+        lastError = message;
+      }
+
+      processed += chunk.length;
+      if (typeof options.onProgress === 'function') {
+        options.onProgress({
+          done: Math.min(processed, ids.length),
+          total: ids.length,
+          pending: Math.max(0, ids.length - processed),
+          lastError
+        });
+      }
+    }
+
+    ids.forEach(id => {
+      if (!resultMap.has(id) && !errorMap.has(id)) {
+        errorMap.set(id, 'Sin dato Sesame Statistics para este rango');
+      }
+    });
+
+    return { map: resultMap, errors: errorMap, aborted: false, lastError };
+  },
+
+  normalizeHoursBagRuleHistoryItem(item) {
+    if (!item || typeof item !== 'object') return null;
+
+    const employeeId = String(item.employee?.id ?? item.employeeId ?? item.employee_id ?? '');
+    if (!employeeId) return null;
+
+    const seconds = Number(item.seconds);
+    const checkSeconds = Number(item.checkSeconds);
+    const checkSecondsWithVariation = Number(item.checkSecondsWithVariation);
+    let adjustmentSeconds = Number.isFinite(seconds) ? seconds : NaN;
+    if (!Number.isFinite(adjustmentSeconds) && Number.isFinite(checkSecondsWithVariation) && Number.isFinite(checkSeconds)) {
+      adjustmentSeconds = checkSecondsWithVariation - checkSeconds;
+    }
+    if (!Number.isFinite(adjustmentSeconds)) return null;
+
+    return {
+      employeeId,
+      date: item.date || '',
+      adjustmentSeconds,
+      checkSeconds: Number.isFinite(checkSeconds) ? checkSeconds : null,
+      checkSecondsWithVariation: Number.isFinite(checkSecondsWithVariation) ? checkSecondsWithVariation : null,
+      ruleName: item.hoursBagRule?.name || item.hoursBagRule?.variationName || '',
+      rawSource: '/schedule/v1/hours-bag-rule-history'
+    };
+  },
+
+  addHoursBagRuleHistoryItem(map, item) {
+    const normalized = this.normalizeHoursBagRuleHistoryItem(item);
+    if (!normalized) return null;
+
+    const current = map.get(normalized.employeeId) || {
+      employeeId: normalized.employeeId,
+      adjustmentSeconds: 0,
+      checkSeconds: 0,
+      checkSecondsWithVariation: 0,
+      itemsCount: 0,
+      ruleNames: new Set(),
+      dates: new Set(),
+      rawSource: '/schedule/v1/hours-bag-rule-history'
+    };
+
+    current.adjustmentSeconds += normalized.adjustmentSeconds;
+    if (typeof normalized.checkSeconds === 'number') current.checkSeconds += normalized.checkSeconds;
+    if (typeof normalized.checkSecondsWithVariation === 'number') current.checkSecondsWithVariation += normalized.checkSecondsWithVariation;
+    current.itemsCount += 1;
+    if (normalized.ruleName) current.ruleNames.add(normalized.ruleName);
+    if (normalized.date) current.dates.add(normalized.date);
+    map.set(normalized.employeeId, current);
+    return current;
+  },
+
+  async loadHoursBagRuleHistoryAdjustments(startDate, endDate, employeeIds, options = {}) {
+    const endpoint = '/schedule/v1/hours-bag-rule-history';
+    const ids = Array.from(new Set((employeeIds || []).map(id => String(id)).filter(Boolean)));
+    const resultMap = new Map();
+    const errorMap = new Map();
+    const chunkSize = 40;
+    let lastError = '';
+    let processed = 0;
+    const buildQueryVariants = chunk => [
+      {
+        label: 'employeeIds=csv',
+        params: { employeeIds: chunk.join(',') }
+      },
+      {
+        label: 'employeeIds=repeat',
+        params: { employeeIds: chunk }
+      },
+      {
+        label: 'sin employeeIds',
+        params: {}
+      }
+    ];
+
+    for (let i = 0; i < ids.length; i += chunkSize) {
+      const chunk = ids.slice(i, i + chunkSize);
+      const chunkSet = new Set(chunk.map(String));
+      const variantErrors = [];
+      let chunkHadResponse = false;
+      let chunkHadAdjustment = false;
+
+      for (const variant of buildQueryVariants(chunk)) {
+        let page = 1;
+        let lastPage = 1;
+        let variantAdjustments = 0;
+
+        try {
+          do {
+            if (options.runId && options.runId !== this.officialHoursBagRunId) {
+              return { map: resultMap, errors: errorMap, aborted: true, lastError };
+            }
+
+            const payload = await apiFetch(endpoint, {
+              from: startDate,
+              to: endDate,
+              limit: 100,
+              page,
+              method: 'GET',
+              overrideBackend: 'https://api-eu1.sesametime.com',
+              ...variant.params,
+              headers: {
+                'Origin': 'https://app.sesametime.com',
+                'Referer': 'https://app.sesametime.com/'
+              }
+            });
+
+            const rows = Array.isArray(payload?.data)
+              ? payload.data
+              : (Array.isArray(payload) ? payload : []);
+            rows.forEach(row => {
+              const employeeId = String(row.employee?.id ?? row.employeeId ?? row.employee_id ?? '');
+              if (!chunkSet.has(employeeId)) return;
+              const current = this.addHoursBagRuleHistoryItem(resultMap, row);
+              if (current) variantAdjustments += 1;
+            });
+
+            chunkHadResponse = true;
+            const meta = payload?.meta || {};
+            const currentPage = Number(meta.currentPage ?? page);
+            lastPage = Number(meta.lastPage ?? currentPage);
+            page = currentPage + 1;
+          } while (page <= lastPage);
+
+          if (variantAdjustments > 0) {
+            chunkHadAdjustment = true;
+            break;
+          }
+        } catch (error) {
+          const summary = this.summarizeBalanceApiError(error);
+          variantErrors.push(`${variant.label}: ${summary}`);
+          lastError = summary;
+          if (/403|401|Forbidden|Unauthorized/i.test(summary)) break;
+        }
+      }
+
+      if (!chunkHadAdjustment && variantErrors.length) {
+        chunk.forEach(id => errorMap.set(String(id), variantErrors.slice(0, 2).join(' | ')));
+      } else if (!chunkHadAdjustment && !chunkHadResponse) {
+        chunk.forEach(id => errorMap.set(String(id), 'Sin respuesta hours-bag-rule-history'));
+      }
+
+      processed += chunk.length;
+      if (typeof options.onProgress === 'function') {
+        options.onProgress({
+          done: Math.min(processed, ids.length),
+          total: ids.length,
+          pending: Math.max(0, ids.length - processed),
+          lastError
+        });
+      }
+    }
+
+    resultMap.forEach(value => {
+      value.ruleNames = Array.from(value.ruleNames || []);
+      value.dates = Array.from(value.dates || []);
+    });
+
+    return { map: resultMap, errors: errorMap, aborted: false, lastError };
+  },
+
+  async startOfficialWorkedHoursLoad(start, end) {
+    if (this.currentView !== 'balance' || !this.officialHoursBagLoading) return;
+
+    const runId = this.officialHoursBagRunId;
+    const employeeIds = this.officialHoursBagProgress.employeeIds || this.getBalanceEmployeeIds();
+    if (employeeIds.length === 0) {
+      this.officialHoursBagLoading = false;
+      this.renderTable();
+      return;
+    }
+
+    const updateBalanceProgress = (phase, extra = {}) => {
+      if (runId !== this.officialHoursBagRunId || this.currentView !== 'balance') return;
+      this.officialHoursBagProgress = {
+        ...(this.officialHoursBagProgress || {}),
+        phase,
+        endpoint: phase === 'history'
+          ? '/schedule/v1/hours-bag-rule-history'
+          : '/schedule/v1/reports/worked-hours',
+        range: `${start} -> ${end}`,
+        employeeIds,
+        ...extra
+      };
+      this.renderTable();
+    };
+
+    try {
+      updateBalanceProgress('statistics', {
+        done: 0,
+        total: employeeIds.length,
+        pending: employeeIds.length,
+        activeEmployeeIds: employeeIds.slice(0, 5)
+      });
+
+      const result = await this.loadOfficialWorkedHoursReport(start, end, employeeIds, {
+        runId,
+        onProgress: progress => {
+          const activeStart = Math.min(Number(progress.done || 0), employeeIds.length);
+          updateBalanceProgress('statistics', {
+            ...progress,
+            activeEmployeeIds: employeeIds.slice(activeStart, activeStart + 5)
+          });
+        },
+        onRows: rows => {
+          if (runId !== this.officialHoursBagRunId || this.currentView !== 'balance') return;
+          rows.forEach(row => {
+            if (row?.employeeId) {
+              this.officialHoursBagMap.set(String(row.employeeId), row);
+              this.officialHoursBagErrors.delete(String(row.employeeId));
+            }
+          });
+          this.renderTable();
+        }
+      });
+
+      if (result.aborted || runId !== this.officialHoursBagRunId || this.currentView !== 'balance') return;
+
+      this.officialHoursBagMap = result.map;
+      this.officialHoursBagErrors = result.errors;
+      this.officialHoursBagError = result.lastError || '';
+      updateBalanceProgress('history', {
+        done: 0,
+        total: employeeIds.length,
+        pending: employeeIds.length,
+        activeEmployeeIds: employeeIds.slice(0, 5),
+        lastError: result.lastError || ''
+      });
+      const historyResult = await this.loadHoursBagRuleHistoryAdjustments(start, end, employeeIds, {
+        runId,
+        onProgress: progress => {
+          const activeStart = Math.min(Number(progress.done || 0), employeeIds.length);
+          updateBalanceProgress('history', {
+            ...progress,
+            activeEmployeeIds: employeeIds.slice(activeStart, activeStart + 5),
+            lastError: progress.lastError || result.lastError || ''
+          });
+        }
+      });
+      if (historyResult.aborted || runId !== this.officialHoursBagRunId || this.currentView !== 'balance') return;
+      this.hoursBagRuleHistoryMap = historyResult.map;
+      this.hoursBagRuleHistoryErrors = historyResult.errors;
+      this.hoursBagRuleHistoryError = historyResult.lastError || '';
+      this.officialHoursBagLoading = false;
+      this.officialHoursBagProgress = {
+        ...(this.officialHoursBagProgress || {}),
+        endpoint: '/schedule/v1/reports/worked-hours + /schedule/v1/hours-bag-rule-history',
+        range: `${start} -> ${end}`,
+        total: employeeIds.length,
+        done: employeeIds.length,
+        pending: 0,
+        employeeIds,
+        phase: 'done',
+        activeEmployeeIds: [],
+        lastError: result.lastError || ''
+      };
+      this.renderTable();
+    } catch (error) {
+      if (runId !== this.officialHoursBagRunId || this.currentView !== 'balance') return;
+      const message = this.summarizeBalanceApiError(error);
+      this.officialHoursBagError = message;
+      try {
+        updateBalanceProgress('history', {
+          done: 0,
+          total: employeeIds.length,
+          pending: employeeIds.length,
+          activeEmployeeIds: employeeIds.slice(0, 5),
+          lastError: message
+        });
+        const historyResult = await this.loadHoursBagRuleHistoryAdjustments(start, end, employeeIds, {
+          runId,
+          onProgress: progress => {
+            const activeStart = Math.min(Number(progress.done || 0), employeeIds.length);
+            updateBalanceProgress('history', {
+              ...progress,
+              activeEmployeeIds: employeeIds.slice(activeStart, activeStart + 5),
+              lastError: progress.lastError || message
+            });
+          }
+        });
+        if (historyResult.aborted || runId !== this.officialHoursBagRunId || this.currentView !== 'balance') return;
+        this.hoursBagRuleHistoryMap = historyResult.map;
+        this.hoursBagRuleHistoryErrors = historyResult.errors;
+        this.hoursBagRuleHistoryError = historyResult.lastError || '';
+      } catch (historyError) {
+        this.hoursBagRuleHistoryError = this.summarizeBalanceApiError(historyError);
+      }
+      this.officialHoursBagLoading = false;
+      this.officialHoursBagErrors = new Map(employeeIds.map(id => [String(id), message]));
+      this.officialHoursBagProgress = {
+        ...(this.officialHoursBagProgress || {}),
+        done: employeeIds.length,
+        pending: 0,
+        phase: 'done',
+        activeEmployeeIds: [],
+        lastError: message
+      };
+      this.renderTable();
+    }
+  },
+
   normalizeOfficialHoursBag(employeeId, payload) {
     if (payload?.message && /no route|not found|unauthenticated/i.test(String(payload.message))) return null;
     if (payload?.error?.message && /no route|route_not_found|not found/i.test(String(payload.error.message))) return null;
@@ -4951,6 +5556,9 @@ const FichajesModule = {
       body.balanceSeconds ??
       body.secondsBalance ??
       body.currentBalance ??
+      body.totalHoursPending ??
+      body.accumulatedBalance ??
+      body.availableBalance ??
       body.balance ??
       NaN
     );
@@ -4965,9 +5573,10 @@ const FichajesModule = {
     );
     const compensationSeconds = Number(body.compensationSeconds ?? 0);
     const employee = body.employee || body.employeeReference || {};
+    const resolvedEmployeeId = String(employeeId || employee.id || body.employeeId || body.id || '');
 
     return {
-      employeeId: String(employeeId),
+      employeeId: resolvedEmployeeId,
       employeeName: employee.name || body.employeeName || '',
       periodBalance: balanceSeconds,
       workedSeconds: Number.isFinite(workedSeconds) ? workedSeconds : null,
@@ -4975,6 +5584,78 @@ const FichajesModule = {
       compensationSeconds: Number.isFinite(compensationSeconds) ? compensationSeconds : 0,
       source: 'Sesame oficial'
     };
+  },
+
+  extractOfficialHoursBagItems(payload) {
+    const data = payload?.data?.items ??
+                 payload?.data?.data ??
+                 payload?.data?.results ??
+                 payload?.data ??
+                 payload?.items ??
+                 payload?.results ??
+                 payload;
+    if (Array.isArray(data)) return data;
+    if (data && typeof data === 'object') return [data];
+    return [];
+  },
+
+  async fetchOfficialHoursBagList(start, end) {
+    const candidates = [
+      {
+        key: 'private-employees-hours-bags-list-back',
+        path: '/private/schedule/v1/hours-bag-overtime/employees-hours-bags',
+        backend: 'https://back-eu1.sesametime.com'
+      },
+      {
+        key: 'private-employees-hours-bags-list-api',
+        path: '/private/schedule/v1/hours-bag-overtime/employees-hours-bags',
+        backend: 'https://api-eu1.sesametime.com'
+      },
+      {
+        key: 'employees-hours-bags-list-back',
+        path: '/schedule/v1/hours-bag-overtime/employees-hours-bags',
+        backend: 'https://back-eu1.sesametime.com'
+      },
+      {
+        key: 'employees-hours-bags-list-api',
+        path: '/schedule/v1/hours-bag-overtime/employees-hours-bags',
+        backend: 'https://api-eu1.sesametime.com'
+      }
+    ];
+
+    const errors = [];
+    for (const candidate of candidates) {
+      try {
+        const payload = await apiFetch(candidate.path, {
+          from: start,
+          to: end,
+          page: 1,
+          limit: 500,
+          method: 'GET',
+          overrideBackend: candidate.backend,
+          headers: {
+            'Origin': 'https://app.sesametime.com',
+            'Referer': 'https://app.sesametime.com/employee/portal'
+          }
+        });
+        const items = this.extractOfficialHoursBagItems(payload);
+        const map = new Map();
+        items.forEach(item => {
+          const employeeId = item.employee?.id || item.employeeId || item.id;
+          const normalized = this.normalizeOfficialHoursBag(employeeId, item);
+          if (normalized?.employeeId) map.set(String(normalized.employeeId), normalized);
+        });
+        if (map.size > 0) {
+          DISCOVERY.workingHoursBag = candidate.key;
+          localStorage.setItem('ssm_path_hours_bag', candidate.key);
+          return map;
+        }
+        errors.push(`${candidate.key}: ${this.describeHoursBagMiss(payload)}`);
+      } catch (e) {
+        errors.push(`${candidate.key}: ${e.message || e}`);
+      }
+    }
+    throw new Error(errors.slice(0, 4).join(' | '));
   },
 
   getOfficialHoursBagCandidates(employeeId) {
@@ -5095,10 +5776,28 @@ const FichajesModule = {
     const employeeIds = Array.from(ids).slice(0, 80);
     if (employeeIds.length === 0) return;
 
-    let firstError = '';
+    const errors = [];
+    try {
+      const listMap = await this.fetchOfficialHoursBagList(start, end);
+      listMap.forEach((value, id) => {
+        if (employeeIds.includes(String(id))) {
+          this.officialHoursBagMap.set(String(id), value);
+        }
+      });
+    } catch (e) {
+      errors.push(e.message || String(e));
+    }
+
+    const missingEmployeeIds = employeeIds.filter(id => !this.officialHoursBagMap.has(String(id)));
+    if (missingEmployeeIds.length === 0) {
+      this.officialHoursBagError = errors[0] || '';
+      return;
+    }
+
+    let firstError = errors[0] || '';
     let routeMisses = 0;
-    for (let i = 0; i < employeeIds.length; i += 4) {
-      const chunk = employeeIds.slice(i, i + 4);
+    for (let i = 0; i < missingEmployeeIds.length; i += 4) {
+      const chunk = missingEmployeeIds.slice(i, i + 4);
       const results = await Promise.allSettled(
         chunk.map(id => this.fetchOfficialHoursBagForEmployee(id, start, end))
       );
@@ -5482,6 +6181,7 @@ const FichajesModule = {
   renderTable() {
     const tbody = document.getElementById('signings-tbody');
     if (!tbody) return;
+    this.syncInsightsVisibility();
 
     // Actualizar el header de la tabla según la vista activa
     const thead = document.querySelector('.signings-table thead');
@@ -6455,17 +7155,17 @@ const FichajesModule = {
     balanceRows.forEach(row => {
       const rowId = String(row.employeeId);
       if (!stats.has(rowId)) {
-        const empInfo = STATE.allEmployees.get(rowId);
-        const hasAnnualBalance = typeof empInfo?.accumulatedSeconds === 'number';
+        const empInfo = this.getBalanceEmployeeInfo(rowId);
         stats.set(rowId, {
           employeeId: rowId,
-          name: row.employeeName,
-          photo: row.photoUrl,
+          name: empInfo.name,
+          photo: empInfo.photo,
           periodBalance: 0,
           localPeriodBalance: 0,
+          localBaseBalance: 0,
           localEquivalentSeconds: 0,
           localTheoreticSeconds: 0,
-          annualBalance: hasAnnualBalance ? empInfo.accumulatedSeconds : null,
+          annualBalance: empInfo.annualBalance,
           sources: new Set(),
           days: 0
         });
@@ -6473,44 +7173,105 @@ const FichajesModule = {
       const stat = stats.get(rowId);
       stat.periodBalance += row.balanceSec;
       stat.localPeriodBalance += row.balanceSec;
+      stat.localBaseBalance = (stat.localBaseBalance || 0) + row.balanceSec;
       stat.localEquivalentSeconds += Number(row.totalEquivalentSeconds || row.workedSeconds || 0);
       stat.localTheoreticSeconds += Number(row.theoreticSeconds || 0);
       stat.sources.add(row.theoreticSource || 'Estimado');
       stat.days += 1;
     });
 
+    this.getBalanceEmployeeIds({ applySearch: true }).forEach(id => {
+      const rowId = String(id);
+      if (stats.has(rowId)) return;
+      const empInfo = this.getBalanceEmployeeInfo(rowId);
+      stats.set(rowId, {
+        employeeId: rowId,
+        name: empInfo.name,
+        photo: empInfo.photo,
+        periodBalance: 0,
+        localPeriodBalance: 0,
+        localBaseBalance: 0,
+        localEquivalentSeconds: 0,
+        localTheoreticSeconds: 0,
+        annualBalance: empInfo.annualBalance,
+        sources: new Set(),
+        days: 0
+      });
+    });
+
+    if (this.hoursBagRuleHistoryMap?.size) {
+      this.hoursBagRuleHistoryMap.forEach((history, id) => {
+        const rowId = String(id);
+        const empInfo = this.getBalanceEmployeeInfo(rowId);
+        const matchesEmployee = !this.selectedEmployee || this.selectedEmployee === 'all' || String(this.selectedEmployee) === rowId;
+        const matchesSearch = !this.searchQuery || empInfo.name.toLowerCase().includes(String(this.searchQuery).toLowerCase());
+        if (!matchesEmployee || !matchesSearch) return;
+
+        if (!stats.has(rowId)) {
+          stats.set(rowId, {
+            employeeId: rowId,
+            name: empInfo.name,
+            photo: empInfo.photo,
+            periodBalance: 0,
+            localPeriodBalance: 0,
+            localBaseBalance: 0,
+            localEquivalentSeconds: 0,
+            localTheoreticSeconds: 0,
+            annualBalance: empInfo.annualBalance,
+            sources: new Set(),
+            days: 0
+          });
+        }
+
+        const adjustment = Number(history.adjustmentSeconds || 0);
+        if (!adjustment) return;
+        const stat = stats.get(rowId);
+        if (typeof stat.localBaseBalance !== 'number') stat.localBaseBalance = Number(stat.localPeriodBalance || 0);
+        stat.localRuleAdjustmentSeconds = (stat.localRuleAdjustmentSeconds || 0) + adjustment;
+        stat.localPeriodBalance += adjustment;
+        stat.periodBalance += adjustment;
+        stat.hoursBagRuleHistory = history;
+        stat.sources.add('Bolsa Sesame');
+      });
+    }
+
     if (this.officialHoursBagMap?.size) {
       this.officialHoursBagMap.forEach((official, id) => {
-        const empInfo = STATE.allEmployees.get(String(id));
-        const fallbackName = `${empInfo?.firstName || ''} ${empInfo?.lastName || ''}`.trim();
-        const name = official.employeeName || fallbackName || `Empleado ${id}`;
+        const empInfo = this.getBalanceEmployeeInfo(id);
+        const name = official.employeeName || empInfo.name || `Empleado ${id}`;
         const matchesEmployee = !this.selectedEmployee || this.selectedEmployee === 'all' || String(this.selectedEmployee) === String(id);
         const matchesSearch = !this.searchQuery || name.toLowerCase().includes(String(this.searchQuery).toLowerCase());
         if (!matchesEmployee || !matchesSearch) return;
 
         if (!stats.has(id)) {
-          const hasAnnualBalance = typeof empInfo?.accumulatedSeconds === 'number';
           stats.set(id, {
             employeeId: String(id),
             name,
-            photo: empInfo?.imageProfileURL || '',
+            photo: empInfo.photo,
             periodBalance: 0,
             localPeriodBalance: 0,
+            localBaseBalance: 0,
             localEquivalentSeconds: 0,
             localTheoreticSeconds: 0,
-            annualBalance: hasAnnualBalance ? empInfo.accumulatedSeconds : null,
+            annualBalance: empInfo.annualBalance,
             sources: new Set(),
             days: 0
           });
         }
 
         const stat = stats.get(id);
-        stat.periodBalance = official.periodBalance;
-        stat.hasOfficialBalance = true;
-        stat.officialWorkedSeconds = official.workedSeconds;
-        stat.officialTheoreticSeconds = official.theoreticSeconds;
-        stat.officialCompensationSeconds = official.compensationSeconds;
-        stat.sources = new Set([official.source || 'Sesame oficial']);
+        const officialBalance = official.secondsBalance ?? official.periodBalance;
+        if (typeof officialBalance === 'number') {
+          stat.periodBalance = officialBalance;
+          stat.hasOfficialBalance = true;
+          stat.officialWorkedSeconds = official.secondsWorked ?? official.workedSeconds ?? null;
+          stat.officialTheoreticSeconds = official.secondsToWork ?? official.theoreticSeconds ?? null;
+          stat.officialCompensationSeconds = official.compensationSeconds ?? 0;
+          stat.officialBalanceSeconds = officialBalance;
+          stat.officialRawSource = official.rawSource || '/schedule/v1/reports/worked-hours';
+          stat.officialQueryVariant = official.queryVariant || '';
+          stat.sources = new Set(['Sesame Statistics']);
+        }
       });
     }
 
@@ -6545,22 +7306,96 @@ const FichajesModule = {
       const m = Math.floor((Math.abs(sec) % 3600) / 60);
       return (sec >= 0 ? '+' : '-') + `${h}h ${m}m`;
     };
+    const progressState = this.officialHoursBagProgress || {};
     const officialCount = rows.filter(stat => stat.hasOfficialBalance).length;
+    const pendingCount = this.officialHoursBagLoading
+      ? Math.max(0, Number(progressState.pending || 0))
+      : 0;
+    const errorCount = rows.filter(stat => {
+      return !stat.hasOfficialBalance && this.officialHoursBagErrors?.has(String(stat.employeeId));
+    }).length;
+    const adjustedLocalCount = rows.filter(stat => Number(stat.localRuleAdjustmentSeconds || 0) !== 0).length;
     const localCount = rows.length - officialCount;
+    const endpointLabel = progressState.endpoint || '/schedule/v1/reports/worked-hours';
+    const rangeLabel = progressState.range || `${this.getCurrentRangeKeys().start} -> ${this.getCurrentRangeKeys().end}`;
+    const progressLabel = this.officialHoursBagLoading
+      ? `Calculando balances ${Number(progressState.done || 0)}/${Number(progressState.total || rows.length)}...`
+      : `Balances procesados ${Number(progressState.done || rows.length)}/${Number(progressState.total || rows.length)}`;
+    const progressTotal = Math.max(1, Number(progressState.total || rows.length || 1));
+    const progressDone = Math.min(progressTotal, Number(progressState.done || 0));
+    const progressPct = this.officialHoursBagLoading
+      ? Math.max(4, Math.round((progressDone / progressTotal) * 100))
+      : 100;
+    const officialSkipped = this.isOfficialWorkedHoursSkipped();
+    const phase = progressState.phase || (this.officialHoursBagLoading ? 'statistics' : 'done');
+    const phaseLabel = phase === 'statistics'
+      ? 'Consultando Sesame Statistics'
+      : phase === 'history'
+        ? 'Aplicando bolsa de horas'
+        : officialSkipped
+          ? 'Modo cálculo local'
+          : 'Balances listos';
+    const phaseSteps = [
+      { key: 'local', label: 'Base local' },
+      { key: 'statistics', label: 'Statistics' },
+      { key: 'history', label: 'Bolsa' },
+      { key: 'done', label: 'Listo' }
+    ];
+    const phaseRank = { local: 0, statistics: 1, history: 2, done: 3 };
+    const activeEmployeeIds = new Set((progressState.activeEmployeeIds || []).map(String));
+    const lastError = progressState.lastError || this.officialHoursBagError || '';
+    const sourceActionsHtml = officialSkipped
+      ? '<button type="button" class="btn-secondary" onclick="FichajesModule.retryOfficialWorkedHours()" style="font-size:0.65rem; padding:4px 8px;">Probar Sesame Statistics</button>'
+      : '<button type="button" class="btn-secondary" onclick="FichajesModule.useLocalBalanceOnly()" style="font-size:0.65rem; padding:4px 8px;">Usar solo cálculo local</button>';
+    const loadingPanelHtml = this.officialHoursBagLoading ? `
+          <div class="balance-load-panel">
+            <div class="balance-load-main">
+              <strong class="balance-load-title">${escapeHTML(phaseLabel)}</strong>
+              <span title="${escapeHTML(`${endpointLabel} · ${rangeLabel}`)}">${escapeHTML(progressLabel)}</span>
+            </div>
+            <div class="balance-load-track" aria-hidden="true">
+              <div class="balance-load-fill" style="width:${progressPct}%;"></div>
+            </div>
+            <div class="balance-load-steps">
+              ${phaseSteps.map(step => {
+                const done = officialSkipped
+                  ? step.key === 'local' || step.key === 'done'
+                  : phaseRank[step.key] <= phaseRank[phase];
+                const active = step.key === phase;
+                return `<span class="balance-load-step ${done ? 'done' : ''} ${active ? 'active' : ''}">${escapeHTML(step.label)}</span>`;
+              }).join('')}
+            </div>
+          </div>
+    ` : '';
     const sourceAuditHtml = `
       <tr class="balance-source-audit-row">
         <td colspan="5" style="padding: 10px 14px; background: rgba(45, 212, 191, 0.07); border-bottom: 1px solid rgba(45, 212, 191, 0.16);">
-          <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; font-size:0.72rem; color:var(--text-muted);">
+          ${loadingPanelHtml}
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; font-size:0.72rem; color:var(--text-muted); ${loadingPanelHtml ? 'margin-top:10px;' : ''}">
             <strong style="color:var(--text-primary); font-size:0.74rem;">Fuente del balance</strong>
             <span style="display:inline-flex; align-items:center; gap:6px;">
               <span style="width:7px; height:7px; border-radius:50%; background:#2dd4bf;"></span>
-              ${officialCount} Sesame
+              ${officialCount} Sesame Statistics
             </span>
             <span style="display:inline-flex; align-items:center; gap:6px;">
               <span style="width:7px; height:7px; border-radius:50%; background:#f59e0b;"></span>
-              ${localCount} calculado
+              ${localCount} calculado local
             </span>
-            ${this.officialHoursBagError ? `<span title="${escapeHTML(this.officialHoursBagError)}" style="color:#f59e0b;">Endpoint oficial parcialmente no disponible</span>` : ''}
+            <span style="display:inline-flex; align-items:center; gap:6px;">
+              <span style="width:7px; height:7px; border-radius:50%; background:#94a3b8;"></span>
+              ${pendingCount} pendientes
+            </span>
+            <span style="display:inline-flex; align-items:center; gap:6px;">
+              <span style="width:7px; height:7px; border-radius:50%; background:#60a5fa;"></span>
+              ${adjustedLocalCount} ajuste bolsa
+            </span>
+            <span style="display:inline-flex; align-items:center; gap:6px;">
+              <span style="width:7px; height:7px; border-radius:50%; background:#f87171;"></span>
+              ${errorCount} error/sin datos
+            </span>
+            ${officialSkipped ? '<span style="color:#f59e0b;">Modo local manual</span>' : ''}
+            ${lastError && !officialSkipped ? `<span title="${escapeHTML(lastError)}" style="color:#f59e0b;">Ultimo error resumido</span>` : ''}
+            ${sourceActionsHtml}
           </div>
         </td>
       </tr>
@@ -6577,43 +7412,127 @@ const FichajesModule = {
       const hasAnnualBalance = typeof stat.annualBalance === 'number';
       const aColor = !hasAnnualBalance ? 'var(--text-muted)' : (stat.annualBalance >= 0 ? '#4ade80' : '#f87171');
       const sourceList = Array.from(stat.sources);
-      const sourceLabel = sourceList.length === 1
-        ? sourceList[0]
-        : sourceList.includes('Estimado')
-          ? 'Mixto/estimado'
-          : 'Mixto';
-      const sourceColor = sourceLabel.startsWith('Sesame oficial') || sourceLabel.startsWith('Sesame BI')
+      const officialError = this.officialHoursBagErrors?.get(String(stat.employeeId)) || '';
+      const isPending = this.officialHoursBagLoading && !stat.hasOfficialBalance && !officialError;
+      const localRuleAdjustment = Number(stat.localRuleAdjustmentSeconds || 0);
+      const hasLocalRuleAdjustment = localRuleAdjustment !== 0;
+      const ruleNames = Array.isArray(stat.hoursBagRuleHistory?.ruleNames)
+        ? stat.hoursBagRuleHistory.ruleNames.filter(Boolean).join(', ')
+        : '';
+      const sourceLabel = stat.hasOfficialBalance
+        ? 'Sesame Statistics'
+        : isPending
+          ? 'Pendiente'
+          : officialError
+            ? 'Fallback local'
+            : hasLocalRuleAdjustment
+              ? 'Calculado + bolsa Sesame'
+            : sourceList.length === 0
+              ? 'Sin fichajes'
+              : sourceList.length === 1
+                ? sourceList[0]
+                : sourceList.includes('Estimado')
+                  ? 'Mixto/estimado'
+                  : 'Mixto';
+      const sourceColor = sourceLabel.startsWith('Sesame Statistics') || sourceLabel.startsWith('Sesame BI')
         ? '#2dd4bf'
+        : sourceLabel === 'Pendiente'
+          ? '#94a3b8'
         : sourceLabel === 'Estimado' || sourceLabel === 'Mixto/estimado'
           ? '#f59e0b'
-          : '#60a5fa';
+          : sourceLabel === 'Fallback local'
+            ? '#f59e0b'
+            : sourceLabel === 'Calculado + bolsa Sesame'
+              ? '#60a5fa'
+              : '#60a5fa';
       const annualTitle = hasAnnualBalance
         ? 'Acumulado horario devuelto por el perfil de Sesame'
         : 'Sesame no ha devuelto acumulado horario para este empleado';
-      const sourceBadgeLabel = stat.hasOfficialBalance ? 'Sesame' : 'Calculado';
-      const sourceBadgeColor = stat.hasOfficialBalance ? '#2dd4bf' : '#f59e0b';
+      const sourceBadgeLabel = stat.hasOfficialBalance
+        ? 'Sesame Statistics'
+        : isPending
+          ? 'Pendiente'
+          : officialError
+            ? 'Fallback local'
+            : hasLocalRuleAdjustment
+              ? 'Local + bolsa'
+              : 'Calculado local';
+      const sourceBadgeColor = stat.hasOfficialBalance ? '#2dd4bf' : (isPending ? '#94a3b8' : (hasLocalRuleAdjustment ? '#60a5fa' : '#f59e0b'));
+      const rowId = String(stat.employeeId);
+      const rowIsActive = activeEmployeeIds.has(rowId);
+      const rowIsLoading = this.officialHoursBagLoading && (isPending || rowIsActive);
+      const rowPhaseLabel = rowIsActive
+        ? (phase === 'history' ? 'Aplicando bolsa...' : 'Consultando Sesame...')
+        : stat.hasOfficialBalance
+          ? 'Confirmado por Sesame'
+          : hasLocalRuleAdjustment
+            ? 'Ajustado con bolsa'
+            : isPending
+              ? 'En cola'
+              : officialError
+                ? 'Fallback local'
+                : 'Base local';
+      const rowClass = [
+        'balance-row',
+        rowIsLoading ? 'is-loading' : '',
+        rowIsActive ? 'is-active' : '',
+        stat.hasOfficialBalance ? 'has-official' : '',
+        hasLocalRuleAdjustment ? 'has-bag-adjustment' : '',
+        officialError ? 'has-error' : ''
+      ].filter(Boolean).join(' ');
       const localComparison = stat.hasOfficialBalance && stat.days > 0
-        ? ` Calculo local para comparar: ${format(stat.localPeriodBalance)}.`
+        ? ` Calculo local ajustado para comparar: ${format(stat.localPeriodBalance)}. Diferencia Sesame-local: ${format(stat.periodBalance - stat.localPeriodBalance)}.`
         : '';
+      const localBreakdown = [
+        `Balance local base: ${format(stat.localBaseBalance ?? stat.localPeriodBalance)}.`,
+        hasLocalRuleAdjustment ? `Ajuste bolsa Sesame: ${format(localRuleAdjustment)}.` : 'Ajuste bolsa Sesame: 0h 0m.',
+        hasLocalRuleAdjustment && ruleNames ? `Reglas: ${ruleNames}.` : '',
+        hasLocalRuleAdjustment ? `Eventos bolsa: ${stat.hoursBagRuleHistory?.itemsCount || 0}.` : '',
+        `Balance local ajustado: ${format(stat.localPeriodBalance)}.`
+      ].filter(Boolean).join(' ');
+      const officialDiagnostics = stat.hasOfficialBalance
+        ? [
+            `Balance usado: ${format(stat.periodBalance)}.`,
+            `Fuente usada: Sesame Statistics.`,
+            localBreakdown,
+            `Balance Sesame Statistics: ${format(stat.officialBalanceSeconds ?? stat.periodBalance)}.`,
+            `Variante consulta: ${stat.officialQueryVariant || 'no indicada'}.`,
+            `secondsWorked oficial: ${stat.officialWorkedSeconds ?? 'no disponible'}.`,
+            `secondsToWork oficial: ${stat.officialTheoreticSeconds ?? 'no disponible'}.`,
+            `secondsBalance oficial: ${stat.officialBalanceSeconds ?? stat.periodBalance}.`
+          ].join(' ')
+        : [
+            `Balance usado: ${format(stat.periodBalance)}.`,
+            `Fuente usada: ${sourceBadgeLabel}.`,
+            localBreakdown,
+            officialError ? `Error API: ${officialError}.` : '',
+            this.hoursBagRuleHistoryError ? `Error bolsa: ${this.hoursBagRuleHistoryError}.` : '',
+            isPending ? 'Sesame Statistics pendiente de respuesta.' : ''
+          ].filter(Boolean).join(' ');
       const sourceTitle = sourceLabel === 'Mixto/estimado'
         ? `Teórico calculado con varias fuentes (${sourceList.join(', ')}). Revisa los días estimados si necesitas auditoría exacta.`
         : stat.hasOfficialBalance
-          ? `Balance oficial devuelto por Sesame hours-bag-overtime para este periodo.${localComparison}`
-          : `Balance calculado localmente porque Sesame no devolvió balance oficial para este empleado. Fuente del teórico: ${sourceLabel}.`;
-      const daysLabel = stat.days > 0 ? stat.days : 'Of.';
+          ? `Balance oficial devuelto por Sesame Statistics (${stat.officialRawSource || '/schedule/v1/reports/worked-hours'}) para este periodo.${localComparison} ${officialDiagnostics}`
+          : isPending
+            ? `Cargando balance oficial desde Sesame Statistics. Mientras tanto se muestra el cálculo local. ${officialDiagnostics}`
+            : `Balance calculado localmente porque Sesame Statistics no devolvió balance oficial para este empleado. Fuente del teórico: ${sourceLabel}. ${officialDiagnostics}`;
+      const daysLabel = stat.days > 0 ? stat.days : (stat.hasOfficialBalance ? 'Of.' : '0');
       const daysTitle = stat.days > 0
         ? `${stat.days} dias con fichaje en el periodo`
-        : 'Fila creada desde el balance oficial de Sesame';
+        : stat.hasOfficialBalance
+          ? 'Fila creada desde Sesame Statistics'
+          : 'Fila base sin fichajes locales en el periodo';
 
       // Progresión visual (0.5 es neutro, escala +- 20h)
       const progress = Math.min(100, Math.max(0, 50 + (stat.periodBalance / 72000) * 50));
 
       return `
-        <tr class="balance-row">
+        <tr class="${rowClass}">
           <td>
             <div class="user-chip-table" style="display:flex; align-items:center; gap:10px;">
               ${renderLocalAvatar(stat.name, stat.photo, 'balance-avatar', 'width:32px; height:32px; border-radius:50%; object-fit:cover; border: 1px solid var(--border);')}
               <span style="font-weight:600; font-size:0.9rem;">${escapeHTML(stat.name)}</span>
+              <span class="balance-row-processing">${escapeHTML(rowPhaseLabel)}</span>
               <span title="${escapeHTML(daysTitle)}" style="margin-left:auto; min-width:24px; height:20px; display:inline-flex; align-items:center; justify-content:center; border-radius:999px; background:rgba(148,163,184,0.16); color:var(--text-muted); font-size:0.68rem; font-weight:800;">${escapeHTML(String(daysLabel))}</span>
             </div>
           </td>
