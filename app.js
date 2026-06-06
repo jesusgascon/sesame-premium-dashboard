@@ -4851,11 +4851,19 @@ const FichajesModule = {
       renderEmployeeFilterList();
 
       // GUARDAR EN CACHÉ
-      sessionStorage.setItem(cacheKey, JSON.stringify({
-        data: this.data,
-        realSignings: this.realSignings,
-        biTheoreticMap: Object.fromEntries(this.biTheoreticMap || new Map())
-      }));
+      // Balance trabaja con el ejercicio completo y puede superar la cuota de sessionStorage.
+      // La caché es una optimización: si no cabe, la carga no debe mostrarse como error de Sesame.
+      if (this.currentView !== 'balance') {
+        try {
+          sessionStorage.setItem(cacheKey, JSON.stringify({
+            data: this.data,
+            realSignings: this.realSignings,
+            biTheoreticMap: Object.fromEntries(this.biTheoreticMap || new Map())
+          }));
+        } catch (cacheError) {
+          console.info('Fichajes: caché omitida por límite del navegador.', cacheError?.name || cacheError?.message || cacheError);
+        }
+      }
 
       // WIDGETS AVANZADOS: Mostrar patrones de trabajo y radar
       if (document.getElementById('patterns-widget')) {
