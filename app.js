@@ -7242,6 +7242,18 @@ const FichajesModule = {
     const completionPct = summary.theoretic > 0
       ? Math.min(140, Math.round((summary.equivalent / summary.theoretic) * 100))
       : 0;
+    const formatDayTitle = row => {
+      const dateKey = String(row?.date || '');
+      const match = dateKey.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!match) return row?.dayName || dateKey || 'Dia';
+      const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+      const label = date.toLocaleDateString('es-ES', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long'
+      });
+      return label.charAt(0).toUpperCase() + label.slice(1);
+    };
     const dayRowsHtml = summary.rows.length ? summary.rows.map((row, index) => {
       const entriesHtml = (row.entries || []).map(entry => {
         const type = entry.type === 'pause' ? 'Pausa' : (entry.typeLabel || 'Trabajo');
@@ -7258,7 +7270,7 @@ const FichajesModule = {
         <details class="balance-day-card"${openAttr}>
           <summary class="balance-day-head">
             <div>
-              <strong>${escapeHTML(row.dayName || row.date || 'Dia')}</strong>
+              <strong>${escapeHTML(formatDayTitle(row))}</strong>
               ${row.absenceLabel ? `<span>${escapeHTML(row.absenceLabel)}</span>` : ''}
             </div>
             <b class="${Number(row.balanceSec || 0) >= 0 ? 'positive' : 'negative'}">${formatSigned(row.balanceSec)}</b>
