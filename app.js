@@ -3617,6 +3617,7 @@ const FichajesModule = {
     document.getElementById('prev-month-signings')?.addEventListener('click', () => {
       if (this.currentView === 'day') this.currentDate.setDate(this.currentDate.getDate() - 1);
       else if (this.currentView === 'week') this.currentDate.setDate(this.currentDate.getDate() - 7);
+      else if (this.currentView === 'balance') this.currentDate.setFullYear(this.currentDate.getFullYear() - 1);
       else this.currentDate.setMonth(this.currentDate.getMonth() - 1);
 
       this.persistPeriodState();
@@ -3627,6 +3628,7 @@ const FichajesModule = {
     document.getElementById('next-month-signings')?.addEventListener('click', () => {
       if (this.currentView === 'day') this.currentDate.setDate(this.currentDate.getDate() + 1);
       else if (this.currentView === 'week') this.currentDate.setDate(this.currentDate.getDate() + 7);
+      else if (this.currentView === 'balance') this.currentDate.setFullYear(this.currentDate.getFullYear() + 1);
       else this.currentDate.setMonth(this.currentDate.getMonth() + 1);
 
       this.persistPeriodState();
@@ -3838,7 +3840,10 @@ const FichajesModule = {
     let startDate = new Date(cursor);
     let endDate = new Date(cursor);
 
-    if (this.currentView === 'week') {
+    if (this.currentView === 'balance') {
+      startDate = new Date(cursor.getFullYear(), 0, 1);
+      endDate = new Date(cursor.getFullYear(), 11, 31);
+    } else if (this.currentView === 'week') {
       const day = startDate.getDay() || 7;
       startDate.setDate(startDate.getDate() - day + 1);
       endDate = new Date(startDate);
@@ -3949,6 +3954,8 @@ const FichajesModule = {
       end.setDate(start.getDate() + 6);
 
       el.textContent = `${start.toLocaleDateString('es-ES', {day: 'numeric', month: 'short'})} al ${end.toLocaleDateString('es-ES', {day: 'numeric', month: 'short', year: 'numeric'})}`;
+    } else if (this.currentView === 'balance') {
+      el.textContent = `Ejercicio ${this.currentDate.getFullYear()}`;
     } else {
       el.textContent = this.currentDate.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
     }
@@ -6189,8 +6196,8 @@ const FichajesModule = {
       if (this.currentView === 'balance') {
         thead.innerHTML = `
           <tr>
-            <th class="col-employee" style="width:250px">Empleado</th>
-            <th class="text-center">Balance Periodo</th>
+            <th class="col-employee balance-col-employee">Empleado</th>
+            <th class="text-center">Balance Ejercicio</th>
             <th class="text-center">Acumulado Sesame</th>
             <th class="text-center">Estado</th>
             <th style="min-width:150px">Visualización</th>
@@ -7141,6 +7148,222 @@ const FichajesModule = {
     ` : `<div class="insight-empty">Sin ausencias próximas para este perfil.</div>`);
   },
 
+  buildBalanceEmployeeSummary(employeeId) {
+    const id = String(employeeId || '');
+    const info = this.getBalanceEmployeeInfo(id);
+    const rows = (this.data || [])
+      .filter(row => String(row.employeeId) === id)
+      .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+
+    const totals = rows.reduce((acc, row) => {
+      const worked = Number(row.workedSeconds || 0);
+      const compensated = Number(row.compensatedSeconds || 0);
+      const equivalent = Number(row.totalEquivalentSeconds ?? (worked + compensated));
+      const theoretic = Number(row.theoreticSeconds || 0);
+      acc.worked += worked;
+      acc.compensated += compensated;
+      acc.equivalent += equivalent;
+      acc.theoretic += theoretic;
+      acc.balance += Number(row.balanceSec || 0);
+      acc.pause += Number(row.totalPauseSec || 0);
+      acc.workSegments += Number(row.workSegments || 0);
+      acc.pauseSegments += Number(row.pauseSegments || 0);
+      acc.entries += Array.isArray(row.entries) ? row.entries.length : 0;
+      if (row.absenceLabel) acc.absences.add(row.absenceLabel);
+      if (row.isLive) acc.liveDays += 1;
+      return acc;
+    }, {
+      worked: 0,
+      compensated: 0,
+      equivalent: 0,
+      theoretic: 0,
+      balance: 0,
+      pause: 0,
+      workSegments: 0,
+      pauseSegments: 0,
+      entries: 0,
+      absences: new Set(),
+      liveDays: 0
+    });
+
+    const official = this.officialHoursBagMap?.get(id) || null;
+    const history = this.hoursBagRuleHistoryMap?.get(id) || null;
+    const bagAdjustment = Number(history?.adjustmentSeconds || 0);
+    const localAdjustedBalance = totals.balance + bagAdjustment;
+    const officialBalance = official?.secondsBalance ?? official?.periodBalance ?? null;
+
+    return {
+      employeeId: id,
+      name: info.name,
+      photo: info.photo,
+      annualBalance: info.annualBalance,
+      rows,
+      worked: totals.worked,
+      compensated: totals.compensated,
+      equivalent: totals.equivalent,
+      theoretic: totals.theoretic,
+      localBaseBalance: totals.balance,
+      bagAdjustment,
+      localAdjustedBalance,
+      officialBalance,
+      officialWorked: official?.secondsWorked ?? official?.workedSeconds ?? null,
+      officialTheoretic: official?.secondsToWork ?? official?.theoreticSeconds ?? null,
+      source: officialBalance !== null ? 'Sesame Statistics' : (bagAdjustment ? 'Local + bolsa' : 'Calculado local'),
+      pause: totals.pause,
+      workSegments: totals.workSegments,
+      pauseSegments: totals.pauseSegments,
+      entries: totals.entries,
+      absences: Array.from(totals.absences),
+      liveDays: totals.liveDays,
+      history
+    };
+  },
+
+  openBalanceEmployeeModal(employeeId) {
+    const summary = this.buildBalanceEmployeeSummary(employeeId);
+    const formatSigned = seconds => {
+      const value = Number(seconds || 0);
+      const h = Math.floor(Math.abs(value) / 3600);
+      const m = Math.floor((Math.abs(value) % 3600) / 60);
+      return `${value >= 0 ? '+' : '-'}${h}h ${m}m`;
+    };
+    const formatDuration = seconds => this.formatDurationCompact(Number(seconds || 0));
+    const balanceUsed = summary.officialBalance ?? summary.localAdjustedBalance;
+    const workedUsed = summary.officialWorked ?? summary.worked;
+    const theoreticUsed = summary.officialTheoretic ?? summary.theoretic;
+    const balanceTone = balanceUsed > 0 ? 'positive' : balanceUsed < 0 ? 'negative' : 'neutral';
+    const safeName = escapeHTML(summary.name);
+    const safePhoto = safeHttpUrlAttr(summary.photo);
+    const initials = escapeHTML(getInitials(summary.name));
+    const { start, end } = this.getCurrentRangeKeys();
+    const safeRange = escapeHTML(`${start} - ${end}`);
+    const scopeLabel = this.currentView === 'balance' ? 'ejercicio' : 'periodo';
+    const scopeTitle = this.currentView === 'balance' ? 'Balance del ejercicio' : 'Balance del periodo';
+    const completionPct = summary.theoretic > 0
+      ? Math.min(140, Math.round((summary.equivalent / summary.theoretic) * 100))
+      : 0;
+    const dayRowsHtml = summary.rows.length ? summary.rows.map((row, index) => {
+      const entriesHtml = (row.entries || []).map(entry => {
+        const type = entry.type === 'pause' ? 'Pausa' : (entry.typeLabel || 'Trabajo');
+        return `
+          <div class="balance-day-entry">
+            <span>${escapeHTML(entry.in || '--:--')} - ${escapeHTML(entry.out || '--:--')}</span>
+            <strong>${escapeHTML(entry.duration || '--')}</strong>
+            <em>${escapeHTML(type)}</em>
+          </div>
+        `;
+      }).join('');
+      const openAttr = index === 0 ? ' open' : '';
+      return `
+        <details class="balance-day-card"${openAttr}>
+          <summary class="balance-day-head">
+            <div>
+              <strong>${escapeHTML(row.dayName || row.date || 'Dia')}</strong>
+              ${row.absenceLabel ? `<span>${escapeHTML(row.absenceLabel)}</span>` : ''}
+            </div>
+            <b class="${Number(row.balanceSec || 0) >= 0 ? 'positive' : 'negative'}">${formatSigned(row.balanceSec)}</b>
+            <span class="balance-day-toggle">Detalles</span>
+          </summary>
+          <div class="balance-day-metrics">
+            <span>Trabajo ${formatDuration(row.workedSeconds)}</span>
+            <span>Teorico ${formatDuration(row.theoreticSeconds)}</span>
+            <span>Pausas ${formatDuration(row.totalPauseSec)}</span>
+          </div>
+          <div class="balance-day-entries">${entriesHtml || '<span class="balance-empty-line">Sin tramos detallados</span>'}</div>
+        </details>
+      `;
+    }).join('') : '<div class="balance-empty-line">No hay jornadas locales cargadas para este periodo.</div>';
+
+    const overlay = document.createElement('div');
+    overlay.className = 'contact-card-overlay balance-employee-overlay';
+    overlay.innerHTML = `
+      <div class="balance-employee-modal animate-pop" role="dialog" aria-modal="true" aria-label="Detalle de balance de ${safeName}">
+        <button class="contact-card-close balance-employee-close" type="button" aria-label="Cerrar detalle">&times;</button>
+        <div class="balance-employee-hero">
+          <div class="balance-employee-avatar">
+            ${safePhoto ? `<img src="${safePhoto}" alt="${safeName}" referrerpolicy="no-referrer">` : initials}
+          </div>
+          <div class="balance-employee-title">
+            <span>${scopeTitle}</span>
+            <h2>${safeName}</h2>
+            <p>${safeRange} · ${summary.rows.length} jornadas · ${summary.source}</p>
+          </div>
+          <div class="balance-employee-score ${balanceTone}">
+            <small>Balance usado</small>
+            <strong>${formatSigned(balanceUsed)}</strong>
+          </div>
+        </div>
+
+        <div class="balance-employee-body">
+          <div class="balance-kpi-grid">
+            <div class="balance-kpi"><span>Trabajado</span><strong>${formatDuration(workedUsed)}</strong></div>
+            <div class="balance-kpi"><span>Teorico</span><strong>${formatDuration(theoreticUsed)}</strong></div>
+            <div class="balance-kpi"><span>Compensado</span><strong>${formatDuration(summary.compensated)}</strong></div>
+            <div class="balance-kpi"><span>Pausas</span><strong>${formatDuration(summary.pause)}</strong></div>
+          </div>
+
+          <div class="balance-modal-section">
+            <div class="balance-modal-section-head">
+              <strong>Comparativa de balance</strong>
+              <span>${completionPct}% de cumplimiento equivalente del ${scopeLabel}</span>
+            </div>
+            <div class="balance-compare-grid">
+              <div><span>Base local</span><strong>${formatSigned(summary.localBaseBalance)}</strong></div>
+              <div><span>Ajuste bolsa</span><strong>${formatSigned(summary.bagAdjustment)}</strong></div>
+              <div><span>Local ajustado</span><strong>${formatSigned(summary.localAdjustedBalance)}</strong></div>
+              <div><span>Sesame Statistics</span><strong>${summary.officialBalance !== null ? formatSigned(summary.officialBalance) : '--'}</strong></div>
+              <div><span>Trabajo Sesame</span><strong>${summary.officialWorked !== null ? formatDuration(summary.officialWorked) : '--'}</strong></div>
+              <div><span>Teorico Sesame</span><strong>${summary.officialTheoretic !== null ? formatDuration(summary.officialTheoretic) : '--'}</strong></div>
+            </div>
+          </div>
+
+          <div class="balance-modal-section">
+            <div class="balance-modal-section-head">
+              <strong>Actividad</strong>
+              <span>${summary.entries} fichajes · ${summary.workSegments} trabajo · ${summary.pauseSegments} pausas</span>
+            </div>
+            <div class="balance-activity-strip">
+              <span>Ausencias: ${summary.absences.length ? escapeHTML(summary.absences.join(', ')) : 'Sin ausencias en el periodo'}</span>
+              <span>Bolsa: ${summary.history?.itemsCount || 0} eventos</span>
+              <span>En vivo: ${summary.liveDays}</span>
+            </div>
+          </div>
+
+          <div class="balance-modal-section">
+            <div class="balance-modal-section-head">
+              <strong>Jornadas y fichajes</strong>
+              <span>${summary.rows.length} dias · abre cada jornada</span>
+            </div>
+            <div class="balance-days-list">${dayRowsHtml}</div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const close = () => {
+      document.removeEventListener('keydown', onKeydown);
+      overlay.remove();
+    };
+    const onKeydown = event => {
+      if (event.key === 'Escape') close();
+    };
+    overlay.querySelector('.balance-employee-close')?.addEventListener('click', close);
+    overlay.addEventListener('click', event => {
+      if (event.target === overlay) close();
+    });
+    overlay.querySelectorAll('.balance-day-card').forEach(card => {
+      card.addEventListener('toggle', () => {
+        if (!card.open) return;
+        window.setTimeout(() => {
+          card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }, 80);
+      });
+    });
+    document.addEventListener('keydown', onKeydown);
+    document.body.appendChild(overlay);
+    overlay.querySelector('.balance-employee-close')?.focus();
+  },
+
   /**
    * Renderiza una vista resumen de balances acumulados por empleado.
    */
@@ -7307,6 +7530,7 @@ const FichajesModule = {
       return (sec >= 0 ? '+' : '-') + `${h}h ${m}m`;
     };
     const progressState = this.officialHoursBagProgress || {};
+    const scopeLabel = this.currentView === 'balance' ? 'ejercicio' : 'periodo';
     const officialCount = rows.filter(stat => stat.hasOfficialBalance).length;
     const pendingCount = this.officialHoursBagLoading
       ? Math.max(0, Number(progressState.pending || 0))
@@ -7512,10 +7736,10 @@ const FichajesModule = {
       const sourceTitle = sourceLabel === 'Mixto/estimado'
         ? `Teórico calculado con varias fuentes (${sourceList.join(', ')}). Revisa los días estimados si necesitas auditoría exacta.`
         : stat.hasOfficialBalance
-          ? `Balance oficial devuelto por Sesame Statistics (${stat.officialRawSource || '/schedule/v1/reports/worked-hours'}) para este periodo.${localComparison} ${officialDiagnostics}`
+          ? `Balance oficial devuelto por Sesame Statistics (${stat.officialRawSource || '/schedule/v1/reports/worked-hours'}) para este ${scopeLabel}.${localComparison} ${officialDiagnostics}`
           : isPending
             ? `Cargando balance oficial desde Sesame Statistics. Mientras tanto se muestra el cálculo local. ${officialDiagnostics}`
-            : `Balance calculado localmente porque Sesame Statistics no devolvió balance oficial para este empleado. Fuente del teórico: ${sourceLabel}. ${officialDiagnostics}`;
+            : `Balance calculado localmente porque Sesame Statistics no devolvió balance oficial para este empleado en este ${scopeLabel}. Fuente del teórico: ${sourceLabel}. ${officialDiagnostics}`;
       const daysLabel = stat.days > 0 ? stat.days : (stat.hasOfficialBalance ? 'Of.' : '0');
       const daysTitle = stat.days > 0
         ? `${stat.days} dias con fichaje en el periodo`
@@ -7529,11 +7753,15 @@ const FichajesModule = {
       return `
         <tr class="${rowClass}">
           <td>
-            <div class="user-chip-table" style="display:flex; align-items:center; gap:10px;">
-              ${renderLocalAvatar(stat.name, stat.photo, 'balance-avatar', 'width:32px; height:32px; border-radius:50%; object-fit:cover; border: 1px solid var(--border);')}
-              <span style="font-weight:600; font-size:0.9rem;">${escapeHTML(stat.name)}</span>
-              <span class="balance-row-processing">${escapeHTML(rowPhaseLabel)}</span>
-              <span title="${escapeHTML(daysTitle)}" style="margin-left:auto; min-width:24px; height:20px; display:inline-flex; align-items:center; justify-content:center; border-radius:999px; background:rgba(148,163,184,0.16); color:var(--text-muted); font-size:0.68rem; font-weight:800;">${escapeHTML(String(daysLabel))}</span>
+            <div class="balance-employee-cell">
+              <button type="button" class="balance-avatar-trigger" data-employee-id="${escapeHTML(rowId)}" title="Ver resumen ampliado de ${escapeHTML(stat.name)}">
+                ${renderLocalAvatar(stat.name, stat.photo, 'balance-avatar', 'width:32px; height:32px; border-radius:50%; object-fit:cover; border: 1px solid var(--border);')}
+              </button>
+              <div class="balance-employee-main">
+                <span class="balance-employee-name-line" title="${escapeHTML(stat.name)}">${escapeHTML(stat.name)}</span>
+                <span class="balance-row-processing">${escapeHTML(rowPhaseLabel)}</span>
+              </div>
+              <span class="balance-days-pill" title="${escapeHTML(daysTitle)}">${escapeHTML(String(daysLabel))}</span>
             </div>
           </td>
           <td class="text-center">
@@ -7567,6 +7795,13 @@ const FichajesModule = {
         </tr>
       `;
     }).join('');
+    tbody.querySelectorAll('.balance-avatar-trigger').forEach(button => {
+      button.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        this.openBalanceEmployeeModal(button.dataset.employeeId);
+      });
+    });
   }
 };
 
