@@ -203,6 +203,51 @@ function titleCaseAbsenceToken(value) {
     .replace(/\w\S*/g, word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
 }
 
+function normalizeRemuneratedType(value) {
+  return String(value ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+}
+
+function isRemuneratedAbsenceType(value) {
+  const token = normalizeRemuneratedType(value);
+  return ['remunerated', 'paid', 'paid_leave', 'paid_absence', 'with_pay'].includes(token);
+}
+
+function isKnownCompensatedAbsenceLabel(value) {
+  const text = String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  return /\b(permiso\s+retribuido|medico|cabecera|seguridad\s+social)\b/.test(text);
+}
+
+function getAbsenceRemuneratedType(...sources) {
+  for (const source of sources) {
+    if (!source) continue;
+    const value = source.remuneratedType ?? source.remunerated_type ?? source.isRemunerated ?? source.paid;
+    if (value !== undefined && value !== null && value !== '') return value;
+  }
+  return '';
+}
+
+function parseTimeToSeconds(value) {
+  const match = String(value || '').match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) return null;
+  const h = Number(match[1]);
+  const m = Number(match[2]);
+  const s = Number(match[3] || 0);
+  if (![h, m, s].every(Number.isFinite)) return null;
+  return h * 3600 + m * 60 + s;
+}
+
+function getDayOffSeconds(dayOff) {
+  const explicit = Number(dayOff?.seconds);
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+  const start = parseTimeToSeconds(dayOff?.startTime || dayOff?.start_time);
+  const end = parseTimeToSeconds(dayOff?.endTime || dayOff?.end_time);
+  if (start === null || end === null || end <= start) return 0;
+  return end - start;
+}
+
 function displayAbsenceTypeName(type, fallback = 'Ausencia') {
   const candidates = [
     type?.alias,
@@ -643,6 +688,10 @@ async function fetchAbsenceTypes() {
       rawName: t.name || '',
       alias: t.alias || '',
       category: t.category || '',
+      type: t.type || '',
+      pickMode: t.pickMode || '',
+      remuneratedType: t.remuneratedType ?? t.remunerated_type ?? '',
+      isRemunerated: isRemuneratedAbsenceType(t.remuneratedType ?? t.remunerated_type),
       color: paletteColor,
     };
   });
@@ -793,6 +842,36 @@ function getLocalDateKey(date = new Date()) {
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function normalizeDateKey(value) {
+  if (!value) return '';
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value)) {
+    return value.slice(0, 10);
+  }
+  return getLocalDateKey(value);
+}
+
+function addLocalDays(dateKey, amount) {
+  const normalized = normalizeDateKey(dateKey);
+  if (!normalized) return '';
+  const date = new Date(`${normalized}T00:00:00`);
+  if (isNaN(date.getTime())) return '';
+  date.setDate(date.getDate() + amount);
+  return getLocalDateKey(date);
+}
+
+function isWeekdayDateKey(dateKey) {
+  const normalized = normalizeDateKey(dateKey);
+  if (!normalized) return false;
+  const date = new Date(`${normalized}T00:00:00`);
+  if (isNaN(date.getTime())) return false;
+  const day = date.getDay();
+  return day >= 1 && day <= 5;
+}
+
+function isLocalHolidayDateKey(dateKey) {
+  return Boolean(HOLIDAYS_ZGZ[normalizeDateKey(dateKey)]);
 }
 
 function readSessionDate(key, fallback = new Date()) {
@@ -2396,16 +2475,20 @@ async function loadDataInternal() {
               const calType = item.calendarType || {};
               if (!calType.id) return;
               // Añadir al catálogo de tipos si no existe ya
-              if (!STATE.absenceTypes.find(t => t.id === calType.id)) {
-                STATE.absenceTypes.push({
-                  id: calType.id,
-                  name: displayAbsenceTypeName(calType),
-                  rawName: calType.name || '',
-                  alias: calType.alias || '',
-                  color: calType.color || 'ssmv2-purple',
-                  category: calType.category || 'vacation'
-                });
-              }
+	              if (!STATE.absenceTypes.find(t => t.id === calType.id)) {
+	                STATE.absenceTypes.push({
+	                  id: calType.id,
+	                  name: displayAbsenceTypeName(calType),
+	                  rawName: calType.name || '',
+	                  alias: calType.alias || '',
+	                  type: calType.type || '',
+	                  pickMode: calType.pickMode || '',
+	                  remuneratedType: calType.remuneratedType ?? calType.remunerated_type ?? '',
+	                  isRemunerated: isRemuneratedAbsenceType(calType.remuneratedType ?? calType.remunerated_type),
+	                  color: calType.color || 'ssmv2-purple',
+	                  category: calType.category || 'vacation'
+	                });
+	              }
               // Activar el filtro para que se muestre (no oculto por defecto)
               STATE.activeFilters.add(calType.id);
             });
@@ -2433,17 +2516,21 @@ async function loadDataInternal() {
         const rawType = ct.calendar_type || {};
 
         // Registrar dinámicamente el tipo si no existía (ej. ausencias históricas o parciales no devueltas en /absence-types)
-        if (rawType.id && !STATE.absenceTypes.find(t => t.id === rawType.id)) {
-          STATE.absenceTypes.push({
-            id: rawType.id,
-            name: displayAbsenceTypeName(rawType),
-            rawName: rawType.name || '',
-            alias: rawType.alias || '',
-            color: rawType.color || 'ssmv2-purple',
-            category: rawType.category || 'vacation'
-          });
-          STATE.activeFilters.add(rawType.id);
-        }
+	        if (rawType.id && !STATE.absenceTypes.find(t => t.id === rawType.id)) {
+	          STATE.absenceTypes.push({
+	            id: rawType.id,
+	            name: displayAbsenceTypeName(rawType),
+	            rawName: rawType.name || '',
+	            alias: rawType.alias || '',
+	            type: rawType.type || '',
+	            pickMode: rawType.pickMode || '',
+	            remuneratedType: rawType.remuneratedType ?? rawType.remunerated_type ?? '',
+	            isRemunerated: isRemuneratedAbsenceType(rawType.remuneratedType ?? rawType.remunerated_type),
+	            color: rawType.color || 'ssmv2-purple',
+	            category: rawType.category || 'vacation'
+	          });
+	          STATE.activeFilters.add(rawType.id);
+	        }
 
         const masterType = STATE.absenceTypes.find(t => t.id === rawType.id) || {};
 
@@ -4432,13 +4519,15 @@ const FichajesModule = {
           console.info(`BI Engine [${STATE.companyId.substring(0,8)}]: Fichajes OK · Sin geolocalización/IP (campos eliminados del esquema BI de esta empresa).`);
         }
 
-        // --- FALLBACK: Escaneo de metadatos de fichajes para encontrar jornada teórica ---
-        // A veces Sesame inyecta el dato en cada fichaje aunque no lo pidamos explícitamente
-        biData.forEach(row => {
-          if (row.employeeId && row.date && row.theoreticSeconds) {
-            biTheoreticMap.set(`${row.employeeId}_${row.date}`, Number(row.theoreticSeconds));
-          }
-        });
+	        // --- FALLBACK: Escaneo de metadatos de fichajes para encontrar jornada teórica ---
+	        // A veces Sesame inyecta el dato en cada fichaje aunque no lo pidamos explícitamente
+	        biData.forEach(row => {
+	          const employeeId = row.employeeId ?? row.employee_id ?? row.employee?.id;
+	          const dateKey = normalizeDateKey(row.date);
+	          if (employeeId && dateKey && row.theoreticSeconds) {
+	            biTheoreticMap.set(`${employeeId}_${dateKey}`, Number(row.theoreticSeconds));
+	          }
+	        });
 
         // 2. Obtener JORNADA TEÓRICA REAL (La que manda sobre todo, festivos incluidos)
         try {
@@ -4453,14 +4542,16 @@ const FichajesModule = {
                 {"field": "schedule_context_daily_computed.date", "operator": ">=", "value": start},
                 {"field": "schedule_context_daily_computed.date", "operator": "<=", "value": end}
              ],
-             "limit": 5000
-          });
-          const theoData = resTheo.data || resTheo || [];
-          theoData.forEach(row => {
-             if (row.employeeId && row.date) {
-               biTheoreticMap.set(`${row.employeeId}_${row.date}`, Number(row.theoreticSeconds));
-             }
-          });
+	             "limit": 10000
+	          });
+	          const theoData = resTheo.data || resTheo || [];
+	          theoData.forEach(row => {
+	             const employeeId = row.employeeId ?? row.employee_id ?? row.employee?.id;
+	             const dateKey = normalizeDateKey(row.date);
+	             if (employeeId && dateKey) {
+	               biTheoreticMap.set(`${employeeId}_${dateKey}`, Number(row.theoreticSeconds));
+	             }
+	          });
         } catch (e) {
           console.warn("Sub-query BI failed (Expected if not advanced):", e);
         }
@@ -4529,31 +4620,70 @@ const FichajesModule = {
 
       // 2.5 Excepciones de jornada + mapa de horarios de ausencias parciales
       const dayOverrides = new Map();
-      this.absenceTimesMap = new Map();
-      if (!_coreApiIs403 && !_employeeMode) {
-        try {
-          const calendarsRaw = await fetchCalendarsRaw(start, end);
+      const markEveOfNonWorkingDay = (employeeId, nonWorkingDate, label) => {
+        const dateKey = normalizeDateKey(nonWorkingDate);
+        const prevDate = addLocalDays(dateKey, -1);
+        if (!employeeId || !dateKey || !prevDate || !isWeekdayDateKey(dateKey) || !isWeekdayDateKey(prevDate)) return;
+        const key = `${employeeId}_${prevDate}`;
+        const existing = dayOverrides.get(key) || { workdayOverride: null, compensatedSeconds: 0, compensatedItems: [] };
+        existing.eveOfNonWorkingDaySeconds = 25200; // 7h
+        existing.eveOfNonWorkingDayLabel = label || 'Víspera de festivo';
+        dayOverrides.set(key, existing);
+	      };
+	      this.absenceTimesMap = new Map();
+	      const eveScanEnd = addLocalDays(end, 1) || end;
+	      Object.entries(HOLIDAYS_ZGZ).forEach(([holidayDate, holidayName]) => {
+	        if (holidayDate < start || holidayDate > eveScanEnd || !isLocalHolidayDateKey(holidayDate)) return;
+	        STATE.allEmployees.forEach((_, employeeId) => {
+	          markEveOfNonWorkingDay(employeeId, holidayDate, holidayName);
+	        });
+	      });
+	      if (!_coreApiIs403 && !_employeeMode) {
+	        try {
+	          const calendarsRaw = await fetchCalendarsRaw(start, eveScanEnd);
           calendarsRaw.forEach(cal => {
-            const isRemunerated = (cal.calendarType?.remuneratedType === 'remunerated') ||
-                                   (cal.typeReference?.remuneratedType === 'remunerated');
+            const typeId = cal.calendarType?.id || cal.typeReference?.id || cal.absenceType?.id || cal.absenceCalendar?.absenceType?.id;
+            const masterType = STATE.absenceTypes.find(t => String(t.id) === String(typeId)) || {};
+            const remuneratedType = getAbsenceRemuneratedType(
+              cal.calendarType,
+              cal.typeReference,
+              cal.absenceType,
+              cal.absenceCalendar?.absenceType,
+              masterType
+            );
+            const typeName = displayAbsenceTypeName(cal.calendarType || cal.typeReference || cal.absenceType || cal.absenceCalendar?.absenceType || masterType);
+            const isRemunerated = isRemuneratedAbsenceType(remuneratedType) || isKnownCompensatedAbsenceLabel(typeName);
             const empId = cal.employee?.id || cal.entityReference?.id;
             if (empId && cal.daysOff) {
               cal.daysOff.forEach(doff => {
                 if (!doff.date) return;
                 const key = `${empId}_${doff.date}`;
+                const dayOffSeconds = getDayOffSeconds(doff);
                 if (doff.startTime || doff.endTime || doff.dayOffTimeType === 'partial_day') {
                   this.absenceTimesMap.set(key, {
                     startTime: doff.startTime || null,
                     endTime:   doff.endTime   || null,
-                    seconds:   doff.seconds   || 0
+                    seconds:   dayOffSeconds,
+                    remuneratedType: remuneratedType || '',
+                    isRemunerated,
+                    label: typeName || ''
                   });
                 }
-                const existing = dayOverrides.get(key) || { workdayOverride: null, compensatedSeconds: 0 };
-                if (doff.dayOffTimeType === 'full_day' && typeof doff.seconds !== 'undefined') {
-                  existing.workdayOverride = doff.seconds;
+                const existing = dayOverrides.get(key) || { workdayOverride: null, compensatedSeconds: 0, compensatedItems: [] };
+                if (doff.dayOffTimeType === 'full_day' && dayOffSeconds > 0) {
+                  existing.workdayOverride = dayOffSeconds;
+                  markEveOfNonWorkingDay(empId, doff.date, typeName || 'Día no laborable');
                 }
-                if (isRemunerated && typeof doff.seconds !== 'undefined') {
-                  existing.compensatedSeconds += doff.seconds;
+                if (isRemunerated && dayOffSeconds > 0) {
+                  existing.compensatedSeconds += dayOffSeconds;
+                  existing.compensatedItems.push({
+                    label: typeName || 'Ausencia retribuida',
+                    seconds: dayOffSeconds,
+                    startTime: doff.startTime || null,
+                    endTime: doff.endTime || null,
+                    date: doff.date,
+                    remuneratedType: remuneratedType || 'remunerated'
+                  });
                 }
                 dayOverrides.set(key, existing);
               });
@@ -6094,28 +6224,43 @@ const FichajesModule = {
       // Prioridad 4: 8h por defecto
       let theoreticSeconds = 28800;
       let compensatedSeconds = 0;
+      let compensatedItems = [];
       let theoreticSource = 'Estimado';
-      const overrideKey = `${g.employeeId}_${g.date}`;
-      const dayOverride = this.dayOverrides && this.dayOverrides.get(overrideKey);
-      if (dayOverride) {
-        compensatedSeconds = Number(dayOverride.compensatedSeconds || 0);
-      }
+      let theoreticBeforeCompensation = 28800;
+      let compensatedAppliedToTheoretic = 0;
+	      const overrideKey = `${g.employeeId}_${g.date}`;
+	      const dayOverride = this.dayOverrides && this.dayOverrides.get(overrideKey);
+	      if (dayOverride) {
+	        compensatedSeconds = Number(dayOverride.compensatedSeconds || 0);
+	        compensatedItems = Array.isArray(dayOverride.compensatedItems) ? dayOverride.compensatedItems : [];
+	      }
 
-      if (this.biTheoreticMap && this.biTheoreticMap.has(overrideKey)) {
-        // El BI Engine ya nos da la jornada teórica final calculada por Sesame
-        theoreticSeconds = this.biTheoreticMap.get(overrideKey);
-        theoreticSource = compensatedSeconds > 0 ? 'Sesame BI + Calendario' : 'Sesame BI';
-      } else if (dayOverride && dayOverride.workdayOverride !== null) {
-        theoreticSeconds = dayOverride.workdayOverride;
-        theoreticSource = 'Calendario';
-      } else if (emp && emp.workdays && typeof emp.workdays[dayOfWeek] !== 'undefined') {
-        theoreticSeconds = emp.workdays[dayOfWeek];
-        theoreticSource = compensatedSeconds > 0 ? 'Plantilla + Calendario' : 'Plantilla';
-      }
+	      const isSesameComputedTheoretic = this.biTheoreticMap && this.biTheoreticMap.has(overrideKey);
+	      if (isSesameComputedTheoretic) {
+	        // El BI Engine ya nos da la jornada teórica final calculada por Sesame
+	        theoreticSeconds = this.biTheoreticMap.get(overrideKey);
+	        theoreticSource = compensatedSeconds > 0 ? 'Sesame BI + Calendario' : 'Sesame BI';
+	      } else if (dayOverride && dayOverride.workdayOverride !== null) {
+	        theoreticSeconds = dayOverride.workdayOverride;
+	        theoreticSource = 'Calendario';
+	      } else if (emp && emp.workdays && typeof emp.workdays[dayOfWeek] !== 'undefined') {
+	        theoreticSeconds = emp.workdays[dayOfWeek];
+	        theoreticSource = compensatedSeconds > 0 ? 'Plantilla + Calendario' : 'Plantilla';
+	      }
+	      if (dayOverride?.eveOfNonWorkingDaySeconds && theoreticSeconds > dayOverride.eveOfNonWorkingDaySeconds) {
+	        theoreticSeconds = dayOverride.eveOfNonWorkingDaySeconds;
+	        theoreticSource = `${theoreticSource} + Víspera`;
+	      }
 
-      // IMPORTANTE: Ya no ponemos la jornada teórica a 0 si hay ausencia.
-      // Sesame sigue mostrando la jornada teórica (ej: 7h o 8h) aunque sea festivo/ausencia.
-      // Lo que hace es "compensar" las horas.
+	      // IMPORTANTE: Ya no ponemos la jornada teórica a 0 si hay ausencia.
+	      // Sesame sigue mostrando la jornada teórica (ej: 7h o 8h) aunque sea festivo/ausencia.
+	      // En permisos retribuidos por horas, Sesame descuenta ese tiempo de la jornada a cubrir.
+	      theoreticBeforeCompensation = theoreticSeconds;
+	      if (!isSesameComputedTheoretic && compensatedSeconds > 0) {
+	        compensatedAppliedToTheoretic = Math.min(theoreticSeconds, compensatedSeconds);
+	        theoreticSeconds = Math.max(0, theoreticSeconds - compensatedAppliedToTheoretic);
+	        theoreticSource = `${theoreticSource} + Permiso retribuido`;
+	      }
 
       // --- Computed enriched metrics for the detail panel ---
       const workEntries = g.entries.filter(e => e.type === 'work' || e.type === 'special' || e.type === 'private');
@@ -6134,8 +6279,9 @@ const FichajesModule = {
         return isThirdParty;
       });
 
-      // El total trabajado para el balance incluye lo fichado + lo compensado (permisos retribuidos)
-      const totalEquivalentSeconds = g.totalWorkedSeconds + compensatedSeconds;
+      // El balance compara lo fichado contra la jornada final a cubrir.
+      // Si el BI de Sesame no está disponible, los permisos retribuidos reducen la jornada teórica local.
+      const totalEquivalentSeconds = g.totalWorkedSeconds;
       const balanceSec = totalEquivalentSeconds - theoreticSeconds;
       const balanceH = Math.floor(Math.abs(balanceSec) / 3600);
       const balanceM = Math.floor((Math.abs(balanceSec) % 3600) / 60);
@@ -6153,6 +6299,10 @@ const FichajesModule = {
         outTime: g.entries[g.entries.length - 1]?.out ?? "--:--",
         workedSeconds: g.totalWorkedSeconds,
         compensatedSeconds: compensatedSeconds,
+        compensatedItems: compensatedItems,
+        compensatedAppliedToTheoretic: compensatedAppliedToTheoretic,
+        theoreticBeforeCompensation: theoreticBeforeCompensation,
+        eveOfNonWorkingDayLabel: dayOverride?.eveOfNonWorkingDayLabel || '',
         totalEquivalentSeconds: totalEquivalentSeconds,
         theoreticSeconds: theoreticSeconds,
         theoreticSource: theoreticSource,
@@ -6350,7 +6500,7 @@ const FichajesModule = {
       try {
         const realWorked = Number(row.workedSeconds || 0);
         const compensated = Number(row.compensatedSeconds || 0);
-        const worked = realWorked + compensated; // El balance se basa en el total equivalente
+        const worked = Number(row.totalEquivalentSeconds ?? realWorked); // Base real usada para el balance
         const theoretic = Number(row.theoreticSeconds || 0);
         totalWorked += worked;
         totalTheoretic += theoretic;
@@ -6368,10 +6518,22 @@ const FichajesModule = {
         const safeInTime = escapeHTML(row.inTime || '--:--');
         const safeOutTime = escapeHTML(row.outTime || '--:--');
         const safePauseLabel = escapeHTML(row.pauseLabel || '0m');
+        const safeEveLabel = row.eveOfNonWorkingDayLabel ? escapeHTML(row.eveOfNonWorkingDayLabel) : '';
 
         const workedH = Math.floor(worked / 3600);
         const workedM = Math.floor((worked % 3600) / 60);
         const theoH = Math.floor(theoretic / 3600);
+        const theoM = Math.floor((theoretic % 3600) / 60);
+        const theoreticLabel = `${theoH}h ${theoM}m`;
+        const compensatedItemsHtml = (row.compensatedItems || []).map(item => {
+          const seconds = Number(item.seconds || 0);
+          const h = Math.floor(seconds / 3600);
+          const m = Math.round((seconds % 3600) / 60);
+          const timeLabel = item.startTime && item.endTime
+            ? ` · ${escapeHTML(String(item.startTime).slice(0,5))}-${escapeHTML(String(item.endTime).slice(0,5))}`
+            : '';
+          return `<div class="stat-subtext" style="color:var(--text-secondary);">+ ${h}h ${m}m ${escapeHTML(item.label || 'Ausencia retribuida')}${timeLabel}</div>`;
+        }).join('');
 
         let alertHtml = "";
         if (worked > 0) {
@@ -6426,7 +6588,7 @@ const FichajesModule = {
           </td>
           <td class="col-date">${safeDayName}</td>
           <td class="col-hours text-center">
-             <strong>${workedH}h ${workedM}m</strong> / ${theoH}h ${alertHtml}
+             <strong>${workedH}h ${workedM}m</strong> / ${theoreticLabel} ${alertHtml}
           </td>
           <td class="col-timeline"><div class="timeline-track">${timelineSegments}</div></td>
         `;
@@ -6459,7 +6621,10 @@ const FichajesModule = {
                      ${row.compensatedSeconds > 0 ? `
                      <div class="stat-value" style="font-size: 1.1rem; color: var(--success); margin-top: 8px;">+ ${Math.floor(row.compensatedSeconds/3600)}h ${Math.round((row.compensatedSeconds%3600)/60)}m</div>
                      <div class="stat-subtext">Compensado (Retribuido)</div>
+                     ${row.compensatedAppliedToTheoretic > 0 ? `<div class="stat-subtext">Jornada ajustada: ${Math.floor((row.theoreticBeforeCompensation || 0)/3600)}h ${Math.round(((row.theoreticBeforeCompensation || 0)%3600)/60)}m → ${Math.floor(row.theoreticSeconds/3600)}h ${Math.round((row.theoreticSeconds%3600)/60)}m</div>` : ''}
+                     ${compensatedItemsHtml}
                      ` : ''}
+                     ${safeEveLabel ? `<div class="stat-subtext" style="color:var(--accent); margin-top:8px;">Víspera: ${safeEveLabel} · jornada 7h</div>` : ''}
 
                      <div class="detail-divider"></div>
                      <div class="detail-meta-grid">
@@ -6474,7 +6639,7 @@ const FichajesModule = {
                        <div class="detail-divider"></div>
                        <div class="detail-ratio-wrap">
                          <div class="detail-ratio-bar"><div class="detail-ratio-fill" style="width: ${Math.min(pct, 100)}%; background: ${pctColor};"></div></div>
-                         <div class="stat-subtext">${pct}% de ${theoH}h teóricas</div>
+                         <div class="stat-subtext">${pct}% de ${theoreticLabel} teóricas</div>
                        </div>`;
                      })() : ''}
                    </div>
@@ -7170,6 +7335,7 @@ const FichajesModule = {
       const theoretic = Number(row.theoreticSeconds || 0);
       acc.worked += worked;
       acc.compensated += compensated;
+      acc.compensatedApplied += Number(row.compensatedAppliedToTheoretic || 0);
       acc.equivalent += equivalent;
       acc.theoretic += theoretic;
       acc.balance += Number(row.balanceSec || 0);
@@ -7178,11 +7344,15 @@ const FichajesModule = {
       acc.pauseSegments += Number(row.pauseSegments || 0);
       acc.entries += Array.isArray(row.entries) ? row.entries.length : 0;
       if (row.absenceLabel) acc.absences.add(row.absenceLabel);
+      if (Array.isArray(row.compensatedItems)) {
+        row.compensatedItems.forEach(item => acc.compensatedItems.push({ ...item, date: item.date || row.date }));
+      }
       if (row.isLive) acc.liveDays += 1;
       return acc;
     }, {
       worked: 0,
       compensated: 0,
+      compensatedApplied: 0,
       equivalent: 0,
       theoretic: 0,
       balance: 0,
@@ -7191,6 +7361,7 @@ const FichajesModule = {
       pauseSegments: 0,
       entries: 0,
       absences: new Set(),
+      compensatedItems: [],
       liveDays: 0
     });
 
@@ -7208,6 +7379,7 @@ const FichajesModule = {
       rows,
       worked: totals.worked,
       compensated: totals.compensated,
+      compensatedApplied: totals.compensatedApplied,
       equivalent: totals.equivalent,
       theoretic: totals.theoretic,
       localBaseBalance: totals.balance,
@@ -7222,6 +7394,7 @@ const FichajesModule = {
       pauseSegments: totals.pauseSegments,
       entries: totals.entries,
       absences: Array.from(totals.absences),
+      compensatedItems: totals.compensatedItems,
       liveDays: totals.liveDays,
       history
     };
@@ -7242,9 +7415,18 @@ const FichajesModule = {
     const balanceTone = balanceUsed > 0 ? 'positive' : balanceUsed < 0 ? 'negative' : 'neutral';
     const safeName = escapeHTML(summary.name);
     const safePhoto = safeHttpUrlAttr(summary.photo);
-    const initials = escapeHTML(getInitials(summary.name));
-    const { start, end } = this.getCurrentRangeKeys();
-    const safeRange = escapeHTML(`${start} - ${end}`);
+	    const initials = escapeHTML(getInitials(summary.name));
+	    const { start, end } = this.getCurrentRangeKeys();
+	    const lastRowDate = summary.rows
+	      .map(row => normalizeDateKey(row.date))
+	      .filter(Boolean)
+	      .sort()
+	      .pop();
+	    const todayKey = getLocalDateKey();
+	    const effectiveEnd = this.currentView === 'balance'
+	      ? (lastRowDate || (start <= todayKey && todayKey <= end ? todayKey : end))
+	      : end;
+	    const safeRange = escapeHTML(`${start} - ${effectiveEnd}`);
     const scopeLabel = this.currentView === 'balance' ? 'ejercicio' : 'periodo';
     const scopeTitle = this.currentView === 'balance' ? 'Balance del ejercicio' : 'Balance del periodo';
     const completionPct = summary.theoretic > 0
@@ -7293,6 +7475,19 @@ const FichajesModule = {
         </details>
       `;
     }).join('') : '<div class="balance-empty-line">No hay jornadas locales cargadas para este periodo.</div>';
+    const compensatedRowsHtml = summary.compensatedItems.length ? summary.compensatedItems.map(item => {
+      const seconds = Number(item.seconds || 0);
+      const timeLabel = item.startTime && item.endTime
+        ? `${String(item.startTime).slice(0,5)} - ${String(item.endTime).slice(0,5)}`
+        : 'Sin tramo horario';
+      return `
+        <div class="balance-compensated-line">
+          <span>${escapeHTML(item.date || '')}</span>
+          <strong>${formatDuration(seconds)}</strong>
+          <em>${escapeHTML(item.label || 'Ausencia retribuida')} · ${escapeHTML(timeLabel)}</em>
+        </div>
+      `;
+    }).join('') : '<span class="balance-empty-line">Sin ajustes retribuidos de jornada en el periodo.</span>';
 
     const overlay = document.createElement('div');
     overlay.className = 'contact-card-overlay balance-employee-overlay';
@@ -7318,7 +7513,7 @@ const FichajesModule = {
           <div class="balance-kpi-grid">
             <div class="balance-kpi"><span>Trabajado</span><strong>${formatDuration(workedUsed)}</strong></div>
             <div class="balance-kpi"><span>Teorico</span><strong>${formatDuration(theoreticUsed)}</strong></div>
-            <div class="balance-kpi"><span>Compensado</span><strong>${formatDuration(summary.compensated)}</strong></div>
+	            <div class="balance-kpi"><span>Ajuste jornada</span><strong>${formatDuration(summary.compensated)}</strong></div>
             <div class="balance-kpi"><span>Pausas</span><strong>${formatDuration(summary.pause)}</strong></div>
           </div>
 
@@ -7347,6 +7542,14 @@ const FichajesModule = {
               <span>Bolsa: ${summary.history?.itemsCount || 0} eventos</span>
               <span>En vivo: ${summary.liveDays}</span>
             </div>
+          </div>
+
+          <div class="balance-modal-section">
+            <div class="balance-modal-section-head">
+	              <strong>Ajustes de jornada retribuidos</strong>
+	              <span>${formatDuration(summary.compensated)} detectado · ${formatDuration(summary.compensatedApplied)} aplicado</span>
+            </div>
+            <div class="balance-compensated-list">${compensatedRowsHtml}</div>
           </div>
 
           <div class="balance-modal-section">

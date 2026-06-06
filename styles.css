@@ -3036,6 +3036,37 @@ body {
   font-weight: 700;
 }
 
+.balance-compensated-list {
+  display: grid;
+  gap: 8px;
+}
+
+.balance-compensated-line {
+  display: grid;
+  grid-template-columns: 96px 82px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 12px;
+  background: rgba(74, 222, 128, 0.08);
+  border: 1px solid rgba(74, 222, 128, 0.16);
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+}
+
+.balance-compensated-line strong {
+  color: #4ade80;
+}
+
+.balance-compensated-line em {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .balance-days-list {
   display: grid;
   gap: 12px;
@@ -3188,6 +3219,11 @@ body {
 
   .balance-days-list {
     max-height: 58vh;
+  }
+
+  .balance-compensated-line {
+    grid-template-columns: 1fr;
+    gap: 4px;
   }
 
   .balance-day-head {
