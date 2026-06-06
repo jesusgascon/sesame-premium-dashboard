@@ -4620,6 +4620,71 @@ const FichajesModule = {
 
       // 2.5 Excepciones de jornada + mapa de horarios de ausencias parciales
       const dayOverrides = new Map();
+      this.balanceCalendarSummaryMap = new Map();
+      const balanceCalendarSeen = new Set();
+      const todayKeyForBalanceSummary = getLocalDateKey();
+      const balanceSummaryEnd = this.currentView === 'balance' && start <= todayKeyForBalanceSummary && todayKeyForBalanceSummary <= end
+        ? todayKeyForBalanceSummary
+        : end;
+      const getBalanceCalendarTypeInfo = (type = {}) => {
+        const masterType = STATE.absenceTypes.find(t => String(t.id || '') === String(type.id || '')) || {};
+        const label = masterType.name || displayAbsenceTypeName(type || masterType);
+        const rawText = [
+          type.alias,
+          type.name,
+          type.category,
+          type.type,
+          type.pickMode,
+          masterType.alias,
+          masterType.rawName,
+          masterType.type,
+          masterType.pickMode
+        ].filter(Boolean).join(' ');
+        const normalizeText = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+        const normalizedRaw = normalizeText(rawText);
+        const normalizedLabel = normalizeText(label);
+        const looksLikeCompanyCalendar = (
+          /\b(festivo|holiday|company_holiday|bank_holiday|calendario)\b/.test(normalizedRaw) ||
+          /\bfibercom\b.*\b20\d{2}\b/.test(normalizedLabel) ||
+          /\b20\d{2}\b/.test(label) && !/\b(gestion|permiso|medico|asuntos|vacacion|vacaciones|baja)\b/.test(normalizedLabel)
+        );
+        const isVacation = /\b(vacacion|vacaciones|vacation|vacations|paid_vacation)\b/.test(normalizedRaw) ||
+          (/\b(vacacion|vacaciones)\b/.test(normalizedLabel) && !looksLikeCompanyCalendar);
+        const isCompanyCalendar = !isVacation && looksLikeCompanyCalendar;
+        const safeLabel = isVacation && looksLikeCompanyCalendar ? 'Vacaciones' : label;
+        return { label: safeLabel, isVacation, isCompanyCalendar };
+      };
+      const addBalanceCalendarSummaryItem = (employeeId, date, label, options = {}) => {
+        const empId = String(employeeId || '');
+        const dateKey = normalizeDateKey(date);
+        if (!empId || !dateKey || dateKey < start || dateKey > balanceSummaryEnd) return;
+        const typeLabel = label || 'Ausencia';
+        const seenKey = `${empId}_${dateKey}_${typeLabel}_${options.isVacation ? 'vacation' : 'absence'}`;
+        if (balanceCalendarSeen.has(seenKey)) return;
+        balanceCalendarSeen.add(seenKey);
+        const current = this.balanceCalendarSummaryMap.get(empId) || {
+          absenceEvents: 0,
+          vacationEvents: 0,
+          labels: new Set()
+        };
+        if (options.isVacation) {
+          current.vacationEvents += 1;
+          current.labels.add(typeLabel);
+        } else if (!options.isCompanyCalendar) {
+          current.absenceEvents += 1;
+          current.labels.add(typeLabel);
+        }
+        this.balanceCalendarSummaryMap.set(empId, current);
+      };
+      Object.entries(localAbsences).forEach(([date, dayEntries]) => {
+        (dayEntries || []).forEach(entry => {
+          const rawType = entry.calendar_type || entry.calendarType || entry.type || {};
+          const typeInfo = getBalanceCalendarTypeInfo(rawType);
+          (entry.employees || []).forEach(emp => {
+            addBalanceCalendarSummaryItem(emp.id, date, typeInfo.label, typeInfo);
+          });
+        });
+      });
       const markEveOfNonWorkingDay = (employeeId, nonWorkingDate, label) => {
         const dateKey = normalizeDateKey(nonWorkingDate);
         const prevDate = addLocalDays(dateKey, -1);
@@ -4654,9 +4719,11 @@ const FichajesModule = {
             const typeName = displayAbsenceTypeName(cal.calendarType || cal.typeReference || cal.absenceType || cal.absenceCalendar?.absenceType || masterType);
             const isRemunerated = isRemuneratedAbsenceType(remuneratedType) || isKnownCompensatedAbsenceLabel(typeName);
             const empId = cal.employee?.id || cal.entityReference?.id;
+            const calendarTypeInfo = getBalanceCalendarTypeInfo(cal.calendarType || cal.typeReference || cal.absenceType || cal.absenceCalendar?.absenceType || masterType);
             if (empId && cal.daysOff) {
               cal.daysOff.forEach(doff => {
                 if (!doff.date) return;
+                addBalanceCalendarSummaryItem(empId, doff.date, calendarTypeInfo.label || typeName || 'Ausencia', calendarTypeInfo);
                 const key = `${empId}_${doff.date}`;
                 const dayOffSeconds = getDayOffSeconds(doff);
                 if (doff.startTime || doff.endTime || doff.dayOffTimeType === 'partial_day') {
@@ -7328,11 +7395,46 @@ const FichajesModule = {
       .filter(row => String(row.employeeId) === id)
       .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
 
+    const clockToMinutes = value => {
+      const raw = String(value || '');
+      if (!raw) return null;
+      if (raw.includes('T')) {
+        const parsed = new Date(raw);
+        if (!Number.isNaN(parsed.getTime())) {
+          return (parsed.getHours() * 60) + parsed.getMinutes() + (parsed.getSeconds() / 60);
+        }
+      }
+      const match = raw.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+      if (!match) return null;
+      const hours = Number(match[1]);
+      const minutes = Number(match[2]);
+      const seconds = Number(match[3] || 0);
+      if (![hours, minutes, seconds].every(Number.isFinite)) return null;
+      return (hours * 60) + minutes + (seconds / 60);
+    };
+    const isVacationLabel = label => /vacaciones|vacation/i.test(String(label || ''));
+
     const totals = rows.reduce((acc, row) => {
       const worked = Number(row.workedSeconds || 0);
       const compensated = Number(row.compensatedSeconds || 0);
       const equivalent = Number(row.totalEquivalentSeconds ?? (worked + compensated));
       const theoretic = Number(row.theoreticSeconds || 0);
+      const entries = Array.isArray(row.entries) ? row.entries : [];
+      const workEntries = entries.filter(entry => entry?.type === 'work');
+      const firstWorkIn = workEntries
+        .map(entry => clockToMinutes(entry.inOriginal) ?? clockToMinutes(entry.in))
+        .find(minutes => minutes !== null);
+      const lastWorkOut = workEntries
+        .slice()
+        .reverse()
+        .map(entry => clockToMinutes(entry.outOriginal) ?? clockToMinutes(entry.out))
+        .find(minutes => minutes !== null);
+      const absenceSegments = Array.isArray(row.absenceSegments) ? row.absenceSegments : [];
+      const absenceLabels = absenceSegments
+        .map(segment => segment?.label || segment?.typeName || segment?.name)
+        .filter(Boolean);
+      if (!absenceLabels.length && row.absenceLabel) absenceLabels.push(row.absenceLabel);
+
       acc.worked += worked;
       acc.compensated += compensated;
       acc.compensatedApplied += Number(row.compensatedAppliedToTheoretic || 0);
@@ -7342,8 +7444,20 @@ const FichajesModule = {
       acc.pause += Number(row.totalPauseSec || 0);
       acc.workSegments += Number(row.workSegments || 0);
       acc.pauseSegments += Number(row.pauseSegments || 0);
-      acc.entries += Array.isArray(row.entries) ? row.entries.length : 0;
-      if (row.absenceLabel) acc.absences.add(row.absenceLabel);
+      acc.entries += entries.length;
+      if (worked > 0) acc.workedDays += 1;
+      if (theoretic > 0) acc.theoreticDays += 1;
+      if (firstWorkIn !== null) {
+        acc.entryMinutes += firstWorkIn;
+        acc.entryCount += 1;
+      }
+      if (lastWorkOut !== null) {
+        acc.exitMinutes += lastWorkOut;
+        acc.exitCount += 1;
+      }
+      absenceLabels.forEach(label => acc.absences.add(label));
+      acc.absenceEvents += absenceSegments.length || (row.absenceLabel ? 1 : 0);
+      acc.vacationEvents += absenceLabels.filter(isVacationLabel).length;
       if (Array.isArray(row.compensatedItems)) {
         row.compensatedItems.forEach(item => acc.compensatedItems.push({ ...item, date: item.date || row.date }));
       }
@@ -7360,7 +7474,15 @@ const FichajesModule = {
       workSegments: 0,
       pauseSegments: 0,
       entries: 0,
+      workedDays: 0,
+      theoreticDays: 0,
+      entryMinutes: 0,
+      entryCount: 0,
+      exitMinutes: 0,
+      exitCount: 0,
       absences: new Set(),
+      absenceEvents: 0,
+      vacationEvents: 0,
       compensatedItems: [],
       liveDays: 0
     });
@@ -7370,6 +7492,11 @@ const FichajesModule = {
     const bagAdjustment = Number(history?.adjustmentSeconds || 0);
     const localAdjustedBalance = totals.balance + bagAdjustment;
     const officialBalance = official?.secondsBalance ?? official?.periodBalance ?? null;
+    const calendarSummary = this.balanceCalendarSummaryMap?.get(id) || null;
+    const absenceLabels = new Set(totals.absences);
+    if (calendarSummary?.labels) {
+      calendarSummary.labels.forEach(label => absenceLabels.add(label));
+    }
 
     return {
       employeeId: id,
@@ -7393,7 +7520,15 @@ const FichajesModule = {
       workSegments: totals.workSegments,
       pauseSegments: totals.pauseSegments,
       entries: totals.entries,
-      absences: Array.from(totals.absences),
+      workedDays: totals.workedDays,
+      theoreticDays: totals.theoreticDays,
+      averageEntryMinutes: totals.entryCount ? Math.floor(totals.entryMinutes / totals.entryCount) : null,
+      averageExitMinutes: totals.exitCount ? Math.floor(totals.exitMinutes / totals.exitCount) : null,
+      averageWorkdaySeconds: totals.workedDays ? Math.round(totals.worked / totals.workedDays) : 0,
+      averagePauseSeconds: totals.pauseSegments ? Math.round(totals.pause / totals.pauseSegments) : 0,
+      absences: Array.from(absenceLabels),
+      absenceEvents: calendarSummary ? Number(calendarSummary.absenceEvents || 0) : totals.absenceEvents,
+      vacationEvents: calendarSummary ? Number(calendarSummary.vacationEvents || 0) : totals.vacationEvents,
       compensatedItems: totals.compensatedItems,
       liveDays: totals.liveDays,
       history
@@ -7415,23 +7550,28 @@ const FichajesModule = {
     const balanceTone = balanceUsed > 0 ? 'positive' : balanceUsed < 0 ? 'negative' : 'neutral';
     const safeName = escapeHTML(summary.name);
     const safePhoto = safeHttpUrlAttr(summary.photo);
-	    const initials = escapeHTML(getInitials(summary.name));
-	    const { start, end } = this.getCurrentRangeKeys();
-	    const lastRowDate = summary.rows
-	      .map(row => normalizeDateKey(row.date))
-	      .filter(Boolean)
-	      .sort()
-	      .pop();
-	    const todayKey = getLocalDateKey();
-	    const effectiveEnd = this.currentView === 'balance'
-	      ? (lastRowDate || (start <= todayKey && todayKey <= end ? todayKey : end))
-	      : end;
-	    const safeRange = escapeHTML(`${start} - ${effectiveEnd}`);
+    const initials = escapeHTML(getInitials(summary.name));
+    const { start, end } = this.getCurrentRangeKeys();
+    const lastRowDate = summary.rows
+      .map(row => normalizeDateKey(row.date))
+      .filter(Boolean)
+      .sort()
+      .pop();
+    const todayKey = getLocalDateKey();
+    const effectiveEnd = this.currentView === 'balance'
+      ? (start <= todayKey && todayKey <= end ? todayKey : (lastRowDate || end))
+      : end;
+    const safeRange = escapeHTML(`${start} - ${effectiveEnd}`);
     const scopeLabel = this.currentView === 'balance' ? 'ejercicio' : 'periodo';
     const scopeTitle = this.currentView === 'balance' ? 'Balance del ejercicio' : 'Balance del periodo';
     const completionPct = summary.theoretic > 0
       ? Math.min(140, Math.round((summary.equivalent / summary.theoretic) * 100))
       : 0;
+    const formatClock = minutes => {
+      if (minutes === null || minutes === undefined) return '--';
+      const normalized = Math.max(0, Math.floor(Number(minutes) || 0));
+      return `${String(Math.floor(normalized / 60)).padStart(2, '0')}:${String(normalized % 60).padStart(2, '0')} h`;
+    };
     const formatDayTitle = row => {
       const dateKey = String(row?.date || '');
       const match = dateKey.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -7513,8 +7653,25 @@ const FichajesModule = {
           <div class="balance-kpi-grid">
             <div class="balance-kpi"><span>Trabajado</span><strong>${formatDuration(workedUsed)}</strong></div>
             <div class="balance-kpi"><span>Teorico</span><strong>${formatDuration(theoreticUsed)}</strong></div>
-	            <div class="balance-kpi"><span>Ajuste jornada</span><strong>${formatDuration(summary.compensated)}</strong></div>
+            <div class="balance-kpi"><span>Ajuste jornada</span><strong>${formatDuration(summary.compensated)}</strong></div>
             <div class="balance-kpi"><span>Pausas</span><strong>${formatDuration(summary.pause)}</strong></div>
+          </div>
+
+          <div class="balance-modal-section">
+            <div class="balance-modal-section-head">
+              <strong>Resumen del periodo</strong>
+              <span>Indicadores locales equivalentes al portal</span>
+            </div>
+            <div class="balance-period-grid">
+              <div><span>Entrada media</span><strong>${formatClock(summary.averageEntryMinutes)}</strong></div>
+              <div><span>Salida media</span><strong>${formatClock(summary.averageExitMinutes)}</strong></div>
+              <div><span>Jornada media</span><strong>${formatDuration(summary.averageWorkdaySeconds)}</strong></div>
+              <div><span>Días trabajados</span><strong>${summary.workedDays} / ${summary.theoreticDays}</strong></div>
+              <div><span>Descansos</span><strong>${summary.pauseSegments}</strong></div>
+              <div><span>Prom. descanso</span><strong>${summary.pauseSegments ? formatDuration(summary.averagePauseSeconds) : '--'}</strong></div>
+              <div><span>Ausencias</span><strong>${summary.absenceEvents}</strong></div>
+              <div><span>Vacaciones</span><strong>${summary.vacationEvents}</strong></div>
+            </div>
           </div>
 
           <div class="balance-modal-section">
@@ -7546,8 +7703,8 @@ const FichajesModule = {
 
           <div class="balance-modal-section">
             <div class="balance-modal-section-head">
-	              <strong>Ajustes de jornada retribuidos</strong>
-	              <span>${formatDuration(summary.compensated)} detectado · ${formatDuration(summary.compensatedApplied)} aplicado</span>
+              <strong>Ajustes de jornada retribuidos</strong>
+              <span>${formatDuration(summary.compensated)} detectado · ${formatDuration(summary.compensatedApplied)} aplicado</span>
             </div>
             <div class="balance-compensated-list">${compensatedRowsHtml}</div>
           </div>

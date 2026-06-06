@@ -2962,14 +2962,16 @@ body {
 }
 
 .balance-kpi-grid,
-.balance-compare-grid {
+.balance-compare-grid,
+.balance-period-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
 }
 
 .balance-kpi,
-.balance-compare-grid > div {
+.balance-compare-grid > div,
+.balance-period-grid > div {
   padding: 12px;
   border-radius: 14px;
   background: rgba(255,255,255,0.045);
@@ -2977,7 +2979,8 @@ body {
 }
 
 .balance-kpi span,
-.balance-compare-grid span {
+.balance-compare-grid span,
+.balance-period-grid span {
   display: block;
   margin-bottom: 5px;
   color: var(--text-muted);
@@ -2987,9 +2990,20 @@ body {
 }
 
 .balance-kpi strong,
-.balance-compare-grid strong {
+.balance-compare-grid strong,
+.balance-period-grid strong {
   color: var(--text-primary);
   font-size: 1rem;
+}
+
+.balance-period-grid {
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+}
+
+.balance-period-grid > div {
+  background:
+    linear-gradient(135deg, rgba(78, 205, 196, 0.10), rgba(99, 102, 241, 0.06)),
+    rgba(255,255,255,0.035);
 }
 
 .balance-modal-section {
@@ -3213,7 +3227,8 @@ body {
   }
 
   .balance-kpi-grid,
-  .balance-compare-grid {
+  .balance-compare-grid,
+  .balance-period-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
