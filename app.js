@@ -3530,6 +3530,7 @@ const FichajesModule = {
     if (this.initialized) return;
     this.initialized = true;
     this.setupEventListeners();
+    this.updateMonthLabel();
   },
 
   setupEventListeners() {
@@ -3721,6 +3722,56 @@ const FichajesModule = {
     `;
     popover.classList.remove('hidden');
     document.getElementById('filter-live-out')?.classList.add('active');
+  },
+
+  getPresenceRecordDateKey(record) {
+    if (!record || typeof record !== 'object') return '';
+    const candidates = [
+      record.date,
+      record.day,
+      record.currentDate,
+      record.checkIn,
+      record.checkInAt,
+      record.clockInAt,
+      record.startedAt,
+      record.startAt,
+      record.updatedAt,
+      record.createdAt,
+      record.lastActivityAt,
+      record.lastSeenAt,
+      record.employee?.updatedAt,
+      record.workEntryIn?.realDate
+    ];
+
+    for (const value of candidates) {
+      if (!value) continue;
+      const date = new Date(value);
+      if (!isNaN(date.getTime())) return getLocalDateKey(date);
+      if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value)) {
+        return value.slice(0, 10);
+      }
+    }
+    return '';
+  },
+
+  getCurrentActivityKind(employeeId, rows = this.data) {
+    const id = String(employeeId || '');
+    if (!id) return 'out';
+
+    const todayKey = getLocalDateKey();
+    const todayRows = (Array.isArray(rows) ? rows : []).filter(row =>
+      String(row.employeeId || '') === id && String(row.date || '') === todayKey
+    );
+    const rowKind = todayRows
+      .map(row => classifySigningRowPresence(row))
+      .sort((a, b) => getPresenceRank(b) - getPresenceRank(a))[0] || 'out';
+    if (rowKind !== 'out') return rowKind;
+
+    const presence = (this.realtimePresence || [])
+      .find(p => String(getPresenceEmployeeId(p) || '') === id);
+    if (!presence || this.getPresenceRecordDateKey(presence) !== todayKey) return 'out';
+
+    return classifyPresenceRecord(presence);
   },
 
   toggleKioskoMode() {
@@ -4009,6 +4060,8 @@ const FichajesModule = {
       this.absenceTimesMap = previousState.absenceTimesMap;
       this.realtimePresence = previousState.realtimePresence;
     };
+
+    if (!isSilent) this.updateMonthLabel();
 
     let startDate = new Date(this.currentDate);
     let endDate = new Date(this.currentDate);
@@ -5939,12 +5992,9 @@ const FichajesModule = {
         const emp = STATE.allEmployees.get(selectedId);
 
         if (emp) {
-          // Buscamos el estado en varias fuentes posibles para máxima compatibilidad
-          const statusRaw = STATE.presenceMap.get(selectedId) || emp.workStatus || emp.status || 'out';
-          const status = String(statusRaw).toLowerCase();
-
-          const isWorking = status === 'work' || status === 'working' || status === 'online';
-          const isPaused = status === 'pause' || status === 'paused' || status === 'break';
+          const status = this.getCurrentActivityKind(selectedId, rows);
+          const isWorking = status === 'working' || status === 'remote';
+          const isPaused = status === 'paused';
 
           const dotColor = isWorking ? '#22c55e' : (isPaused ? '#f59e0b' : '#ef4444');
           const statusText = isWorking ? 'Trabajando' : (isPaused ? 'En pausa' : 'Desconectado');
@@ -5965,29 +6015,19 @@ const FichajesModule = {
         // MODO EQUIPO: Lista de compañeros activos (Radar original)
         const meId = String(STATE.currentUser?.id || '');
         const activePeers = Array.from(STATE.allEmployees.values())
-          .filter(emp => {
-            if (!emp.id || String(emp.id) === meId) return false;
-            const sRaw = STATE.presenceMap.get(String(emp.id)) || emp.workStatus || emp.status || 'out';
-            const s = String(sRaw).toLowerCase();
-            return s === 'work' || s === 'working' || s === 'pause' || s === 'paused' || s === 'online' || s === 'break';
-          })
+          .map(emp => ({ emp, status: this.getCurrentActivityKind(emp.id, rows) }))
+          .filter(({ emp, status }) => emp.id && String(emp.id) !== meId && status !== 'out')
           .sort((a, b) => {
-            const sA = String(STATE.presenceMap.get(String(a.id)) || a.workStatus || a.status || 'out').toLowerCase();
-            const sB = String(STATE.presenceMap.get(String(b.id)) || b.workStatus || b.status || 'out').toLowerCase();
-            const isWA = sA === 'work' || sA === 'working' || sA === 'online';
-            const isWB = sB === 'work' || sB === 'working' || sB === 'online';
-            if (isWA && !isWB) return -1;
-            if (!isWA && isWB) return 1;
-            return (a.firstName || '').localeCompare(b.firstName || '');
+            const rank = getPresenceRank(b.status) - getPresenceRank(a.status);
+            if (rank !== 0) return rank;
+            return (a.emp.firstName || '').localeCompare(b.emp.firstName || '');
           });
 
         if (activePeers.length === 0) {
           radarList.innerHTML = '<div class="insight-empty">Nadie conectado en la empresa.</div>';
         } else {
-          radarList.innerHTML = activePeers.slice(0, 5).map(emp => {
-            const sRaw = STATE.presenceMap.get(String(emp.id)) || emp.workStatus || emp.status || 'out';
-            const s = String(sRaw).toLowerCase();
-            const isWorking = s === 'work' || s === 'working' || s === 'online';
+          radarList.innerHTML = activePeers.slice(0, 5).map(({ emp, status }) => {
+            const isWorking = status === 'working' || status === 'remote';
             const dotColor = isWorking ? '#22c55e' : '#f59e0b';
             const safePeerName = escapeHTML(`${emp.firstName || ''} ${emp.lastName || ''}`.trim() || 'Empleado');
             return `
@@ -6005,7 +6045,8 @@ const FichajesModule = {
     }
 
     // Actualizar contadores y cuerpos
-    const liveCount = (this.realtimePresence || []).filter(p => ['work', 'working', 'pause', 'paused'].includes(String(p.status || '').toLowerCase())).length;
+    const liveCount = Array.from(STATE.allEmployees.values())
+      .filter(emp => this.getCurrentActivityKind(emp.id, rows) !== 'out').length;
 
     const setBadge = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
     const setBody = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
