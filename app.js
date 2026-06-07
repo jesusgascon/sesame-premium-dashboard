@@ -3714,6 +3714,7 @@ const FichajesModule = {
   realtimePresence: [],
   isLoading: false,
   balanceWarmupRunId: 0,
+  balanceLocalPulseTimer: null,
   init() {
     if (this.initialized) return;
     this.initialized = true;
@@ -3843,6 +3844,40 @@ const FichajesModule = {
 
   cancelBalanceWarmup() {
     this.balanceWarmupRunId += 1;
+  },
+
+  startBalanceLocalPulse() {
+    if (this.balanceLocalPulseTimer) {
+      clearInterval(this.balanceLocalPulseTimer);
+      this.balanceLocalPulseTimer = null;
+    }
+
+    this.officialHoursBagProgress = {
+      ...(this.officialHoursBagProgress || {}),
+      localPulse: 10
+    };
+
+    this.balanceLocalPulseTimer = window.setInterval(() => {
+      const progress = this.officialHoursBagProgress || {};
+      if (this.currentView !== 'balance' || progress.phase !== 'local' || !this.officialHoursBagLoading) {
+        this.stopBalanceLocalPulse();
+        return;
+      }
+
+      const current = Number(progress.localPulse || 10);
+      const next = current >= 96 ? 10 : current + 9;
+      this.officialHoursBagProgress = {
+        ...progress,
+        localPulse: next
+      };
+      this.renderTable();
+    }, 280);
+  },
+
+  stopBalanceLocalPulse() {
+    if (!this.balanceLocalPulseTimer) return;
+    clearInterval(this.balanceLocalPulseTimer);
+    this.balanceLocalPulseTimer = null;
   },
 
   startSigningsTopProgress() {
@@ -5578,6 +5613,7 @@ const FichajesModule = {
 
   resetOfficialWorkedHoursState(options = {}) {
     if (options.cancel) this.officialHoursBagRunId += 1;
+    this.stopBalanceLocalPulse();
     this.officialHoursBagMap = new Map();
     this.officialHoursBagErrors = new Map();
     this.officialHoursBagError = '';
@@ -5600,6 +5636,7 @@ const FichajesModule = {
     const estimatedTotal = Math.max(employeeIds.length, STATE.allEmployees.size, 1);
     if (this.isOfficialWorkedHoursSkipped()) {
       this.officialHoursBagRunId += 1;
+      this.stopBalanceLocalPulse();
       this.officialHoursBagMap = new Map();
       this.officialHoursBagErrors = new Map();
       this.officialHoursBagError = 'Sesame Statistics omitido por el usuario';
@@ -5638,8 +5675,10 @@ const FichajesModule = {
       employeeIds,
       phase: 'local',
       activeEmployeeIds: employeeIds.slice(0, 6),
+      localPulse: 10,
       lastError: ''
     };
+    this.startBalanceLocalPulse();
   },
 
   normalizeOfficialWorkedHoursRow(row) {
@@ -5956,6 +5995,7 @@ const FichajesModule = {
     const runId = this.officialHoursBagRunId;
     const employeeIds = this.officialHoursBagProgress.employeeIds || this.getBalanceEmployeeIds();
     if (employeeIds.length === 0) {
+      this.stopBalanceLocalPulse();
       this.officialHoursBagLoading = false;
       this.renderTable();
       return;
@@ -5963,6 +6003,7 @@ const FichajesModule = {
 
     const updateBalanceProgress = (phase, extra = {}) => {
       if (runId !== this.officialHoursBagRunId || this.currentView !== 'balance') return;
+      if (phase !== 'local') this.stopBalanceLocalPulse();
       this.officialHoursBagProgress = {
         ...(this.officialHoursBagProgress || {}),
         phase,
@@ -8353,6 +8394,14 @@ const FichajesModule = {
     const sourceActionsHtml = officialSkipped
       ? '<button type="button" class="btn-secondary" onclick="FichajesModule.retryOfficialWorkedHours()" style="font-size:0.65rem; padding:4px 8px;">Probar Sesame Statistics</button>'
       : '<button type="button" class="btn-secondary" onclick="FichajesModule.useLocalBalanceOnly()" style="font-size:0.65rem; padding:4px 8px;">Usar solo cálculo local</button>';
+    const useIndeterminateProgress = this.officialHoursBagLoading && (phase === 'local' || progressDone === 0);
+    const progressTrackClass = useIndeterminateProgress
+      ? 'balance-load-track balance-load-track-pending'
+      : 'balance-load-track';
+    const localPulsePct = Math.max(8, Math.min(96, Number(progressState.localPulse || 10)));
+    const progressFillStyle = useIndeterminateProgress
+      ? ` style="width:${localPulsePct}%;" data-pulse="${localPulsePct}"`
+      : ` style="width:${progressPct}%;"`;
     const loadingPanelHtml = this.officialHoursBagLoading ? `
           <div class="balance-load-panel">
             <div class="balance-load-main">
@@ -8364,8 +8413,8 @@ const FichajesModule = {
               <span><strong>${officialCount}</strong> Sesame</span>
               <span><strong>${pendingCount}</strong> pendientes</span>
             </div>
-            <div class="balance-load-track" aria-hidden="true">
-              <div class="balance-load-fill" style="width:${progressPct}%;"></div>
+            <div class="${progressTrackClass}" aria-hidden="true">
+              <div class="balance-load-fill"${progressFillStyle}></div>
             </div>
             <div class="balance-load-steps">
               ${phaseSteps.map(step => {
