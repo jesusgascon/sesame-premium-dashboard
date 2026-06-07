@@ -1788,15 +1788,21 @@ function showScreen(screenId) {
 /**
  * Alterna entre módulos principales (Vacaciones / Fichajes)
  */
-function switchModule(module, options = {}) {
-  STATE.currentModule = module;
-  localStorage.setItem('ssm_current_module', module);
-  closeVacacionesPresencePopover();
-
-  // Actualizar estados visuales de los botones del switcher
+function syncModuleSwitcherActive(module) {
   $$('.module-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.module === module);
   });
+}
+
+function switchModule(module, options = {}) {
+  const requestedModule = module === 'balances' ? 'balances' : module;
+  const actualModule = requestedModule === 'balances' ? 'fichajes' : requestedModule;
+  STATE.currentModule = requestedModule;
+  localStorage.setItem('ssm_current_module', requestedModule);
+  closeVacacionesPresencePopover();
+
+  // Actualizar estados visuales de los botones del switcher
+  syncModuleSwitcherActive(requestedModule);
 
   // Ocultar/Mostrar wrappers de cada módulo con sus clases correspondientes
   $$('.module-wrapper').forEach(w => {
@@ -1804,9 +1810,9 @@ function switchModule(module, options = {}) {
     w.classList.remove('active');
   });
 
-  let activeWrapper = document.getElementById(`module-${module}-wrapper`);
+  let activeWrapper = document.getElementById(`module-${actualModule}-wrapper`);
   // Fallback para nombres antiguos o simplificados
-  if (!activeWrapper && module === 'vacaciones') activeWrapper = document.getElementById('calendar-wrapper');
+  if (!activeWrapper && actualModule === 'vacaciones') activeWrapper = document.getElementById('calendar-wrapper');
 
   if (activeWrapper) {
     activeWrapper.style.display = 'block';
@@ -1818,7 +1824,7 @@ function switchModule(module, options = {}) {
   const absenceSection = document.getElementById('absence-section');
   const employeeSection = document.getElementById('employee-section');
 
-  if (module === 'fichajes') {
+  if (actualModule === 'fichajes') {
     if (vacacionesNav) vacacionesNav.classList.add('is-module-hidden');
     if (absenceSection) absenceSection.style.display = 'none';
     // Mantenemos la sección de empleados visible para permitir el filtrado múltiple
@@ -1826,8 +1832,27 @@ function switchModule(module, options = {}) {
 
     // Inicialización específica de Fichajes
     FichajesModule.init();
-    if (!options.skipLoad) FichajesModule.loadData();
+    if (requestedModule === 'balances') {
+      FichajesModule.currentView = 'balance';
+      FichajesModule.balanceScope = 'exercise';
+      FichajesModule.requestBalanceTopPin();
+    } else if (FichajesModule.currentView === 'balance') {
+      FichajesModule.currentView = 'month';
+      FichajesModule.balanceScope = 'exercise';
+    }
+    FichajesModule.persistPeriodState();
+    FichajesModule.syncViewButtons();
+    FichajesModule.updateMonthLabel();
+    if (!options.skipLoad) {
+      if (requestedModule === 'balances') {
+        FichajesModule.scheduleBalanceLoadAfterWarmup();
+      } else {
+        FichajesModule.cancelBalanceWarmup();
+        FichajesModule.loadData();
+      }
+    }
   } else {
+    FichajesModule.cancelBalanceWarmup();
     if (vacacionesNav) vacacionesNav.classList.remove('is-module-hidden');
     if (absenceSection) absenceSection.style.display = 'block';
     if (employeeSection) employeeSection.style.display = 'block';
@@ -1904,10 +1929,14 @@ function initMonthPickers() {
       const year  = parseInt(monthBtn.dataset.year,  10);
       const isSignings = picker.id === 'fichajes-month-picker';
       if (isSignings) {
-        FichajesModule.currentDate = new Date(year, month, 1);
-        FichajesModule.persistPeriodState();
-        FichajesModule.updateMonthLabel();
-        FichajesModule.loadData();
+        if (FichajesModule.currentView === 'balance') {
+          FichajesModule.goToBalanceMonth(year, month, true);
+        } else {
+          FichajesModule.currentDate = new Date(year, month, 1);
+          FichajesModule.persistPeriodState();
+          FichajesModule.updateMonthLabel();
+          FichajesModule.loadData();
+        }
       } else {
         STATE.currentDate = new Date(year, month, 1);
         sessionStorage.setItem('ssm_current_date', STATE.currentDate.toISOString());
@@ -3653,6 +3682,10 @@ const FichajesModule = {
     const saved = sessionStorage.getItem('ssm_signings_view');
     return ['month', 'week', 'day', 'balance'].includes(saved) ? saved : 'month';
   })(),
+  balanceScope: (() => {
+    const saved = sessionStorage.getItem('ssm_signings_balance_scope');
+    return ['exercise', 'month'].includes(saved) ? saved : 'exercise';
+  })(),
   data: [],
   selectedEmployee: 'all',
   searchQuery: '',
@@ -3680,6 +3713,7 @@ const FichajesModule = {
   },
   realtimePresence: [],
   isLoading: false,
+  balanceWarmupRunId: 0,
   init() {
     if (this.initialized) return;
     this.initialized = true;
@@ -3691,12 +3725,245 @@ const FichajesModule = {
   persistPeriodState() {
     sessionStorage.setItem('ssm_signings_date', this.currentDate.toISOString());
     sessionStorage.setItem('ssm_signings_view', this.currentView);
+    sessionStorage.setItem('ssm_signings_balance_scope', this.balanceScope);
+  },
+
+  isBalanceMonthScope() {
+    return this.currentView === 'balance' && this.balanceScope === 'month';
   },
 
   syncViewButtons() {
     document.querySelectorAll('#fichajes-view-toggle .vt-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.fichajeView === this.currentView);
     });
+    this.updateTodayActionLabel();
+  },
+
+  updateTodayActionLabel() {
+    const button = document.getElementById('today-signings');
+    if (!button) return;
+
+    if (this.currentView === 'balance') {
+      button.textContent = 'Ejercicio actual';
+      button.title = 'Volver al balance del ejercicio actual';
+      button.setAttribute('aria-label', 'Volver al balance del ejercicio actual');
+    } else {
+      button.textContent = 'Hoy';
+      button.title = 'Ir al dia actual';
+      button.setAttribute('aria-label', 'Ir al dia actual');
+    }
+  },
+
+  renderBalanceWarmup() {
+    if (this.currentView !== 'balance') return;
+
+    const tbody = document.getElementById('signings-tbody');
+    if (!tbody) return;
+
+    this.syncInsightsVisibility();
+
+    const thead = document.querySelector('.signings-table thead');
+    if (thead) {
+      const balanceScopeHeader = this.isBalanceMonthScope() ? 'Balance Mes' : 'Balance Ejercicio';
+      thead.innerHTML = `
+        <tr>
+          <th class="col-employee balance-col-employee">Empleado</th>
+          <th class="text-center">${balanceScopeHeader}</th>
+          <th class="text-center">Acumulado Sesame</th>
+          <th class="text-center">Estado</th>
+          <th style="min-width:150px">Visualización</th>
+        </tr>
+      `;
+    }
+
+    const workedEl = document.getElementById('total-worked-hours');
+    const theoreticEl = document.getElementById('total-theoretic-hours');
+    if (workedEl) workedEl.textContent = '--';
+    if (theoreticEl) theoreticEl.textContent = '--';
+
+    const { start, end } = this.getCurrentRangeKeys();
+    const scopeLabel = this.isBalanceMonthScope() ? 'mes' : 'ejercicio';
+    const candidateIds = this.getBalanceEmployeeIds({ applySearch: true }).slice(0, 5);
+    const peopleHtml = candidateIds.length ? `
+      <div class="balance-warmup-people">
+        ${candidateIds.map(id => {
+          const info = this.getBalanceEmployeeInfo(id);
+          return `<span title="${escapeHTML(info.name)}">${escapeHTML(info.name)}</span>`;
+        }).join('')}
+      </div>
+    ` : '';
+
+    const skeletonRows = Array(4).fill(0).map(() => `
+      <tr class="balance-warmup-skeleton-row">
+        <td><span></span></td>
+        <td><span></span></td>
+        <td><span></span></td>
+        <td><span></span></td>
+        <td><span></span></td>
+      </tr>
+    `).join('');
+
+    tbody.innerHTML = `
+      <tr class="balance-warmup-row">
+        <td colspan="5">
+          <div class="balance-warmup-panel" role="status" aria-live="polite">
+            <div class="balance-warmup-orb" aria-hidden="true"></div>
+            <div class="balance-warmup-copy">
+              <strong>Abriendo Balance</strong>
+              <span>Preparando ${escapeHTML(scopeLabel)} ${escapeHTML(start)} - ${escapeHTML(end)}</span>
+              ${peopleHtml}
+            </div>
+            <div class="balance-warmup-track" aria-hidden="true"><span></span></div>
+          </div>
+        </td>
+      </tr>
+      ${skeletonRows}
+    `;
+
+    this.requestBalanceTopPin();
+  },
+
+  scheduleBalanceLoadAfterWarmup(ignoreCache = false) {
+    const runId = ++this.balanceWarmupRunId;
+    this.renderBalanceWarmup();
+
+    const startLoad = () => {
+      if (runId !== this.balanceWarmupRunId || this.currentView !== 'balance') return;
+      this.loadData(ignoreCache);
+    };
+
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => window.setTimeout(startLoad, 220));
+      });
+    } else {
+      window.setTimeout(startLoad, 220);
+    }
+  },
+
+  cancelBalanceWarmup() {
+    this.balanceWarmupRunId += 1;
+  },
+
+  startSigningsTopProgress() {
+    const progressBar = $('signings-progress-bar');
+    const progressContainer = $('signings-progress-container');
+    if (!progressContainer || !progressBar) return;
+    progressContainer.classList.remove('hidden');
+    progressContainer.classList.add('is-indeterminate');
+    progressBar.style.width = '38%';
+  },
+
+  updateSigningsTopProgress(percent) {
+    const progressBar = $('signings-progress-bar');
+    const progressContainer = $('signings-progress-container');
+    if (!progressContainer || !progressBar) return;
+    progressContainer.classList.remove('hidden', 'is-indeterminate');
+    progressBar.style.width = `${Math.max(0, Math.min(100, Math.round(Number(percent) || 0)))}%`;
+  },
+
+  finishSigningsTopProgress() {
+    const progressBar = $('signings-progress-bar');
+    const progressContainer = $('signings-progress-container');
+    if (!progressContainer || !progressBar) return;
+    progressContainer.classList.remove('is-indeterminate');
+    progressBar.style.width = '100%';
+    window.setTimeout(() => {
+      progressContainer.classList.add('hidden');
+      progressBar.style.width = '0%';
+    }, 450);
+  },
+
+  renderBalanceEmptyLoading(tbody) {
+    const { start, end } = this.getCurrentRangeKeys();
+    const scopeLabel = this.isBalanceMonthScope() ? 'mes' : 'ejercicio';
+    const progressState = this.officialHoursBagProgress || {};
+    const phase = progressState.phase || 'local';
+    const phaseLabel = phase === 'statistics'
+      ? 'Consultando Sesame Statistics'
+      : phase === 'history'
+        ? 'Aplicando bolsa de horas'
+        : 'Preparando base local';
+    const rangeLabel = progressState.range || `${start} -> ${end}`;
+    const total = Number(progressState.total || this.getBalanceEmployeeIds().length || STATE.allEmployees.size || 0);
+    const done = Number(progressState.done || 0);
+    const pending = Math.max(0, Number(progressState.pending ?? total));
+    const activeIds = (progressState.activeEmployeeIds || progressState.employeeIds || this.getBalanceEmployeeIds()).slice(0, 6);
+    const activePeopleHtml = activeIds.length ? `
+      <div class="balance-load-people" aria-label="Empleados en preparacion">
+        <span>Preparando</span>
+        ${activeIds.map(id => {
+          const info = this.getBalanceEmployeeInfo(id);
+          return `<b title="${escapeHTML(info.name)}">${escapeHTML(info.name)}</b>`;
+        }).join('')}
+      </div>
+    ` : '';
+    const skeletonRows = Array(5).fill(0).map(() => `
+      <tr class="balance-warmup-skeleton-row">
+        <td><span></span></td>
+        <td><span></span></td>
+        <td><span></span></td>
+        <td><span></span></td>
+        <td><span></span></td>
+      </tr>
+    `).join('');
+
+    tbody.innerHTML = `
+      <tr class="balance-source-audit-row">
+        <td colspan="5" style="padding: 12px 14px; background: rgba(45, 212, 191, 0.07); border-bottom: 1px solid rgba(45, 212, 191, 0.16);">
+          <div class="balance-load-panel balance-load-panel-empty">
+            <div class="balance-load-main">
+              <strong class="balance-load-title">${escapeHTML(phaseLabel)}</strong>
+              <span title="${escapeHTML(rangeLabel)}">Preparando rango ${escapeHTML(scopeLabel)}: ${escapeHTML(rangeLabel)}</span>
+            </div>
+            <div class="balance-load-metrics">
+              <span><strong>${done}</strong> procesados</span>
+              <span><strong>${total}</strong> empleados</span>
+              <span><strong>${pending}</strong> pendientes</span>
+            </div>
+            <div class="balance-load-track balance-load-track-pending" aria-hidden="true">
+              <div class="balance-load-fill"></div>
+            </div>
+            <div class="balance-load-steps">
+              <span class="balance-load-step active">Base local</span>
+              <span class="balance-load-step">Statistics</span>
+              <span class="balance-load-step">Bolsa</span>
+              <span class="balance-load-step">Listo</span>
+            </div>
+            ${activePeopleHtml}
+          </div>
+        </td>
+      </tr>
+      ${skeletonRows}
+    `;
+  },
+
+  goToCurrentExerciseBalance(ignoreCache = true) {
+    STATE.currentModule = 'balances';
+    localStorage.setItem('ssm_current_module', 'balances');
+    syncModuleSwitcherActive('balances');
+    this.currentView = 'balance';
+    this.balanceScope = 'exercise';
+    this.currentDate = new Date();
+    this.requestBalanceTopPin();
+    this.persistPeriodState();
+    this.syncViewButtons();
+    this.updateMonthLabel();
+    this.scheduleBalanceLoadAfterWarmup(ignoreCache);
+  },
+
+  goToBalanceMonth(year, month, ignoreCache = true) {
+    STATE.currentModule = 'balances';
+    localStorage.setItem('ssm_current_module', 'balances');
+    syncModuleSwitcherActive('balances');
+    this.currentView = 'balance';
+    this.balanceScope = 'month';
+    this.currentDate = new Date(year, month, 1);
+    this.requestBalanceTopPin();
+    this.persistPeriodState();
+    this.syncViewButtons();
+    this.updateMonthLabel();
+    this.scheduleBalanceLoadAfterWarmup(ignoreCache);
   },
 
   requestBalanceTopPin() {
@@ -3736,6 +4003,7 @@ const FichajesModule = {
     document.getElementById('prev-month-signings')?.addEventListener('click', () => {
       if (this.currentView === 'day') this.currentDate.setDate(this.currentDate.getDate() - 1);
       else if (this.currentView === 'week') this.currentDate.setDate(this.currentDate.getDate() - 7);
+      else if (this.isBalanceMonthScope()) this.currentDate.setMonth(this.currentDate.getMonth() - 1);
       else if (this.currentView === 'balance') this.currentDate.setFullYear(this.currentDate.getFullYear() - 1);
       else this.currentDate.setMonth(this.currentDate.getMonth() - 1);
 
@@ -3747,6 +4015,7 @@ const FichajesModule = {
     document.getElementById('next-month-signings')?.addEventListener('click', () => {
       if (this.currentView === 'day') this.currentDate.setDate(this.currentDate.getDate() + 1);
       else if (this.currentView === 'week') this.currentDate.setDate(this.currentDate.getDate() + 7);
+      else if (this.isBalanceMonthScope()) this.currentDate.setMonth(this.currentDate.getMonth() + 1);
       else if (this.currentView === 'balance') this.currentDate.setFullYear(this.currentDate.getFullYear() + 1);
       else this.currentDate.setMonth(this.currentDate.getMonth() + 1);
 
@@ -3757,6 +4026,10 @@ const FichajesModule = {
 
     // Botón Hoy
     document.getElementById('today-signings')?.addEventListener('click', () => {
+      if (this.currentView === 'balance') {
+        this.goToCurrentExerciseBalance(true);
+        return;
+      }
       this.currentDate = new Date();
       this.persistPeriodState();
       this.updateMonthLabel();
@@ -3779,10 +4052,25 @@ const FichajesModule = {
 
         // Cargar datos
         this.currentView = view;
-        if (view === 'balance') this.requestBalanceTopPin();
+        if (view === 'balance') {
+          STATE.currentModule = 'balances';
+          localStorage.setItem('ssm_current_module', 'balances');
+          syncModuleSwitcherActive('balances');
+          this.balanceScope = 'exercise';
+          this.requestBalanceTopPin();
+        } else {
+          STATE.currentModule = 'fichajes';
+          localStorage.setItem('ssm_current_module', 'fichajes');
+          syncModuleSwitcherActive('fichajes');
+        }
         this.persistPeriodState();
         this.updateMonthLabel();
-        this.loadData();
+        if (view === 'balance') {
+          this.scheduleBalanceLoadAfterWarmup();
+        } else {
+          this.cancelBalanceWarmup();
+          this.loadData();
+        }
       });
     });
 
@@ -3960,7 +4248,7 @@ const FichajesModule = {
     let startDate = new Date(cursor);
     let endDate = new Date(cursor);
 
-    if (this.currentView === 'balance') {
+    if (this.currentView === 'balance' && this.balanceScope !== 'month') {
       startDate = new Date(cursor.getFullYear(), 0, 1);
       endDate = new Date(cursor.getFullYear(), 11, 31);
     } else if (this.currentView === 'week') {
@@ -4075,10 +4363,18 @@ const FichajesModule = {
 
       el.textContent = `${start.toLocaleDateString('es-ES', {day: 'numeric', month: 'short'})} al ${end.toLocaleDateString('es-ES', {day: 'numeric', month: 'short', year: 'numeric'})}`;
     } else if (this.currentView === 'balance') {
-      el.textContent = `Ejercicio ${this.currentDate.getFullYear()}`;
+      if (this.isBalanceMonthScope()) {
+        el.textContent = `Balance ${this.currentDate.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}`;
+      } else {
+        const currentYear = new Date().getFullYear();
+        const year = this.currentDate.getFullYear();
+        el.textContent = year === currentYear ? `Ejercicio actual ${year}` : `Ejercicio ${year}`;
+      }
     } else {
       el.textContent = this.currentDate.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
     }
+
+    this.updateTodayActionLabel();
   },
 
   showBirthdaysModal() {
@@ -4287,6 +4583,8 @@ const FichajesModule = {
     const isSilent = !!options.silent;
     if (!isSilent && this.currentView === 'balance') {
       this.requestBalanceTopPin();
+    } else if (!isSilent) {
+      this.startSigningsTopProgress();
     }
     const previousState = isSilent ? {
       data: Array.isArray(this.data) ? [...this.data] : [],
@@ -4353,6 +4651,12 @@ const FichajesModule = {
       }
 
       if (!isSilent && this.currentView === 'balance') {
+        this.data = [];
+        this.realSignings = [];
+        this.biTheoreticMap = new Map();
+        this.dayOverrides = new Map();
+        this.balanceCalendarSummaryMap = new Map();
+        this.absenceTimesMap = new Map();
         this.prepareOfficialWorkedHoursLoad(start, end);
         this.populateEmployeeSelect();
         this.renderTable();
@@ -4959,15 +5263,13 @@ const FichajesModule = {
             const targetIds = allIds.slice(0, 100);
 
             // Barra de progreso visible
-            const progressBar = $('signings-progress-bar');
-            const progressContainer = $('signings-progress-container');
-            if (progressContainer && !isSilent) progressContainer.classList.remove('hidden');
+            if (!isSilent) this.updateSigningsTopProgress(6);
 
             for (let i = 0; i < targetIds.length; i += 8) {
                // Actualizar barra de progreso
-               if (progressBar && !isSilent) {
+               if (!isSilent) {
                   const pct = Math.round((i / targetIds.length) * 100);
-                  progressBar.style.width = `${pct}%`;
+                  this.updateSigningsTopProgress(pct);
                }
 
                const chunk = targetIds.slice(i, i + 8).filter(id => !this.failedIds.has(id));
@@ -4999,11 +5301,7 @@ const FichajesModule = {
 
             // Ocultar barra de progreso
             if (!isSilent) {
-              if (progressBar) progressBar.style.width = '100%';
-              setTimeout(() => {
-                  if (progressContainer) progressContainer.classList.add('hidden');
-                  if (progressBar) progressBar.style.width = '0%';
-              }, 600);
+              this.updateSigningsTopProgress(100);
             }
 
             if (rawData.length > 0) {
@@ -5151,6 +5449,9 @@ const FichajesModule = {
           </td></tr>`;
       }
     } finally {
+      if (!isSilent && this.currentView !== 'balance') {
+        this.finishSigningsTopProgress();
+      }
       this.isLoading = false;
     }
   },
@@ -5296,6 +5597,7 @@ const FichajesModule = {
 
   prepareOfficialWorkedHoursLoad(start, end) {
     const employeeIds = this.getBalanceEmployeeIds();
+    const estimatedTotal = Math.max(employeeIds.length, STATE.allEmployees.size, 1);
     if (this.isOfficialWorkedHoursSkipped()) {
       this.officialHoursBagRunId += 1;
       this.officialHoursBagMap = new Map();
@@ -5308,10 +5610,12 @@ const FichajesModule = {
       this.officialHoursBagProgress = {
         endpoint: 'calculo-local',
         range: `${start} -> ${end}`,
-        total: employeeIds.length,
-        done: employeeIds.length,
+        total: estimatedTotal,
+        done: estimatedTotal,
         pending: 0,
         employeeIds,
+        phase: 'done',
+        activeEmployeeIds: [],
         lastError: 'Sesame Statistics omitido por el usuario'
       };
       return;
@@ -5324,14 +5628,16 @@ const FichajesModule = {
     this.hoursBagRuleHistoryMap = new Map();
     this.hoursBagRuleHistoryErrors = new Map();
     this.hoursBagRuleHistoryError = '';
-    this.officialHoursBagLoading = employeeIds.length > 0;
+    this.officialHoursBagLoading = true;
     this.officialHoursBagProgress = {
       endpoint: '/schedule/v1/reports/worked-hours',
       range: `${start} -> ${end}`,
-      total: employeeIds.length,
+      total: estimatedTotal,
       done: 0,
-      pending: employeeIds.length,
+      pending: estimatedTotal,
       employeeIds,
+      phase: 'local',
+      activeEmployeeIds: employeeIds.slice(0, 6),
       lastError: ''
     };
   },
@@ -6455,10 +6761,11 @@ const FichajesModule = {
     const thead = document.querySelector('.signings-table thead');
     if (thead) {
       if (this.currentView === 'balance') {
+        const balanceScopeHeader = this.isBalanceMonthScope() ? 'Balance Mes' : 'Balance Ejercicio';
         thead.innerHTML = `
           <tr>
             <th class="col-employee balance-col-employee">Empleado</th>
-            <th class="text-center">Balance Ejercicio</th>
+            <th class="text-center">${balanceScopeHeader}</th>
             <th class="text-center">Acumulado Sesame</th>
             <th class="text-center">Estado</th>
             <th style="min-width:150px">Visualización</th>
@@ -7595,12 +7902,16 @@ const FichajesModule = {
       .sort()
       .pop();
     const todayKey = getLocalDateKey();
-    const effectiveEnd = this.currentView === 'balance'
+    const effectiveEnd = this.currentView === 'balance' && !this.isBalanceMonthScope()
       ? (start <= todayKey && todayKey <= end ? todayKey : (lastRowDate || end))
       : end;
     const safeRange = escapeHTML(`${start} - ${effectiveEnd}`);
-    const scopeLabel = this.currentView === 'balance' ? 'ejercicio' : 'periodo';
-    const scopeTitle = this.currentView === 'balance' ? 'Balance del ejercicio' : 'Balance del periodo';
+    const scopeLabel = this.currentView === 'balance'
+      ? (this.isBalanceMonthScope() ? 'mes' : 'ejercicio')
+      : 'periodo';
+    const scopeTitle = this.currentView === 'balance'
+      ? (this.isBalanceMonthScope() ? 'Balance del mes' : 'Balance del ejercicio')
+      : 'Balance del periodo';
     const completionPct = summary.theoretic > 0
       ? Math.min(140, Math.round((summary.equivalent / summary.theoretic) * 100))
       : 0;
@@ -7947,6 +8258,11 @@ const FichajesModule = {
     if (workedEl) workedEl.textContent = this.formatDurationCompact(totalEquivalent);
     if (theoreticEl) theoreticEl.textContent = this.formatDurationCompact(totalTheoretic);
 
+    if (rows.length === 0 && this.currentView === 'balance' && (this.isLoading || this.officialHoursBagLoading)) {
+      this.renderBalanceEmptyLoading(tbody);
+      return;
+    }
+
     if (rows.length === 0) {
       tbody.innerHTML = '<tr><td colspan="5" class="text-center" style="padding: 40px; color: var(--text-muted);">No hay datos suficientes para calcular balances en este rango.</td></tr>';
       return;
@@ -7958,7 +8274,9 @@ const FichajesModule = {
       return (sec >= 0 ? '+' : '-') + `${h}h ${m}m`;
     };
     const progressState = this.officialHoursBagProgress || {};
-    const scopeLabel = this.currentView === 'balance' ? 'ejercicio' : 'periodo';
+    const scopeLabel = this.currentView === 'balance'
+      ? (this.isBalanceMonthScope() ? 'mes' : 'ejercicio')
+      : 'periodo';
     const officialCount = rows.filter(stat => stat.hasOfficialBalance).length;
     const pendingCount = this.officialHoursBagLoading
       ? Math.max(0, Number(progressState.pending || 0))
@@ -7967,14 +8285,21 @@ const FichajesModule = {
       return !stat.hasOfficialBalance && this.officialHoursBagErrors?.has(String(stat.employeeId));
     }).length;
     const adjustedLocalCount = rows.filter(stat => Number(stat.localRuleAdjustmentSeconds || 0) !== 0).length;
-    const localCount = rows.length - officialCount;
+    const localCount = rows.filter(stat => {
+      const rowId = String(stat.employeeId);
+      const hasError = this.officialHoursBagErrors?.has(rowId);
+      const isStillPending = this.officialHoursBagLoading && !stat.hasOfficialBalance && !hasError;
+      return !stat.hasOfficialBalance && !hasError && !isStillPending;
+    }).length;
     const endpointLabel = progressState.endpoint || '/schedule/v1/reports/worked-hours';
     const rangeLabel = progressState.range || `${this.getCurrentRangeKeys().start} -> ${this.getCurrentRangeKeys().end}`;
-    const progressLabel = this.officialHoursBagLoading
-      ? `Calculando balances ${Number(progressState.done || 0)}/${Number(progressState.total || rows.length)}...`
-      : `Balances procesados ${Number(progressState.done || rows.length)}/${Number(progressState.total || rows.length)}`;
     const progressTotal = Math.max(1, Number(progressState.total || rows.length || 1));
     const progressDone = Math.min(progressTotal, Number(progressState.done || 0));
+    const progressLabel = this.officialHoursBagLoading
+      ? (progressState.phase === 'local'
+          ? `Preparando rango ${scopeLabel}: ${rangeLabel}`
+          : `Calculando balances ${progressDone}/${progressTotal}`)
+      : `Balances procesados ${Number(progressState.done || rows.length)}/${Number(progressState.total || rows.length)}`;
     const progressPct = this.officialHoursBagLoading
       ? Math.max(4, Math.round((progressDone / progressTotal) * 100))
       : 100;
@@ -7984,9 +8309,11 @@ const FichajesModule = {
       ? 'Consultando Sesame Statistics'
       : phase === 'history'
         ? 'Aplicando bolsa de horas'
-        : officialSkipped
-          ? 'Modo cálculo local'
-          : 'Balances listos';
+        : phase === 'local'
+          ? 'Preparando base local'
+          : officialSkipped
+            ? 'Modo cálculo local'
+            : 'Balances listos';
     const phaseSteps = [
       { key: 'local', label: 'Base local' },
       { key: 'statistics', label: 'Statistics' },
@@ -7995,7 +8322,34 @@ const FichajesModule = {
     ];
     const phaseRank = { local: 0, statistics: 1, history: 2, done: 3 };
     const activeEmployeeIds = new Set((progressState.activeEmployeeIds || []).map(String));
+    const activeIds = (progressState.activeEmployeeIds || []).length
+      ? progressState.activeEmployeeIds
+      : (this.officialHoursBagLoading ? (progressState.employeeIds || []).slice(0, 6) : []);
+    const activePeopleHtml = activeIds.length ? `
+            <div class="balance-load-people" aria-label="Empleados en proceso">
+              <span>En curso</span>
+              ${activeIds.slice(0, 6).map(id => {
+                const info = this.getBalanceEmployeeInfo(id);
+                return `<b title="${escapeHTML(info.name)}">${escapeHTML(info.name)}</b>`;
+              }).join('')}
+            </div>
+    ` : '';
     const lastError = progressState.lastError || this.officialHoursBagError || '';
+    const currentExerciseYear = new Date().getFullYear();
+    const isCurrentExercise = this.currentDate.getFullYear() === currentExerciseYear && !this.isBalanceMonthScope();
+    const exerciseButtonLabel = isCurrentExercise
+      ? 'Recargar ejercicio actual'
+      : `Ver ejercicio actual ${currentExerciseYear}`;
+    const balanceScopeActionHtml = `
+      <button
+        type="button"
+        class="btn-secondary balance-scope-btn"
+        onclick="FichajesModule.goToCurrentExerciseBalance(true)"
+        title="Ver el balance del ejercicio actual completo"
+      >
+        ${exerciseButtonLabel}
+      </button>
+    `;
     const sourceActionsHtml = officialSkipped
       ? '<button type="button" class="btn-secondary" onclick="FichajesModule.retryOfficialWorkedHours()" style="font-size:0.65rem; padding:4px 8px;">Probar Sesame Statistics</button>'
       : '<button type="button" class="btn-secondary" onclick="FichajesModule.useLocalBalanceOnly()" style="font-size:0.65rem; padding:4px 8px;">Usar solo cálculo local</button>';
@@ -8004,6 +8358,11 @@ const FichajesModule = {
             <div class="balance-load-main">
               <strong class="balance-load-title">${escapeHTML(phaseLabel)}</strong>
               <span title="${escapeHTML(`${endpointLabel} · ${rangeLabel}`)}">${escapeHTML(progressLabel)}</span>
+            </div>
+            <div class="balance-load-metrics">
+              <span><strong>${progressDone}</strong> procesados</span>
+              <span><strong>${officialCount}</strong> Sesame</span>
+              <span><strong>${pendingCount}</strong> pendientes</span>
             </div>
             <div class="balance-load-track" aria-hidden="true">
               <div class="balance-load-fill" style="width:${progressPct}%;"></div>
@@ -8017,6 +8376,7 @@ const FichajesModule = {
                 return `<span class="balance-load-step ${done ? 'done' : ''} ${active ? 'active' : ''}">${escapeHTML(step.label)}</span>`;
               }).join('')}
             </div>
+            ${activePeopleHtml}
           </div>
     ` : '';
     const sourceAuditHtml = `
@@ -8047,7 +8407,10 @@ const FichajesModule = {
             </span>
             ${officialSkipped ? '<span style="color:#f59e0b;">Modo local manual</span>' : ''}
             ${lastError && !officialSkipped ? `<span title="${escapeHTML(lastError)}" style="color:#f59e0b;">Ultimo error resumido</span>` : ''}
-            ${sourceActionsHtml}
+            <span class="balance-source-actions">
+              ${balanceScopeActionHtml}
+              ${sourceActionsHtml}
+            </span>
           </div>
         </td>
       </tr>
@@ -8114,7 +8477,11 @@ const FichajesModule = {
       const rowIsActive = activeEmployeeIds.has(rowId);
       const rowIsLoading = this.officialHoursBagLoading && (isPending || rowIsActive);
       const rowPhaseLabel = rowIsActive
-        ? (phase === 'history' ? 'Aplicando bolsa...' : 'Consultando Sesame...')
+        ? (phase === 'local'
+            ? 'Preparando base...'
+            : phase === 'history'
+              ? 'Aplicando bolsa...'
+              : 'Consultando Sesame...')
         : stat.hasOfficialBalance
           ? 'Confirmado por Sesame'
           : hasLocalRuleAdjustment
