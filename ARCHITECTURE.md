@@ -262,3 +262,43 @@ El modal de Balance muestra:
 - Jornadas desplegables con fichajes diarios.
 
 Las medias de entrada/salida se calculan desde timestamps originales cuando existen; si no, se usa la hora normalizada visible.
+
+### 8.7. Carga visual y limpieza de progreso
+
+La vista **Balances** tiene identidad de carga propia y no depende de la barra superior genérica de Fichajes:
+
+- `renderBalanceWarmup()` muestra un estado inicial inmediato con rango, empleados candidatos y skeletons.
+- `prepareOfficialWorkedHoursLoad()` inicializa el progreso local con fase `local` antes de consultar Sesame Statistics.
+- `startBalanceLocalPulse()` anima el avance local mientras se prepara la base de datos calculada, incluso si todavía no hay progreso real del endpoint remoto.
+- `startOfficialWorkedHoursLoad()` cambia de fase a `statistics` y después a `history` para separar la consulta oficial de Sesame y la aplicación de bolsa de horas.
+- `resetSigningsTopProgress()` fuerza la barra superior genérica a `hidden` y `0%` al entrar o terminar Balance, evitando que quede visible al 100% por estados heredados de cargas anteriores.
+
+Este diseño evita dos problemas de UX: sensación de bloqueo al entrar en Balance y barras de progreso residuales cuando el cálculo ya terminó.
+
+---
+
+## 9. Vista Empleados de Vacaciones
+
+La subvista **Vacaciones > Empleados** resume las ausencias agrupadas por empleado y tipo, pero conserva la granularidad diaria necesaria para auditar permisos parciales.
+
+### 9.1. Modelo de datos agregado
+
+`renderEmployeeList()` construye un mapa por empleado y tipo de ausencia con:
+
+- `dates`: días visibles del mes.
+- `dateKeys`: fechas completas `YYYY-MM-DD`, usadas para calcular día de semana y mes.
+- `fullDates`: ausencias de día completo.
+- `partialDates`: ausencias parciales.
+- `partialSeconds`: duración acumulada de permisos parciales.
+- `partialSlots`: lista de tramos `{date, day, startTime, endTime, seconds}`.
+
+El índice `STATE.absenceTimesIndex` se consulta por clave `empId_date` para asociar cada ausencia parcial con su horario real. Cuando ese índice termina de cargar en segundo plano, se llama a `refreshAllViews()` para repintar la vista con los horarios exactos sin bloquear la primera carga.
+
+### 9.2. Lectura visual de fechas
+
+Para reducir ambigüedad, cada chip de día se formatea con `formatAbsenceDateMeta()`:
+
+- Formato compacto visible: `Vie 05 Jun`.
+- Detalle completo en tooltip: `05 de Junio - Viernes`.
+
+En ausencias parciales, la fecha compacta se muestra junto a la franja horaria (`Vie 05 Jun · 12:00-14:00`). En ausencias completas, los días aparecen como chips separados debajo del tipo. Esto evita cadenas largas como `01 08:00-16:00, 02 08:00-16:00` donde era fácil perder qué horario pertenecía a cada día.

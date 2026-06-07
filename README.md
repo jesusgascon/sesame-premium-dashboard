@@ -5,7 +5,7 @@
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Frontend](https://img.shields.io/badge/frontend-Vanilla%20JS%20(ES6+)-yellow.svg)
 ![Backend](https://img.shields.io/badge/backend-Python%20Proxy-green.svg)
-![Version](https://img.shields.io/badge/version-1.6.2%2B-success.svg)
+![Version](https://img.shields.io/badge/version-1.6.3-success.svg)
 ![Status](https://img.shields.io/badge/status-Production%20Ready-success.svg)
 
 ---
@@ -236,14 +236,19 @@ Para una inmersión profunda en los algoritmos de cruce de datos, heurísticas d
 
 ## 📜 Changelog Detallado
 
-### [Unreleased] — Balance local alineado con Sesame
+### [v1.6.3] — 2026-06-07 | *Balance Load & Employee Absence Clarity*
 - **Añadido**: Modal ampliado de Balance por empleado con resumen equivalente al portal de Sesame: entrada media, salida media, jornada media, días trabajados/teóricos, descansos, promedio de descanso, ausencias y vacaciones.
 - **Añadido**: Etiquetado visible de fuente de balance: `Sesame Statistics`, `Calculado local`, ajuste de bolsa o error/sin datos.
+- **Añadido**: Navegación lateral directa a **Balances** junto a Vacaciones y Fichajes, conservando también el botón superior de Balance.
+- **Mejorado**: Balance diferencia claramente entre vista de ejercicio completo y vista mensual; `Ejercicio actual` vuelve siempre al rango anual del año en curso.
+- **Mejorado**: La carga de Balance incorpora warmup visual, progreso local animado, lista de empleados en curso y reseteo estricto de la barra superior al terminar para evitar estados residuales al 100%.
+- **Mejorado**: La vista **Vacaciones > Empleados** muestra ausencias parciales con horas acumuladas, franjas exactas y fecha compacta legible por chip (`Vie 05 Jun`) con detalle completo en tooltip (`05 de Junio - Viernes`).
 - **Mejorado**: El cálculo local de Balance usa permisos retribuidos como ajuste de jornada, no como horas trabajadas adicionales.
 - **Mejorado**: Las vísperas de festivo o día no laborable pueden ajustar la jornada teórica a 7h cuando aplica la regla de empresa.
 - **Corregido**: Los calendarios de empresa/festivos ya no inflan el contador de ausencias personales.
 - **Corregido**: Las vacaciones asignadas al empleado, incluidos puentes registrados como vacaciones, se muestran separadas de ausencias.
 - **Corregido**: El resumen anual de Balance se acota hasta la fecha efectiva mostrada para cuadrar con Sesame Statistics.
+- **Corregido**: La barra de progreso superior de Fichajes se oculta siempre al finalizar cargas de Balance y no conserva valores antiguos entre entradas.
 
 ### [v1.6.1] — 2026-06-04 | *Corrección de Ausencias Parciales*
 - **Añadido**: Las ausencias de jornada parcial (visitas médicas, permisos por horas, etc.) ahora se visualizan en **dos niveles**:

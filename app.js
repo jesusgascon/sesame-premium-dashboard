@@ -2580,6 +2580,7 @@ async function loadDataInternal() {
     // Poblar índice de horarios de ausencias parciales (asíncrono, no bloqueante)
     fetchAbsenceTimesIndex(fmtDate(fromDate), fmtDate(toDate)).then(idx => {
       STATE.absenceTimesIndex = idx;
+      refreshAllViews();
     });
 
     // Añadir nota de modo empleado en el label del mes si aplica
@@ -3026,6 +3027,37 @@ function renderEmployeeList() {
 
   const range  = getMonthRange(STATE.currentDate);
   const empMap = {};  // empId → { emp, absences: Map<typeId, count> }
+  const formatPartialHours = seconds => {
+    const totalMinutes = Math.round(Number(seconds || 0) / 60);
+    if (!totalMinutes) return '';
+    const h = Math.floor(totalMinutes / 60);
+    const m = totalMinutes % 60;
+    if (h && m) return `${h}h ${m}m`;
+    if (h) return `${h}h`;
+    return `${m}m`;
+  };
+  const formatAbsenceDateMeta = dateKey => {
+    const [year, month, day] = String(dateKey || '').split('-').map(Number);
+    if (!year || !month || !day) {
+      const fallbackDay = String(dateKey || '').slice(-2) || '';
+      return {
+        day: fallbackDay,
+        compact: fallbackDay,
+        full: fallbackDay ? `Día ${fallbackDay}` : 'Día sin fecha'
+      };
+    }
+    const dateObj = new Date(year, month - 1, day);
+    const weekdaysShort = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+    const weekdaysLong = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+    const safeDay = String(day).padStart(2, '0');
+    const monthName = MONTHS_ES[month - 1] || '';
+    const monthShort = monthName.slice(0, 3);
+    return {
+      day: safeDay,
+      compact: `${weekdaysShort[dateObj.getDay()]} ${safeDay} ${monthShort}`,
+      full: `${safeDay} de ${monthName} - ${weekdaysLong[dateObj.getDay()]}`
+    };
+  };
 
   Object.entries(STATE.calendarData).forEach(([date, entries]) => {
     if (date < range.from || date > range.to) return;
@@ -3036,17 +3068,47 @@ function renderEmployeeList() {
         if (!empMap[emp.id]) empMap[emp.id] = { emp, absences: new Map() };
 
         const typeId = evt.type.id;
-        const entry = empMap[emp.id].absences.get(typeId) || { type: evt.type, dates: [] };
+        const entry = empMap[emp.id].absences.get(typeId) || {
+          type: evt.type,
+          dates: [],
+          dateKeys: [],
+          fullDates: [],
+          partialDates: [],
+          partialSeconds: 0,
+          partialSlots: []
+        };
         const day = date.split('-')[2];
-        if (!entry.dates.includes(day)) entry.dates.push(day);
+        if (!entry.dates.includes(day)) {
+          entry.dates.push(day);
+          entry.dateKeys.push(date);
+          const timeInfo = STATE.absenceTimesIndex?.get(String(emp.id) + '_' + date);
+          const startTime = timeInfo?.startTime || '';
+          const endTime = timeInfo?.endTime || '';
+          const seconds = Number(timeInfo?.seconds || 0) || (
+            startTime && endTime ? getDayOffSeconds({ startTime, endTime }) : 0
+          );
+          if (seconds > 0 || startTime || endTime) {
+            entry.partialDates.push(day);
+            entry.partialSeconds += seconds;
+            entry.partialSlots.push({
+              date,
+              day,
+              startTime,
+              endTime,
+              seconds
+            });
+          } else {
+            entry.fullDates.push(day);
+          }
+        }
         empMap[emp.id].absences.set(typeId, entry);
       });
     });
   });
 
   const empList = Object.values(empMap).sort((a,b) => {
-    const ta = [...a.absences.values()].reduce((s,v)=>s+v.dates.length, 0);
-    const tb = [...b.absences.values()].reduce((s,v)=>s+v.dates.length, 0);
+    const ta = [...a.absences.values()].reduce((s,v)=>s+v.fullDates.length + v.partialDates.length, 0);
+    const tb = [...b.absences.values()].reduce((s,v)=>s+v.fullDates.length + v.partialDates.length, 0);
     return tb - ta;
   });
 
@@ -3060,17 +3122,77 @@ function renderEmployeeList() {
     const safeName = escapeHTML(name || 'Empleado');
     const safePhoto = safeHttpUrlAttr(emp.imageProfileURL);
     const initials = escapeHTML(getInitials(name));
-    const totalDays = [...absences.values()].reduce((s,v)=>s+v.dates.length, 0);
+    const totalFullDays = [...absences.values()].reduce((s,v)=>s+v.fullDates.length, 0);
+    const totalPartialEvents = [...absences.values()].reduce((s,v)=>s+v.partialDates.length, 0);
+    const totalPartialSeconds = [...absences.values()].reduce((s,v)=>s+v.partialSeconds, 0);
+    const totalUnits = totalFullDays + totalPartialEvents;
+    const totalPartialLabel = formatPartialHours(totalPartialSeconds);
+    const totalUnitLabel = totalPartialEvents > 0
+      ? (totalUnits === 1 ? 'ausencia' : 'ausencias')
+      : (totalUnits === 1 ? 'día' : 'días');
 
     const tags = [...absences.entries()].map(([,v]) => {
       const color = resolveColor(v.type.color);
       const bg = hexToRgba(color, 0.25);
-      const daysStr = v.dates.sort().join(', ');
+      const sortedDateKeys = [...(v.dateKeys || [])].sort();
+      const sortedDays = sortedDateKeys.length
+        ? sortedDateKeys.map(dateKey => formatAbsenceDateMeta(dateKey).day)
+        : [...v.dates].sort();
+      const daysStr = sortedDays.join(', ');
       const safeTypeName = escapeHTML(v.type.name || 'Ausencia');
-      const safeDaysStr = escapeHTML(daysStr);
+      const fullDateText = sortedDateKeys.length
+        ? sortedDateKeys.map(dateKey => formatAbsenceDateMeta(dateKey).full).join(', ')
+        : daysStr;
+      const safeDaysStr = escapeHTML(fullDateText);
+      const fullCount = v.fullDates.length;
+      const partialCount = v.partialDates.length;
+      const partialHours = formatPartialHours(v.partialSeconds);
+      const partialSlotItems = v.partialSlots
+        .sort((a, b) => String(a.date || a.day).localeCompare(String(b.date || b.day)))
+        .map(slot => {
+          const time = slot.startTime && slot.endTime
+            ? `${String(slot.startTime).slice(0,5)}-${String(slot.endTime).slice(0,5)}`
+            : formatPartialHours(slot.seconds);
+          const dateMeta = formatAbsenceDateMeta(slot.date || slot.day);
+          return {
+            day: dateMeta.day,
+            compactDate: dateMeta.compact,
+            fullDate: dateMeta.full,
+            time,
+            label: `${dateMeta.full}${time ? ` · ${time}` : ''}`
+          };
+        })
+        .filter(item => item.day);
+      const partialSlotText = partialSlotItems.map(item => item.label).join(', ');
+      const unitParts = [
+        fullCount ? `${fullCount}d` : '',
+        partialCount ? `${partialCount} parcial${partialCount === 1 ? '' : 'es'}` : ''
+      ].filter(Boolean).join(' · ') || `${v.dates.length}d`;
+      const partialChip = partialHours
+        ? `<span class="emp-tag-time" title="${escapeHTML(partialSlotText || 'Horas parciales solicitadas')}">${escapeHTML(partialHours)}</span>`
+        : '';
+      const dayChips = sortedDays
+        .map((day, index) => {
+          const dateMeta = sortedDateKeys[index]
+            ? formatAbsenceDateMeta(sortedDateKeys[index])
+            : { compact: day, full: `Día ${day}` };
+          return `<span class="emp-day-pill" title="${escapeHTML(dateMeta.full)}">${escapeHTML(dateMeta.compact)}</span>`;
+        })
+        .join('');
+      const slotChips = partialSlotItems
+        .map(item => `<span class="emp-tag-slot" title="${escapeHTML(item.label)}"><strong>${escapeHTML(item.compactDate)}</strong>${item.time ? `<span>${escapeHTML(item.time)}</span>` : ''}</span>`)
+        .join('');
+      const detailLine = slotChips
+        ? `<span class="emp-absence-detail emp-absence-detail-slots" title="${escapeHTML(partialSlotText)}">${slotChips}</span>`
+        : `<span class="emp-absence-detail" title="${safeDaysStr}"><span class="emp-days-caption">Días</span>${dayChips}</span>`;
       return `<span class="emp-absence-tag" style="background:${bg};border-color:${color}40">
-        <span class="emp-absence-dot" style="background:${color}"></span>
-        ${safeTypeName} · ${v.dates.length}d <span class="emp-absence-dates">(${safeDaysStr})</span>
+        <span class="emp-absence-head">
+          <span class="emp-absence-dot" style="background:${color}"></span>
+          <span class="emp-absence-type">${safeTypeName}</span>
+          <span class="emp-absence-units">${escapeHTML(unitParts)}</span>
+          ${partialChip}
+        </span>
+        ${detailLine}
       </span>`;
     }).join('');
 
@@ -3087,8 +3209,9 @@ function renderEmployeeList() {
         <div class="emp-absences">${tags}</div>
       </div>
       <div class="emp-days">
-        <div class="emp-days-count">${totalDays}</div>
-      <div class="emp-days-label">días</div>
+        <div class="emp-days-count">${totalUnits}</div>
+        <div class="emp-days-label">${totalUnitLabel}</div>
+        ${totalPartialLabel ? `<div class="emp-hours-count" title="Horas parciales solicitadas">${escapeHTML(totalPartialLabel)}</div>` : ''}
       </div>
     `;
     card.querySelector('.emp-avatar img')?.addEventListener('error', event => {
@@ -3715,6 +3838,7 @@ const FichajesModule = {
   isLoading: false,
   balanceWarmupRunId: 0,
   balanceLocalPulseTimer: null,
+  signingsTopProgressHideTimer: null,
   init() {
     if (this.initialized) return;
     this.initialized = true;
@@ -3761,6 +3885,7 @@ const FichajesModule = {
     const tbody = document.getElementById('signings-tbody');
     if (!tbody) return;
 
+    this.resetSigningsTopProgress();
     this.syncInsightsVisibility();
 
     const thead = document.querySelector('.signings-table thead');
@@ -3884,6 +4009,10 @@ const FichajesModule = {
     const progressBar = $('signings-progress-bar');
     const progressContainer = $('signings-progress-container');
     if (!progressContainer || !progressBar) return;
+    if (this.signingsTopProgressHideTimer) {
+      clearTimeout(this.signingsTopProgressHideTimer);
+      this.signingsTopProgressHideTimer = null;
+    }
     progressContainer.classList.remove('hidden');
     progressContainer.classList.add('is-indeterminate');
     progressBar.style.width = '38%';
@@ -3893,6 +4022,10 @@ const FichajesModule = {
     const progressBar = $('signings-progress-bar');
     const progressContainer = $('signings-progress-container');
     if (!progressContainer || !progressBar) return;
+    if (this.signingsTopProgressHideTimer) {
+      clearTimeout(this.signingsTopProgressHideTimer);
+      this.signingsTopProgressHideTimer = null;
+    }
     progressContainer.classList.remove('hidden', 'is-indeterminate');
     progressBar.style.width = `${Math.max(0, Math.min(100, Math.round(Number(percent) || 0)))}%`;
   },
@@ -3901,12 +4034,30 @@ const FichajesModule = {
     const progressBar = $('signings-progress-bar');
     const progressContainer = $('signings-progress-container');
     if (!progressContainer || !progressBar) return;
+    if (this.signingsTopProgressHideTimer) {
+      clearTimeout(this.signingsTopProgressHideTimer);
+      this.signingsTopProgressHideTimer = null;
+    }
     progressContainer.classList.remove('is-indeterminate');
     progressBar.style.width = '100%';
-    window.setTimeout(() => {
+    this.signingsTopProgressHideTimer = window.setTimeout(() => {
       progressContainer.classList.add('hidden');
       progressBar.style.width = '0%';
+      this.signingsTopProgressHideTimer = null;
     }, 450);
+  },
+
+  resetSigningsTopProgress() {
+    const progressBar = $('signings-progress-bar');
+    const progressContainer = $('signings-progress-container');
+    if (!progressContainer || !progressBar) return;
+    if (this.signingsTopProgressHideTimer) {
+      clearTimeout(this.signingsTopProgressHideTimer);
+      this.signingsTopProgressHideTimer = null;
+    }
+    progressContainer.classList.add('hidden');
+    progressContainer.classList.remove('is-indeterminate');
+    progressBar.style.width = '0%';
   },
 
   renderBalanceEmptyLoading(tbody) {
@@ -4616,7 +4767,9 @@ const FichajesModule = {
     this.isLoading = true;
 
     const isSilent = !!options.silent;
-    if (!isSilent && this.currentView === 'balance') {
+    const isBalanceLoad = this.currentView === 'balance';
+    if (!isSilent && isBalanceLoad) {
+      this.resetSigningsTopProgress();
       this.requestBalanceTopPin();
     } else if (!isSilent) {
       this.startSigningsTopProgress();
@@ -5484,7 +5637,9 @@ const FichajesModule = {
           </td></tr>`;
       }
     } finally {
-      if (!isSilent && this.currentView !== 'balance') {
+      if (!isSilent && (isBalanceLoad || this.currentView === 'balance')) {
+        this.resetSigningsTopProgress();
+      } else if (!isSilent) {
         this.finishSigningsTopProgress();
       }
       this.isLoading = false;
@@ -5632,6 +5787,7 @@ const FichajesModule = {
   },
 
   prepareOfficialWorkedHoursLoad(start, end) {
+    this.resetSigningsTopProgress();
     const employeeIds = this.getBalanceEmployeeIds();
     const estimatedTotal = Math.max(employeeIds.length, STATE.allEmployees.size, 1);
     if (this.isOfficialWorkedHoursSkipped()) {
