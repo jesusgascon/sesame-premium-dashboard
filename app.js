@@ -598,6 +598,36 @@ async function apiFetchBi(query) {
 }
 
 /**
+ * Lazy load: asegura que los empleados indicados tienen cargado su horario completo (workdays) y detalles.
+ */
+async function ensureProfilesLoaded(employeeIds) {
+  if (!employeeIds || employeeIds.length === 0) return;
+  const missing = [];
+  for (const id of employeeIds) {
+    const emp = STATE.allEmployees.get(String(id));
+    // Se considera faltante si no tiene perfil o no tiene horario teórico extraído
+    if (!emp || !emp.workdays) missing.push(id);
+  }
+  
+  if (missing.length === 0) return;
+  
+  // Limitar concurrencia para evitar bloqueos temporales del WAF
+  const concurrency = 5;
+  for (let i = 0; i < missing.length; i += concurrency) {
+    const chunk = missing.slice(i, i + concurrency);
+    await Promise.allSettled(chunk.map(async (id) => {
+      try {
+        const res = await apiFetch(`/api/v3/employees/${id}`);
+        const full = res.data || res;
+        if (full && full.id) upsertEmployee(full);
+      } catch(e) {
+        console.warn(`Failed to lazy load profile for ${id}`, e);
+      }
+    }));
+  }
+}
+
+/**
  * Añade o actualiza un empleado en el estado global de forma robusta.
  * Unifica los IDs como String y mezcla la información para no perder fotos.
  */
@@ -640,6 +670,8 @@ function upsertEmployee(emp) {
         6: (tmpl.saturdayMinutes || 0) * 60,
         0: (tmpl.sundayMinutes || 0) * 60
       };
+      // Guardar también el nombre del calendario/plantilla para mostrarlo en los fichajes
+      if (tmpl.name) updated.scheduleTemplateName = tmpl.name;
     }
   }
 
@@ -4627,21 +4659,21 @@ const FichajesModule = {
 
       // Si después del BI seguimos sin datos, iniciamos escaneo serial (uno a uno)
       // Solo para los empleados que no tengan fecha y máximo 50 para no saturar
-      this.startSerialBirthdayScan();
+      this.startSerialProfileScan();
 
     } catch (e) {
       console.warn("Deep Birthday Harvest failed:", e);
-      this.startSerialBirthdayScan();
+      this.startSerialProfileScan();
     }
   },
 
-  async startSerialBirthdayScan() {
+  async startSerialProfileScan() {
     if (this.isScanning) return;
     this.isScanning = true;
 
     const employees = Array.from(STATE.allEmployees.values())
-      .filter(e => !e.birthDate)
-      .slice(0, 40); // Limitamos a 40 para evitar baneo del WAF
+      .filter(e => !e.birthDate || !e.workdays)
+      .slice(0, 50); // Limitamos a 50 para evitar baneo del WAF
 
     console.log(`Serial Scan: ${employees.length} candidates.`);
 
@@ -6527,6 +6559,9 @@ const FichajesModule = {
     const employeeIds = Array.from(ids).slice(0, 80);
     if (employeeIds.length === 0) return;
 
+    // Asegurarnos de que tenemos los perfiles (horarios y birthDate) antes de procesar saldos locales
+    await ensureProfilesLoaded(employeeIds);
+
     const errors = [];
     try {
       const listMap = await this.fetchOfficialHoursBagList(start, end);
@@ -7133,6 +7168,31 @@ const FichajesModule = {
         const theoH = Math.floor(theoretic / 3600);
         const theoM = Math.floor((theoretic % 3600) / 60);
         const theoreticLabel = `${theoH}h ${theoM}m`;
+
+        // --- Datos del horario del empleado para ese día concreto ---
+        const empProfile = STATE.allEmployees.get(String(row.employeeId || ''));
+        const scheduleTemplateName = empProfile?.scheduleTemplateName || '';
+        // day-of-week en JS: 0=Dom, 1=Lun ... 6=Sáb
+        const rowDow = row.date ? new Date(row.date + 'T12:00:00').getDay() : null;
+        const scheduleSecondsForDay = (rowDow !== null && empProfile?.workdays)
+          ? (empProfile.workdays[rowDow] ?? null)
+          : null;
+        const scheduleHtmlForDay = (() => {
+          if (scheduleSecondsForDay === null) return '';
+          const sh = Math.floor(scheduleSecondsForDay / 3600);
+          const sm = Math.floor((scheduleSecondsForDay % 3600) / 60);
+          const isRest = scheduleSecondsForDay === 0;
+          const dayLabel = isRest ? 'No laborable' : `${sh}h${sm > 0 ? ' ' + sm + 'm' : ''}`;
+          const accentColor = isRest ? 'var(--text-muted)' : 'var(--accent2)';
+          const nameHtml = scheduleTemplateName
+            ? `<span style="opacity:0.6; font-size:0.68rem; display:block; margin-top:2px; font-weight:500;">${escapeHTML(scheduleTemplateName)}</span>`
+            : '';
+          return `
+            <div class="detail-meta-item" style="grid-column: 1 / -1; margin-top: 4px; padding: 7px 10px; border-radius: 8px; background: rgba(99,202,183,0.08); border: 1px solid rgba(99,202,183,0.2);">
+              <span class="detail-meta-label" style="color: var(--accent2); font-weight: 700; font-size: 0.65rem; letter-spacing: 0.5px;">⏱ JORNADA PACTADA</span>
+              <span class="detail-meta-val" style="color: ${accentColor}; font-weight: 800; font-size: 1rem;">${escapeHTML(dayLabel)}${nameHtml}</span>
+            </div>`;
+        })();
         const compensatedItemsHtml = (row.compensatedItems || []).map(item => {
           const seconds = Number(item.seconds || 0);
           const h = Math.floor(seconds / 3600);
@@ -7238,6 +7298,7 @@ const FichajesModule = {
                      <div class="detail-meta-grid">
                        <div class="detail-meta-item"><span class="detail-meta-label">Balance Día</span><span class="detail-meta-val" style="color: ${row.balanceSec >= 0 ? '#4ade80' : '#f87171'}">${safeBalanceLabel}</span></div>
                        <div class="detail-meta-item"><span class="detail-meta-label">Balance Sem.</span><span class="detail-meta-val" style="color: ${row.weeklyBalanceSec >= 0 ? '#4ade80' : '#f87171'}">${safeWeeklyBalanceLabel}</span></div>
+                        ${scheduleHtmlForDay}
                      </div>
 
                      ${theoretic > 0 ? (() => {
@@ -8129,6 +8190,18 @@ const FichajesModule = {
       });
       return label.charAt(0).toUpperCase() + label.slice(1);
     };
+    // Perfil del empleado para mostrar el horario pactado por día en el modal
+    const _balEmpProfile = STATE.allEmployees.get(String(employeeId));
+    const _balScheduleName = _balEmpProfile?.scheduleTemplateName || '';
+    const _balWorkdays = _balEmpProfile?.workdays || null;
+    const _getScheduleForDate = (dateKey) => {
+      if (!_balWorkdays || !dateKey) return null;
+      const match = String(dateKey).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!match) return null;
+      const dow = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])).getDay();
+      const secs = _balWorkdays[dow];
+      return (typeof secs === 'number') ? secs : null;
+    };
     const dayRowsHtml = summary.rows.length ? summary.rows.map((row, index) => {
       const entriesHtml = (row.entries || []).map(entry => {
         const type = entry.type === 'pause' ? 'Pausa' : (entry.typeLabel || 'Trabajo');
@@ -8152,9 +8225,18 @@ const FichajesModule = {
             <span class="balance-day-toggle">Detalles</span>
           </summary>
           <div class="balance-day-metrics">
-            <span>Trabajo ${formatDuration(row.workedSeconds)}</span>
-            <span>Teorico ${formatDuration(row.theoreticSeconds)}</span>
+            <span><strong>Trabajado</strong> ${formatDuration(row.workedSeconds)}</span>
+            <span>Teórico ${formatDuration(row.theoreticSeconds)}</span>
             <span>Pausas ${formatDuration(row.totalPauseSec)}</span>
+            ${(() => {
+              const secs = _getScheduleForDate(row.date);
+              if (secs === null) return '';
+              const sh = Math.floor(secs / 3600);
+              const sm = Math.floor((secs % 3600) / 60);
+              const label = secs === 0 ? 'Descanso' : sh + 'h' + (sm > 0 ? ' ' + sm + 'm' : '');
+              const nameHtml = _balScheduleName ? ' · <em style="opacity:0.6;font-size:0.7rem;">' + escapeHTML(_balScheduleName) + '</em>' : '';
+              return '<span style="color: var(--accent2); font-weight: 700;">⏱ Pactado ' + escapeHTML(label) + nameHtml + '</span>';
+            })()}
           </div>
           <div class="balance-day-entries">${entriesHtml || '<span class="balance-empty-line">Sin tramos detallados</span>'}</div>
         </details>
@@ -8814,7 +8896,7 @@ async function showContactCard(employeeId) {
   if (!emp) return;
 
   // Si faltan datos clave (cumpleaños, etc), intentamos pedir el perfil completo para esta ficha
-  if (!emp.birthDate || !emp.hiringDate || !emp.phone) {
+  if (!emp.birthDate || !emp.hiringDate || !emp.phone || !emp.workdays) {
     try {
       const res = await apiFetch(`/api/v3/employees/${employeeId}`);
       const full = res.data || res;
