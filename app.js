@@ -5250,7 +5250,7 @@ const FichajesModule = {
         const prevDate = addLocalDays(dateKey, -1);
         if (!employeeId || !dateKey || !prevDate || !isWeekdayDateKey(dateKey) || !isWeekdayDateKey(prevDate)) return;
         const key = `${employeeId}_${prevDate}`;
-        const existing = dayOverrides.get(key) || { workdayOverride: null, compensatedSeconds: 0, compensatedItems: [] };
+        const existing = dayOverrides.get(key) || { workdayOverride: null, compensatedSeconds: 0, compensatedItems: [], fullDayRemunerated: false };
         existing.eveOfNonWorkingDaySeconds = 25200; // 7h
         existing.eveOfNonWorkingDayLabel = label || 'Víspera de festivo';
         dayOverrides.set(key, existing);
@@ -5296,16 +5296,23 @@ const FichajesModule = {
                     label: typeName || ''
                   });
                 }
-                const existing = dayOverrides.get(key) || { workdayOverride: null, compensatedSeconds: 0, compensatedItems: [] };
+                const existing = dayOverrides.get(key) || { workdayOverride: null, compensatedSeconds: 0, compensatedItems: [], fullDayRemunerated: false };
+                const isFullDayImplicit = doff.dayOffTimeType === 'full_day' && dayOffSeconds === 0;
+
                 if (doff.dayOffTimeType === 'full_day' && dayOffSeconds > 0) {
                   existing.workdayOverride = dayOffSeconds;
                   markEveOfNonWorkingDay(empId, doff.date, typeName || 'Día no laborable');
                 }
-                if (isRemunerated && dayOffSeconds > 0) {
-                  existing.compensatedSeconds += dayOffSeconds;
+                if (isRemunerated && (dayOffSeconds > 0 || isFullDayImplicit)) {
+                  if (isFullDayImplicit) {
+                    existing.fullDayRemunerated = true;
+                  } else {
+                    existing.compensatedSeconds += dayOffSeconds;
+                  }
                   existing.compensatedItems.push({
                     label: typeName || 'Ausencia retribuida',
-                    seconds: dayOffSeconds,
+                    seconds: isFullDayImplicit ? 0 : dayOffSeconds,
+                    isFullDay: isFullDayImplicit,
                     startTime: doff.startTime || null,
                     endTime: doff.endTime || null,
                     date: doff.date,
@@ -6873,7 +6880,7 @@ const FichajesModule = {
 	      const dayOverride = this.dayOverrides && this.dayOverrides.get(overrideKey);
 	      if (dayOverride) {
 	        compensatedSeconds = Number(dayOverride.compensatedSeconds || 0);
-	        compensatedItems = Array.isArray(dayOverride.compensatedItems) ? dayOverride.compensatedItems : [];
+	        compensatedItems = Array.isArray(dayOverride.compensatedItems) ? dayOverride.compensatedItems.map(i => ({...i})) : [];
 	      }
 
 	      const isSesameComputedTheoretic = this.biTheoreticMap && this.biTheoreticMap.has(overrideKey);
@@ -6897,6 +6904,18 @@ const FichajesModule = {
 	      // Sesame sigue mostrando la jornada teórica (ej: 7h o 8h) aunque sea festivo/ausencia.
 	      // En permisos retribuidos por horas, Sesame descuenta ese tiempo de la jornada a cubrir.
 	      theoreticBeforeCompensation = theoreticSeconds;
+	      
+	      if (dayOverride && dayOverride.fullDayRemunerated) {
+	        const neededCompensation = Math.max(0, theoreticSeconds - compensatedSeconds);
+	        if (neededCompensation > 0) {
+	          compensatedSeconds += neededCompensation;
+	          const fullDayItem = compensatedItems.find(i => i.isFullDay);
+	          if (fullDayItem) {
+	            fullDayItem.seconds = neededCompensation;
+	          }
+	        }
+	      }
+
 	      if (!isSesameComputedTheoretic && compensatedSeconds > 0) {
 	        compensatedAppliedToTheoretic = Math.min(theoreticSeconds, compensatedSeconds);
 	        theoreticSeconds = Math.max(0, theoreticSeconds - compensatedAppliedToTheoretic);
@@ -7094,10 +7113,8 @@ const FichajesModule = {
         return '<div class="mini-timeline-bar absence" style="left:' + ps.toFixed(2) + '%;width:' + pw.toFixed(2) + '%;" title="' + escapeHTML(lbl) + '"></div>';
       }).join('');
     };
-    const _absTableRowsHtml = (segs, entries) => {
-      if (!segs || !segs.length) return '';
-      // Mostrar solo ausencias parciales cuyo tramo NO está cubierto por un fichaje físico.
-      // (si ya hay un fichaje que solapa exactamente ese periodo, no duplicamos)
+    const _getAbsenceTableItems = (segs, entries) => {
+      if (!segs || !segs.length) return [];
       const isCoveredByEntry = (absStartStr, absEndStr) => {
         const [ah, am] = (absStartStr || '00:00').split(':').map(Number);
         const [bh, bm] = (absEndStr   || '23:59').split(':').map(Number);
@@ -7109,14 +7126,12 @@ const FichajesModule = {
           const [oh, om] = e.out.split(':').map(Number);
           const iMin = ih*60 + (im||0);
           const oMin = oh*60 + (om||0);
-          // Solapamiento: la entrada empieza antes de que acabe la ausencia
-          // Y termina después de que empiece la ausencia
           return iMin < bMin && oMin > aMin;
         });
       };
       return segs.filter(abs => {
-        if (abs.isFullDay) return false; // día completo: sin franja horaria concreta
-        return !isCoveredByEntry(abs.start, abs.end); // solo si el tramo NO está en los fichajes
+        if (abs.isFullDay) return false;
+        return !isCoveredByEntry(abs.start, abs.end);
       }).map(abs => {
         let durStr = '--';
         const p1 = abs.start.split(':').map(Number);
@@ -7128,7 +7143,7 @@ const FichajesModule = {
         const st = abs.start ? abs.start.substring(0,5) : '00:00';
         const et = abs.end   ? abs.end.substring(0,5)   : '23:59';
         const lbl = escapeHTML(abs.label || 'Ausencia');
-        return '<tr class="row-is-absence" style="background:rgba(139,92,246,0.06);">'
+        const html = '<tr class="row-is-absence" style="background:rgba(139,92,246,0.06);">'
           + '<td><strong>' + st + ' \u2013 ' + et + '</strong></td>'
           + '<td><span class="td-duration">' + durStr + '</span></td>'
           + '<td><span style="background:rgba(139,92,246,0.15);border:1px dashed #a78bfa;padding:3px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;color:#a78bfa;">'
@@ -7136,7 +7151,8 @@ const FichajesModule = {
           + '<td><span class="td-loc">\uD83D\uDCC5 Sesame (Ausencia)</span></td>'
           + '<td><span style="opacity:0.3">--</span></td>'
           + '</tr>';
-      }).join('');
+        return { start: st, html };
+      });
     };
 
     filtered.forEach((row, idx) => {
@@ -7444,8 +7460,9 @@ const FichajesModule = {
                   <table class="details-tech-table">
                     <thead><tr><th>HORARIO</th><th>DURACIÓN</th><th>TIPO</th><th>ORIGEN</th><th>UBICACIÓN</th></tr></thead>
                     <tbody>
-	                      ${_absTableRowsHtml(row.absenceSegments, row.entries)}
-	                      ${(row.entries || []).map(e => {
+	                      ${(() => {
+                          const absItems = _getAbsenceTableItems(row.absenceSegments, row.entries);
+                          const entryItems = (row.entries || []).map(e => {
 	                        const icon = e.type === 'work' ? '💼' : (e.type === 'pause' ? '☕' : '🚪');
 	                        const typeCls = e.type === 'work' ? 'type-work' : (e.type === 'pause' ? 'type-pause' : 'type-abs');
 	                        const latIn = Number(e.latIn);
@@ -7515,7 +7532,7 @@ const FichajesModule = {
                         // Use a class that only applies if there is an explicit THIRD PARTY edit or request
                         const highlightClass = (isEditedIn || isEditedOut) ? 'row-is-edited' : '';
 
-	                        return `
+	                        const html = `
 	                        <tr class="${highlightClass}">
 	                          <td><strong title="${safeAuditTooltip}">${safeIn} - ${safeOut}</strong></td>
 	                          <td><span class="td-duration">${safeDuration}</span></td>
@@ -7523,7 +7540,17 @@ const FichajesModule = {
 	                          <td>${originContent}</td>
 	                          <td>${locContent}</td>
                         </tr>`;
-                      }).join('')}
+                            return { start: safeIn, html };
+                          });
+                          return [...absItems, ...entryItems].sort((a, b) => {
+                            const parseT = (t) => {
+                              if (!t || t === '--:--') return 0;
+                              const [h, m] = t.split(':').map(Number);
+                              return (isNaN(h) ? 0 : h * 60) + (isNaN(m) ? 0 : m);
+                            };
+                            return parseT(a.start) - parseT(b.start);
+                          }).map(x => x.html).join('');
+                        })()}
                     </tbody>
                   </table>
                 </div>
@@ -8215,11 +8242,11 @@ const FichajesModule = {
       }).join('');
       const openAttr = index === 0 ? ' open' : '';
       return `
-        <details class="balance-day-card"${openAttr}>
+        <details class="balance-day-card${row.absenceLabel ? ' has-absence' : ''}"${openAttr}>
           <summary class="balance-day-head">
-            <div>
+            <div style="display:flex;align-items:center;gap:8px;">
               <strong>${escapeHTML(formatDayTitle(row))}</strong>
-              ${row.absenceLabel ? `<span>${escapeHTML(row.absenceLabel)}</span>` : ''}
+              ${row.absenceLabel ? `<span class="badge-absence">📌 ${escapeHTML(row.absenceLabel)}</span>` : ''}
             </div>
             <b class="${Number(row.balanceSec || 0) >= 0 ? 'positive' : 'negative'}">${formatSigned(row.balanceSec)}</b>
             <span class="balance-day-toggle">Detalles</span>

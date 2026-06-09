@@ -3148,6 +3148,20 @@ body {
   white-space: nowrap;
 }
 
+.badge-absence {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+  font-size: 0.65rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .balance-days-pill {
   min-width: 26px;
   height: 20px;
@@ -3449,6 +3463,16 @@ body {
 .balance-day-card[open] {
   border-color: rgba(96, 165, 250, 0.24);
   background: rgba(96, 165, 250, 0.055);
+}
+
+.balance-day-card.has-absence {
+  border-color: rgba(16, 185, 129, 0.2);
+  background: rgba(16, 185, 129, 0.03);
+}
+
+.balance-day-card.has-absence[open] {
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.08);
 }
 
 .balance-day-head,
