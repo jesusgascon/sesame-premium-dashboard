@@ -8228,16 +8228,16 @@ const FichajesModule = {
             <span><strong>Trabajado</strong> ${formatDuration(row.workedSeconds)}</span>
             <span>Teórico ${formatDuration(row.theoreticSeconds)}</span>
             <span>Pausas ${formatDuration(row.totalPauseSec)}</span>
-            ${(() => {
-              const secs = _getScheduleForDate(row.date);
-              if (secs === null) return '';
-              const sh = Math.floor(secs / 3600);
-              const sm = Math.floor((secs % 3600) / 60);
-              const label = secs === 0 ? 'Descanso' : sh + 'h' + (sm > 0 ? ' ' + sm + 'm' : '');
-              const nameHtml = _balScheduleName ? ' · <em style="opacity:0.6;font-size:0.7rem;">' + escapeHTML(_balScheduleName) + '</em>' : '';
-              return '<span style="color: var(--accent2); font-weight: 700;">⏱ Pactado ' + escapeHTML(label) + nameHtml + '</span>';
-            })()}
           </div>
+          ${(() => {
+            const secs = _getScheduleForDate(row.date);
+            if (secs === null) return '';
+            const sh = Math.floor(secs / 3600);
+            const sm = Math.floor((secs % 3600) / 60);
+            const label = secs === 0 ? 'Descanso' : sh + 'h' + (sm > 0 ? ' ' + sm + 'm' : '');
+            const nameHtml = _balScheduleName ? ' <span style="opacity:0.55;font-size:0.68rem;font-weight:500;">' + escapeHTML(_balScheduleName) + '</span>' : '';
+            return '<div style="display:flex;align-items:center;gap:6px;padding:5px 16px 10px;"><span style="display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;background:rgba(45,212,191,0.12);border:1px solid rgba(45,212,191,0.22);color:#2dd4bf;font-size:0.68rem;font-weight:800;letter-spacing:0.3px;">⏱ Pactado ' + escapeHTML(label) + '</span>' + nameHtml + '</div>';
+          })()}
           <div class="balance-day-entries">${entriesHtml || '<span class="balance-empty-line">Sin tramos detallados</span>'}</div>
         </details>
       `;
