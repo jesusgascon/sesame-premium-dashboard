@@ -86,15 +86,16 @@ La función `parseRealSignings` es el corazón analítico.
 El objeto "Empleado" difiere drásticamente si viene del endpoint `/me`, de `/employees`, o del `BI Engine`.
 - `upsertEmployee` actúa como un *Reducer* global. Acepta cualquier fragmento JSON que represente a un empleado y hace un *merge* (fusión) con los datos existentes en memoria (`STATE.allEmployees`).
 - **Extracción Recursiva**: Busca la fecha de nacimiento en `emp.birthDate`, `emp.birthday`, `emp.personalData.birthDate`, etc. Salva fotos de perfil perdidas conservando la URL original si la nueva petición la omite.
+- **Horario y Plantilla Pactada**: Extrae la matriz semanal de trabajo (`workdays`, mapa de segundos diarios `0..6`) y almacena el nombre del calendario o plantilla de turno asignada (`scheduleTemplateName`) para contrastar fichajes reales con horas teóricas oficiales.
 
 ---
 
-## 3. Deep Birthday Harvest (Descubrimiento en Profundidad)
+## 3. Deep Birthday & Profile Harvest (Descubrimiento en Profundidad)
 
-Dado que la lista general de empleados de Sesame censura las fechas de nacimiento por privacidad por defecto, el sistema implementa una táctica de extracción en dos fases para popular el panel de cumpleaños:
+Dado que la lista general de empleados de Sesame censura las fechas de nacimiento por privacidad por defecto y omite información detallada de turnos, el sistema implementa una táctica de extracción en dos fases para popular el panel de cumpleaños y la jornada pactada de cada empleado:
 
 1. **Nivel 1 (BI Query)**: Intenta inyectar una consulta al motor de Analytics solicitando el campo `core_context_employee.birthDate`. Si el WAF (Web Application Firewall) lo permite, extrae el 100% de las fechas en una sola llamada de 200ms.
-2. **Nivel 2 (Serial Profiling Fallback)**: Si el BI no devuelve datos, el dashboard puede iniciar una rutina en background (`startSerialBirthdayScan`) sobre perfiles accesibles por la cuenta autenticada. Esta capacidad debe usarse solo cuando exista permiso y finalidad legítima para tratar cumpleaños; la interfaz se actualiza progresivamente con una barra de progreso sutil.
+2. **Nivel 2 (Serial Profiling Fallback)**: Si el BI no devuelve datos o faltan datos de turnos/horarios (`workdays`), el dashboard inicia una rutina en background (`startSerialProfileScan`) sobre perfiles accesibles por la cuenta autenticada (hasta 50 candidatos concurrentes por lote). Esta capacidad permite sincronizar de manera no bloqueante los cumpleaños y turnos semanales; la interfaz se actualiza progresivamente con una barra de progreso sutil.
 
 ---
 
@@ -274,6 +275,12 @@ La vista **Balances** tiene identidad de carga propia y no depende de la barra s
 - `resetSigningsTopProgress()` fuerza la barra superior genérica a `hidden` y `0%` al entrar o terminar Balance, evitando que quede visible al 100% por estados heredados de cargas anteriores.
 
 Este diseño evita dos problemas de UX: sensación de bloqueo al entrar en Balance y barras de progreso residuales cuando el cálculo ya terminó.
+
+### 8.8. Plantillas de Jornada Pactada e Integración Híbrida
+Para comparar el tiempo de trabajo efectivo no sólo con la jornada teórica de un día concreto sino con el turno formal de contrato del trabajador, el dashboard realiza un cruce híbrido:
+- **Carga lazy optimizada (`ensureProfilesLoaded`)**: Antes de calcular saldos o balances en el periodo, se auditan las IDs de los empleados involucrados. Aquellos cuyos perfiles locales no tengan la jornada semanal (`workdays`) cargada son consultados en lotes pequeños (máximo 5 peticiones concurrentes) para no disparar alertas del limitador WAF de Sesame.
+- **Inyección de Metadatos de Horario**: Cada ficha diaria de control horario y balance almacena e inyecta dinámicamente un badge de jornada pactada `⏱ JORNADA PACTADA` con la duración correspondiente según el día de la semana y el nombre descriptivo de la plantilla activa de Sesame (ej. *Jornada 40h/semana Turno 13:00h - ZGZ*).
+- **Evitación de Solapamientos**: El indicador de jornada pactada en el menú desplegable del balance por día se renderiza en un contenedor flex aislado con diseño de píldora de alto contraste. Esto evita solaparse con las métricas cuantitativas principales (Trabajado, Teórico, Pausas), manteniendo una legibilidad perfecta del grid.
 
 ---
 

@@ -5,7 +5,7 @@
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Frontend](https://img.shields.io/badge/frontend-Vanilla%20JS%20(ES6+)-yellow.svg)
 ![Backend](https://img.shields.io/badge/backend-Python%20Proxy-green.svg)
-![Version](https://img.shields.io/badge/version-1.6.3-success.svg)
+![Version](https://img.shields.io/badge/version-1.7.0-success.svg)
 ![Status](https://img.shields.io/badge/status-Production%20Ready-success.svg)
 
 ---
@@ -235,6 +235,15 @@ Para una inmersión profunda en los algoritmos de cruce de datos, heurísticas d
 ---
 
 ## 📜 Changelog Detallado
+
+### [v1.7.0] — 2026-06-09 | *Carga Híbrida de Horarios & Plantillas Pactadas*
+- **Añadido**: Integración de la jornada pactada de contrato de cada empleado (`scheduleTemplateName` de Sesame) en fichajes y balances.
+- **Añadido**: Lazy loading concurrente optimizado (`ensureProfilesLoaded`) en lotes de 5 peticiones concurrentes para evitar bloqueos del WAF al descargar perfiles y calendarios de turnos semanales (`workdays`).
+- **Añadido**: Escáner serial de background (`startSerialProfileScan`) ampliado para descargar perfiles completos (workdays y cumpleaños) si hay ausencias de datos locales.
+- **Añadido**: Badge dinámico `⏱ JORNADA PACTADA` en el desplegable de fichajes con la duración contratada por día y el nombre descriptivo de la plantilla activa.
+- **Añadido**: Badge de jornada pactada diario y nombre del calendario inyectado en cada línea de jornada en el modal de balance por empleado.
+- **Mejorado**: El indicador de jornada pactada en el modal se mueve a su propio bloque flex para evitar solapamientos con las métricas tradicionales de Trabajo, Teórico y Pausas.
+- **Limpieza**: Eliminación de todos los archivos y scripts de desarrollo temporal del repositorio local para dejar limpio el proyecto.
 
 ### [v1.6.3] — 2026-06-07 | *Balance Load & Employee Absence Clarity*
 - **Añadido**: Modal ampliado de Balance por empleado con resumen equivalente al portal de Sesame: entrada media, salida media, jornada media, días trabajados/teóricos, descansos, promedio de descanso, ausencias y vacaciones.
