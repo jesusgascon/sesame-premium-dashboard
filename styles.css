@@ -3321,6 +3321,34 @@ body {
 .balance-employee-score.negative strong { color: #f87171; }
 .balance-employee-score.neutral strong { color: #60a5fa; }
 
+.balance-export-json-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--text-main);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+  width: fit-content;
+}
+.balance-export-json-btn:hover {
+  background: rgba(99, 102, 241, 0.22);
+  border-color: rgba(99, 102, 241, 0.6);
+}
+.balance-export-json-btn:active {
+  transform: translateY(1px);
+}
+.balance-export-json-btn svg {
+  flex-shrink: 0;
+}
+
 .balance-employee-body {
   display: grid;
   gap: 14px;

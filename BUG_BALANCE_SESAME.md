@@ -1,7 +1,7 @@
 # Análisis del Bug de Balance (Ausencias y Teórico) - v1.7.8+
 
 **Fecha**: Junio 2026
-**Estado**: Revertido a v1.7.2 por decisión del usuario.
+**Estado**: ✅ CORREGIDO en v1.7.2 (parche aplicado 2026-06-10). Ver sección "Correcciones aplicadas" al final.
 
 ## El Problema Central
 El cálculo local de balance (horas trabajadas vs horas teóricas) daba fallos masivos en las ausencias (ej. -265h en Fibercom, o 8h15m fijas en APL) cuando el motor de BI de Sesame no devolvía el cálculo procesado.
@@ -39,3 +39,25 @@ Para arreglar esto limpiamente desde v1.7.2 sin romper la arquitectura:
 2. **Actualizar `getDayOffSeconds`**: Debe ser tan exhaustivo buscando `startTime` como lo es la función visual del timeline (`partialDay`, `details`, `start_time`, etc.).
 3. **No confiar en el BI**: Eliminar la asunción de que Sesame nos da el Teórico ya descontado. Si hay una ausencia compensable local, **siempre** hay que restarla del teórico devuelto por el BI o la plantilla.
 4. **Catálogo de Ausencias**: Asegurar que "Gestión Privada", "Asuntos propios", "Vacaciones" devuelvan `true` al comprobar si son jornadas compensables.
+
+---
+
+## Correcciones aplicadas (2026-06-10)
+
+Los 4 puntos anteriores han sido implementados en `app.js`:
+
+### 1. ✅ `getDayOffSeconds` — búsqueda exhaustiva de tiempos (línea ~244)
+Añadida lectura desde `partialDay.startTime`, `partialDay.start_time`, `details.startTime`, `details.start_time`. Antes solo leía el primer nivel del objeto.
+
+### 2. ✅ `isKnownCompensatedAbsenceLabel` — catálogo ampliado (línea ~217)
+Añadidos al regex de nombres conocidos: `vacaciones?`, `vacation`, `paid_vacation`, `gestion\s+privada`, `asuntos?\s+propios?`. Antes faltaban los tipos más habituales en España.
+
+### 3. ✅ Nuevo bloque post-`localAbsences` → `dayOverrides` (línea ~5264)
+Bloque que itera `localAbsences` (ya poblado tanto en modo admin como en modo empleado) e inyecta en `dayOverrides` los `compensatedSeconds` y `fullDayRemunerated` para cada ausencia retribuida personal. Maneja dos formatos de datos:
+- **Formato A (admin)**: `{ calendar_type, employees: [{id, startTime, ...}] }` de `calendars-grouped`
+- **Formato B (empleado)**: `{ calendarType, startTime, daysOff, ... }` de `/employees/{id}/calendars`
+
+Este es el fix principal. Sin él, Médico, Vacaciones y Gestión Privada eran invisibles para el motor de teórico.
+
+### 4. ✅ Eliminado guard `!isSesameComputedTheoretic` en `parseRealSignings` (línea ~7068)
+El BI devuelve la jornada BASE (ej. 8h15m) sin descontar ausencias. El parche aplica siempre la compensación local independientemente de si el BI proporcionó el teórico. El guard anterior impedía el descuento cuando existía dato BI, que es precisamente la situación más común (APL, cuentas con acceso BI).

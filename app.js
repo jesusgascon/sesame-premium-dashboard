@@ -5,7 +5,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.7.2';
+const APP_VERSION = '1.7.3';
 
 // ─── Debug Mode ───────────────────────────────────────────────────────────────
 // false en producción (silencia console.log/info/warn).
@@ -209,17 +209,39 @@ function normalizeRemuneratedType(value) {
   return String(value ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
 }
 
+// \u2500\u2500\u2500 Clasificaci\u00f3n de ausencias retribuidas (basada en API oficial Sesame) \u2500\u2500\u2500
+// Endpoint /api/v3/companies/{id}/absence-types devuelve `remuneratedType` con
+// exactamente DOS valores enum: "remunerated" | "not_remunerated".
+// Ref: apidocs.sesametime.com \u2014 Sesame Public API 3.0.0 OAS 3.0
 function isRemuneratedAbsenceType(value) {
   const token = normalizeRemuneratedType(value);
+  // "remunerated" es el valor oficial. El resto son fallbacks defensivos
+  // por si llegamos a verlos en formato legacy/proxy intermedio.
   return ['remunerated', 'paid', 'paid_leave', 'paid_absence', 'with_pay'].includes(token);
 }
 
+// NUEVO: detecta cuando el API marca expl\u00edcitamente la ausencia como NO retribuida.
+// Cuando esto es true, NO hay que aplicar ninguna heur\u00edstica por nombre \u2014 la
+// decisi\u00f3n del API es definitiva. Esto evita compensar tipos como "Gesti\u00f3n Privada"
+// que en cada empresa pueden estar configurados como retribuidos o no.
+function isExplicitlyNotRemuneratedType(value) {
+  const token = normalizeRemuneratedType(value);
+  return ['not_remunerated', 'unpaid', 'unpaid_leave', 'not_paid', 'without_pay', 'no_pay'].includes(token);
+}
+
 function isKnownCompensatedAbsenceLabel(value) {
+  // FALLBACK conservador: solo cuando el API no devuelve `remuneratedType`.
+  // \u00danicos nombres seguros entre empresas:
+  //   - "Permiso retribuido" \u2192 el nombre incluye literalmente "retribuido"
+  //   - "Vacaciones" \u2192 siempre retribuidas en Espa\u00f1a
+  // NO incluir:
+  //   - "Gesti\u00f3n Privada", "Asuntos Propios": cada empresa lo configura distinto
+  //   - "M\u00e9dico": puede ser retribuido o no seg\u00fan la empresa
   const text = String(value || '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
-  return /\b(permiso\s+retribuido|medico|cabecera|seguridad\s+social)\b/.test(text);
+  return /\b(permiso\s+retribuido|paid\s+leave|vacaciones?|vacation|paid_vacation)\b/.test(text);
 }
 
 function getAbsenceRemuneratedType(...sources) {
@@ -229,6 +251,64 @@ function getAbsenceRemuneratedType(...sources) {
     if (value !== undefined && value !== null && value !== '') return value;
   }
   return '';
+}
+
+// NUEVO: resuelve el horario te\u00f3rico de un empleado para una fecha concreta,
+// teniendo en cuenta que un empleado puede tener varias plantillas en su
+// hist\u00f3rico (paternidad, lactancia, jornada reducida, etc.).
+// Devuelve { secondsForDay, templateName } o null si no hay datos.
+function resolveEmployeeScheduleForDate(employee, dateKey) {
+  if (!employee || !dateKey) return null;
+  const dayOfWeek = new Date(String(dateKey) + 'T00:00:00').getDay();
+  if (Number.isNaN(dayOfWeek)) return null;
+
+  const views = Array.isArray(employee.scheduleTemplateAllViews)
+    ? employee.scheduleTemplateAllViews
+    : null;
+
+  if (views && views.length > 0) {
+    // Buscar la plantilla vigente: dateFrom <= dateKey <= dateTo (o sin dateTo)
+    // Orden de b\u00fasqueda: vistas con dateFrom <= dateKey, eligiendo la m\u00e1s
+    // reciente que cubra la fecha.
+    const candidates = views.filter(v => {
+      const fromOk = !v.dateFrom || v.dateFrom <= dateKey;
+      const toOk   = !v.dateTo   || v.dateTo   >= dateKey;
+      return fromOk && toOk;
+    });
+    if (candidates.length > 0) {
+      // Coger la de dateFrom m\u00e1s reciente (la vigente)
+      const winner = candidates.sort((a, b) => {
+        const af = a.dateFrom || '0000-00-00';
+        const bf = b.dateFrom || '0000-00-00';
+        return bf.localeCompare(af);
+      })[0];
+      const secs = winner.workdays?.[dayOfWeek];
+      if (typeof secs === 'number') {
+        return { secondsForDay: secs, templateName: winner.name || '' };
+      }
+    }
+  }
+
+  // Fallback: plantilla por defecto (la primera o \u00fanica vista)
+  if (employee.workdays && typeof employee.workdays[dayOfWeek] === 'number') {
+    return {
+      secondsForDay: employee.workdays[dayOfWeek],
+      templateName: employee.scheduleTemplateName || ''
+    };
+  }
+  return null;
+}
+
+// NUEVO: decisi\u00f3n jer\u00e1rquica del estatus de retribuci\u00f3n.
+// Devuelve true (retribuido), false (no retribuido) o null (desconocido).
+// Prioridad:
+//   1. API marca "not_remunerated" \u2192 false definitivo
+//   2. API marca "remunerated" \u2192 true definitivo
+//   3. Sin info del API \u2192 heur\u00edstica por nombre conservadora
+function resolveIsRemunerated(remuneratedType, typeName) {
+  if (isExplicitlyNotRemuneratedType(remuneratedType)) return false;
+  if (isRemuneratedAbsenceType(remuneratedType)) return true;
+  return isKnownCompensatedAbsenceLabel(typeName);
 }
 
 function parseTimeToSeconds(value) {
@@ -244,8 +324,15 @@ function parseTimeToSeconds(value) {
 function getDayOffSeconds(dayOff) {
   const explicit = Number(dayOff?.seconds);
   if (Number.isFinite(explicit) && explicit > 0) return explicit;
-  const start = parseTimeToSeconds(dayOff?.startTime || dayOff?.start_time);
-  const end = parseTimeToSeconds(dayOff?.endTime || dayOff?.end_time);
+  // Búsqueda exhaustiva: Sesame puede anidar los tiempos en partialDay o details
+  const startRaw = dayOff?.startTime || dayOff?.start_time ||
+    dayOff?.partialDay?.startTime || dayOff?.partialDay?.start_time ||
+    dayOff?.details?.startTime   || dayOff?.details?.start_time;
+  const endRaw   = dayOff?.endTime   || dayOff?.end_time   ||
+    dayOff?.partialDay?.endTime   || dayOff?.partialDay?.end_time   ||
+    dayOff?.details?.endTime     || dayOff?.details?.end_time;
+  const start = parseTimeToSeconds(startRaw);
+  const end   = parseTimeToSeconds(endRaw);
   if (start === null || end === null || end <= start) return 0;
   return end - start;
 }
@@ -659,22 +746,33 @@ function upsertEmployee(emp) {
     updated.accumulatedSeconds = emp.accumulatedSeconds;
   }
 
-  // Extraer horario teórico desde scheduleTemplateViews si viene en el payload
-  if (emp.scheduleTemplateViews && emp.scheduleTemplateViews.length > 0) {
-    const tmpl = emp.scheduleTemplateViews[0].scheduleTemplate;
-    if (tmpl) {
-      updated.workdays = {
-        1: (tmpl.mondayMinutes || 0) * 60,
-        2: (tmpl.tuesdayMinutes || 0) * 60,
-        3: (tmpl.wednesdayMinutes || 0) * 60,
-        4: (tmpl.thursdayMinutes || 0) * 60,
-        5: (tmpl.fridayMinutes || 0) * 60,
-        6: (tmpl.saturdayMinutes || 0) * 60,
-        0: (tmpl.sundayMinutes || 0) * 60
+  // Extraer horario teórico desde scheduleTemplateViews si viene en el payload.
+  // IMPORTANTE: Un empleado puede tener varias plantillas vigentes en periodos
+  // distintos (ej. reducción por paternidad/lactancia desde una fecha, vuelta
+  // al 100% al terminar). Guardamos TODAS y resolvemos por fecha en runtime.
+  if (Array.isArray(emp.scheduleTemplateViews) && emp.scheduleTemplateViews.length > 0) {
+    // Normalizar todas las vistas a {dateFrom, dateTo, workdays, name}
+    const allViews = emp.scheduleTemplateViews.map(view => {
+      const tmpl = view?.scheduleTemplate || {};
+      return {
+        dateFrom: view.dateFrom || view.from || null,  // 'YYYY-MM-DD' o null
+        dateTo:   view.dateTo   || view.to   || null,  // null = vigente
+        name: tmpl.name || '',
+        workdays: {
+          1: (tmpl.mondayMinutes    || 0) * 60,
+          2: (tmpl.tuesdayMinutes   || 0) * 60,
+          3: (tmpl.wednesdayMinutes || 0) * 60,
+          4: (tmpl.thursdayMinutes  || 0) * 60,
+          5: (tmpl.fridayMinutes    || 0) * 60,
+          6: (tmpl.saturdayMinutes  || 0) * 60,
+          0: (tmpl.sundayMinutes    || 0) * 60
+        }
       };
-      // Guardar también el nombre del calendario/plantilla para mostrarlo en los fichajes
-      if (tmpl.name) updated.scheduleTemplateName = tmpl.name;
-    }
+    });
+    updated.scheduleTemplateAllViews = allViews;
+    // Compatibilidad: dejar el primer workdays como "por defecto"
+    updated.workdays = allViews[0].workdays;
+    if (allViews[0].name) updated.scheduleTemplateName = allViews[0].name;
   }
 
   STATE.allEmployees.set(idStr, updated);
@@ -1297,20 +1395,30 @@ async function fetchEmployees() {
       }
 
       let workdays = null;
-      // Extraer desde scheduleTemplateViews (la fuente de verdad de Sesame en 2026)
-      if (detail.scheduleTemplateViews && detail.scheduleTemplateViews.length > 0) {
-        const tmpl = detail.scheduleTemplateViews[0].scheduleTemplate;
-        if (tmpl) {
-          workdays = {
-            1: (tmpl.mondayMinutes || 0) * 60,
-            2: (tmpl.tuesdayMinutes || 0) * 60,
-            3: (tmpl.wednesdayMinutes || 0) * 60,
-            4: (tmpl.thursdayMinutes || 0) * 60,
-            5: (tmpl.fridayMinutes || 0) * 60,
-            6: (tmpl.saturdayMinutes || 0) * 60,
-            0: (tmpl.sundayMinutes || 0) * 60
+      let scheduleTemplateAllViews = null;
+      // Extraer desde scheduleTemplateViews (la fuente de verdad de Sesame en 2026).
+      // Guardamos TODAS las vistas para resolver por fecha el horario real
+      // (reducciones de jornada, paternidad, lactancia tienen su propia vista).
+      if (Array.isArray(detail.scheduleTemplateViews) && detail.scheduleTemplateViews.length > 0) {
+        scheduleTemplateAllViews = detail.scheduleTemplateViews.map(view => {
+          const tmpl = view?.scheduleTemplate || {};
+          return {
+            dateFrom: view.dateFrom || view.from || null,
+            dateTo:   view.dateTo   || view.to   || null,
+            name: tmpl.name || '',
+            workdays: {
+              1: (tmpl.mondayMinutes    || 0) * 60,
+              2: (tmpl.tuesdayMinutes   || 0) * 60,
+              3: (tmpl.wednesdayMinutes || 0) * 60,
+              4: (tmpl.thursdayMinutes  || 0) * 60,
+              5: (tmpl.fridayMinutes    || 0) * 60,
+              6: (tmpl.saturdayMinutes  || 0) * 60,
+              0: (tmpl.sundayMinutes    || 0) * 60
+            }
           };
-        }
+        });
+        // Compatibilidad: workdays "por defecto" = primera vista
+        workdays = scheduleTemplateAllViews[0].workdays;
       }
       // Fallback a contracts por si acaso
       else if (detail.contracts && detail.contracts.length > 0) {
@@ -1339,6 +1447,8 @@ async function fetchEmployees() {
                    (e.details && e.details.birthDate) || '',
         hiringDate: e.hiringDate || e.dateOfJoined || e.joinedDate || e.createdAt || '',
         workdays: workdays,
+        scheduleTemplateAllViews: scheduleTemplateAllViews,
+        scheduleTemplateName: (scheduleTemplateAllViews && scheduleTemplateAllViews[0]?.name) || '',
         accumulatedSeconds: typeof detail.accumulatedSeconds === 'number' ? detail.accumulatedSeconds : undefined,
         status: e.status
       };
@@ -5253,6 +5363,173 @@ const FichajesModule = {
           });
         });
       });
+
+      // ── FIX BUG_BALANCE_SESAME: Inyectar ausencias personales en dayOverrides ──
+      // fetchCalendarGrouped poblaba localAbsences (visible como iconos 📌) pero
+      // ese dato NUNCA llegaba al motor matemático de dayOverrides.
+      // En modo empleado, fetchCalendarsRaw se saltaba completamente.
+      {
+        const _myEmpId = _employeeMode ? getCurrentEmployeeId() : null;
+        // Dedup: clave (empId, fecha, duración, tipo) para evitar doble conteo
+        // cuando el API devuelve el mismo evento en múltiples entries o formatos.
+        const _empDayDedup = new Set();
+
+        Object.entries(localAbsences).forEach(([date, dayEntries]) => {
+          (dayEntries || []).forEach(entry => {
+            const rawType = entry.calendar_type || entry.calendarType ||
+              entry.absenceCalendar?.absenceType || entry.absenceType || {};
+            const masterType = STATE.absenceTypes.find(
+              t => String(t.id) === String(rawType.id || '')
+            ) || {};
+            const mergedType = rawType.id ? rawType : masterType;
+            const typeInfoForCal = getBalanceCalendarTypeInfo(mergedType);
+
+            const typeName = typeInfoForCal.label || displayAbsenceTypeName(mergedType) || 'Ausencia';
+
+            // ── FESTIVOS DE EMPRESA: workdayOverride=0 + víspera ────────────────
+            // Si es un festivo de empresa (no una ausencia personal), reducir el
+            // teórico a 0 ese día y aplicar regla de víspera al día anterior.
+            // En modo empleado venimos aquí porque fetchCalendarsRaw está bloqueado.
+            if (typeInfoForCal.isCompanyCalendar) {
+              if (_myEmpId) {
+                const _myEmpStr = String(_myEmpId);
+                const applyHolidayDate = (holDate) => {
+                  if (!holDate) return;
+                  const k = `${_myEmpStr}_${holDate}`;
+                  const ex = dayOverrides.get(k) || {
+                    workdayOverride: null, compensatedSeconds: 0,
+                    compensatedItems: [], fullDayRemunerated: false
+                  };
+                  ex.workdayOverride = 0; // No se trabaja ese día
+                  dayOverrides.set(k, ex);
+                  markEveOfNonWorkingDay(_myEmpStr, holDate, typeName || 'Festivo');
+                };
+                // Festivo puede venir como entry.date o expandido en daysOff
+                if (Array.isArray(entry.daysOff) && entry.daysOff.length > 0) {
+                  entry.daysOff.forEach(doff => applyHolidayDate(doff.date || date));
+                } else {
+                  applyHolidayDate(date);
+                }
+              }
+              return;
+            }
+
+            const remuneratedType = getAbsenceRemuneratedType(rawType, masterType);
+            // resolveIsRemunerated: API > nombre. Si Sesame marca "not_remunerated"
+            // explícitamente, se respeta sin importar el nombre.
+            const isRemunerated = resolveIsRemunerated(remuneratedType, typeName);
+            if (!isRemunerated) return;
+
+            // Helper: escribe o fusiona la compensación en dayOverrides
+            // fallbackSec: segundos explícitos cuando no hay start/end como string
+            const upsertCompensation = (empId, date2, sRaw, eRaw, fallbackSec = 0) => {
+              if (!empId) return;
+              // Calcular duración: usar getDayOffSeconds si hay tiempos, si no el fallback
+              const dur = sRaw ? getDayOffSeconds({ startTime: sRaw, endTime: eRaw }) : fallbackSec;
+              // Es jornada completa solo si NO hay tiempo y NO hay segundos conocidos
+              const isFullDay = !sRaw && dur === 0;
+
+              // Dedup por (empId, fecha, duración, tipo): evita contar el mismo evento dos veces
+              // aunque llegue con formato diferente (doff.seconds vs startTime/endTime)
+              const dedupKey = isFullDay
+                ? `${empId}_${date2}_fullday_${typeName}`
+                : `${empId}_${date2}_${dur}_${typeName}`;
+              if (_empDayDedup.has(dedupKey)) return;
+              _empDayDedup.add(dedupKey);
+
+              const key = `${empId}_${date2}`;
+              const ex = dayOverrides.get(key) || {
+                workdayOverride: null, compensatedSeconds: 0,
+                compensatedItems: [], fullDayRemunerated: false
+              };
+              if (isFullDay) {
+                ex.fullDayRemunerated = true;
+              } else if (dur > 0) {
+                ex.compensatedSeconds += dur;
+                ex.compensatedItems.push({
+                  label: typeName, seconds: dur, isFullDay: false,
+                  startTime: sRaw || null, endTime: eRaw || null,
+                  date: date2, remuneratedType: remuneratedType || 'remunerated'
+                });
+              }
+              dayOverrides.set(key, ex);
+            };
+
+            // ── Formato A: Modo Administrador (entries de calendars-grouped) ──
+            const empsList = entry.employees || (entry.employee ? [entry.employee] : []);
+            if (empsList.length > 0) {
+              empsList.forEach(empObj => {
+                const sRaw = empObj.start_time || empObj.startTime ||
+                  empObj.partialDay?.start_time || empObj.partialDay?.startTime ||
+                  empObj.details?.start_time   || empObj.details?.startTime;
+                const eRaw = empObj.end_time || empObj.endTime ||
+                  empObj.partialDay?.end_time || empObj.partialDay?.endTime ||
+                  empObj.details?.end_time   || empObj.details?.endTime;
+                upsertCompensation(String(empObj.id || ''), date, sRaw, eRaw, 0);
+              });
+              return;
+            }
+
+            // ── Formato B: Modo Empleado (/employees/{id}/calendars) ──────────
+            if (!_myEmpId) return;
+            const empId = String(_myEmpId);
+            addBalanceCalendarSummaryItem(empId, date, typeName, typeInfoForCal);
+
+            // Tiempos en el campo externo del entry (fallback para doffs sin tiempo)
+            const outerSRaw = entry.startTime || entry.start_time ||
+              entry.partialDay?.startTime || entry.partialDay?.start_time ||
+              entry.details?.startTime   || entry.details?.start_time;
+            const outerERaw = entry.endTime || entry.end_time ||
+              entry.partialDay?.endTime || entry.partialDay?.end_time ||
+              entry.details?.endTime   || entry.details?.end_time;
+
+            if (Array.isArray(entry.daysOff) && entry.daysOff.length > 0) {
+              entry.daysOff.forEach(doff => {
+                const doffDate = doff.date || date;
+                if (!doffDate) return;
+
+                const doffSRaw = doff.startTime || doff.start_time ||
+                  doff.partialDay?.startTime || doff.partialDay?.start_time ||
+                  doff.details?.startTime;
+                const doffERaw = doff.endTime || doff.end_time ||
+                  doff.partialDay?.endTime || doff.partialDay?.end_time ||
+                  doff.details?.endTime;
+
+                // getDayOffSeconds incluye: doff.seconds explícito + partialDay + tiempos directos
+                const doffDur = getDayOffSeconds(doff);
+                // Tiempos resueltos: doff primero, luego campo externo del entry como fallback
+                const resolvedSRaw = doffSRaw || outerSRaw;
+                const resolvedERaw = doffERaw || outerERaw;
+
+                if (!resolvedSRaw && doffDur > 0) {
+                  // Duración explícita (doff.seconds) pero sin tiempos string → parcial conocido
+                  upsertCompensation(empId, doffDate, null, null, doffDur);
+                } else {
+                  // Jornada completa SOLO si no hay ningún tiempo ni segundos disponibles
+                  const isFullDayDoff = !resolvedSRaw && doffDur === 0;
+                  upsertCompensation(empId, doffDate,
+                    isFullDayDoff ? null : resolvedSRaw,
+                    isFullDayDoff ? null : resolvedERaw,
+                    0);
+                }
+              });
+            } else {
+              upsertCompensation(empId, date, outerSRaw, outerERaw, 0);
+            }
+          });
+        });
+
+        // Post-procesado: si un override tiene fullDayRemunerated + compensatedSeconds > 0
+        // coexistiendo, el fullDayRemunerated es un artefacto del API (devuelve doff:full_day
+        // para ausencias parciales junto a una entrada separada con los tiempos exactos).
+        // Desactivarlo para que solo actúe la compensación parcial concreta.
+        dayOverrides.forEach(override => {
+          if (override.fullDayRemunerated && override.compensatedSeconds > 0) {
+            override.fullDayRemunerated = false;
+          }
+        });
+      }
+
       const markEveOfNonWorkingDay = (employeeId, nonWorkingDate, label) => {
         const dateKey = normalizeDateKey(nonWorkingDate);
         const prevDate = addLocalDays(dateKey, -1);
@@ -5265,12 +5542,37 @@ const FichajesModule = {
 	      };
 	      this.absenceTimesMap = new Map();
 	      const eveScanEnd = addLocalDays(end, 1) || end;
-	      Object.entries(HOLIDAYS_ZGZ).forEach(([holidayDate, holidayName]) => {
-	        if (holidayDate < start || holidayDate > eveScanEnd || !isLocalHolidayDateKey(holidayDate)) return;
-	        STATE.allEmployees.forEach((_, employeeId) => {
-	          markEveOfNonWorkingDay(employeeId, holidayDate, holidayName);
+
+	      // ── DETECCIÓN AUTOMÁTICA de empresa con festivos zaragozanos ────────
+	      // HOLIDAYS_ZGZ es la lista de festivos LOCALES de Zaragoza. Solo se aplica
+	      // automáticamente a empresas que sabemos que la siguen (Fibercom). Para el
+	      // resto, confiamos en lo que devuelva el calendario API de la empresa, que
+	      // ya marca los festivos específicos de esa organización (ej. Andrea/APL
+	      // tiene "Aragon Photonics Labs SLU 2026" en su propio calendario API).
+	      // Estar en Zaragoza NO implica reducción automática de jornada en víspera:
+	      // es una decisión de cada empresa/convenio.
+	      const _activeCompany = STATE.companies.find(c => c.companyId === STATE.companyId) || {};
+	      const _companyNameNorm = String(_activeCompany.name || '')
+	        .normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+	      const _appliesZgzHolidays = /fibercom/.test(_companyNameNorm);
+
+	      if (_appliesZgzHolidays) {
+	        Object.entries(HOLIDAYS_ZGZ).forEach(([holidayDate, holidayName]) => {
+	          if (holidayDate < start || holidayDate > eveScanEnd) return;
+	          if (!isWeekdayDateKey(holidayDate)) return;
+	          const myId = _employeeMode ? getCurrentEmployeeId() : null;
+	          if (myId) {
+	            // Modo empleado: solo marcamos al usuario actual
+	            markEveOfNonWorkingDay(String(myId), holidayDate, holidayName);
+	          } else {
+	            // Modo admin: marcar a todos los empleados de la empresa aragonesa
+	            STATE.allEmployees.forEach((_, employeeId) => {
+	              markEveOfNonWorkingDay(employeeId, holidayDate, holidayName);
+	            });
+	          }
 	        });
-	      });
+	      }
+
 	      if (!_coreApiIs403 && !_employeeMode) {
 	        try {
 	          const calendarsRaw = await fetchCalendarsRaw(start, eveScanEnd);
@@ -5285,7 +5587,10 @@ const FichajesModule = {
               masterType
             );
             const typeName = displayAbsenceTypeName(cal.calendarType || cal.typeReference || cal.absenceType || cal.absenceCalendar?.absenceType || masterType);
-            const isRemunerated = isRemuneratedAbsenceType(remuneratedType) || isKnownCompensatedAbsenceLabel(typeName);
+            // resolveIsRemunerated: confía en `remuneratedType` del API.
+            // Si Sesame marca "not_remunerated" explícitamente, NO se compensa
+            // aunque el nombre suene a retribuido.
+            const isRemunerated = resolveIsRemunerated(remuneratedType, typeName);
             const empId = cal.employee?.id || cal.entityReference?.id;
             const calendarTypeInfo = getBalanceCalendarTypeInfo(cal.calendarType || cal.typeReference || cal.absenceType || cal.absenceCalendar?.absenceType || masterType);
             if (empId && cal.daysOff) {
@@ -6914,14 +7219,21 @@ const FichajesModule = {
 	      const isSesameComputedTheoretic = this.biTheoreticMap && this.biTheoreticMap.has(overrideKey);
 	      if (isSesameComputedTheoretic) {
 	        // El BI Engine ya nos da la jornada teórica final calculada por Sesame
+	        // (incluye reducciones de jornada individuales, paternidad, etc.)
 	        theoreticSeconds = this.biTheoreticMap.get(overrideKey);
 	        theoreticSource = compensatedSeconds > 0 ? 'Sesame BI + Calendario' : 'Sesame BI';
 	      } else if (dayOverride && dayOverride.workdayOverride !== null) {
 	        theoreticSeconds = dayOverride.workdayOverride;
 	        theoreticSource = 'Calendario';
-	      } else if (emp && emp.workdays && typeof emp.workdays[dayOfWeek] !== 'undefined') {
-	        theoreticSeconds = emp.workdays[dayOfWeek];
-	        theoreticSource = compensatedSeconds > 0 ? 'Plantilla + Calendario' : 'Plantilla';
+	      } else {
+	        // Resolver plantilla vigente en la fecha (no la primera del array).
+	        // Esto captura reducciones de jornada activas en periodos específicos.
+	        const _resolved = resolveEmployeeScheduleForDate(emp, g.date);
+	        if (_resolved && typeof _resolved.secondsForDay === 'number') {
+	          theoreticSeconds = _resolved.secondsForDay;
+	          const _tmplLabel = _resolved.templateName ? `Plantilla (${_resolved.templateName})` : 'Plantilla';
+	          theoreticSource = compensatedSeconds > 0 ? `${_tmplLabel} + Calendario` : _tmplLabel;
+	        }
 	      }
 	      if (dayOverride?.eveOfNonWorkingDaySeconds && theoreticSeconds > dayOverride.eveOfNonWorkingDaySeconds) {
 	        theoreticSeconds = dayOverride.eveOfNonWorkingDaySeconds;
@@ -6932,8 +7244,17 @@ const FichajesModule = {
 	      // Sesame sigue mostrando la jornada teórica (ej: 7h o 8h) aunque sea festivo/ausencia.
 	      // En permisos retribuidos por horas, Sesame descuenta ese tiempo de la jornada a cubrir.
 	      theoreticBeforeCompensation = theoreticSeconds;
-	      
-	      if (dayOverride && dayOverride.fullDayRemunerated) {
+
+	      // ── GUARD anti-fullDayRemunerated cuando hay jornada normal ────────────
+	      // El API de Sesame en modo empleado a veces devuelve doffs con
+	      // dayOffTimeType:'full_day' sin tiempos aunque la ausencia sea parcial.
+	      // Regla robusta: si el empleado fichó más de 30 min de trabajo ese día,
+	      // NO es un día de jornada completa de permiso. Ignoramos el flag y dejamos
+	      // que actúe solo la compensación parcial (compensatedSeconds) si la hay.
+	      const _workedForGuard = g.totalWorkedSeconds || 0;
+	      const _hasRealWorkDay = _workedForGuard > 30 * 60;
+
+	      if (dayOverride && dayOverride.fullDayRemunerated && !_hasRealWorkDay) {
 	        const neededCompensation = Math.max(0, theoreticSeconds - compensatedSeconds);
 	        if (neededCompensation > 0) {
 	          compensatedSeconds += neededCompensation;
@@ -6944,10 +7265,14 @@ const FichajesModule = {
 	        }
 	      }
 
-	      if (!isSesameComputedTheoretic && compensatedSeconds > 0) {
+	      // El BI devuelve la jornada BASE (p.ej. 8h15m), NO descuenta ausencias.
+	      // Siempre aplicar compensación local aunque el BI haya dado el teórico.
+	      if (compensatedSeconds > 0) {
 	        compensatedAppliedToTheoretic = Math.min(theoreticSeconds, compensatedSeconds);
 	        theoreticSeconds = Math.max(0, theoreticSeconds - compensatedAppliedToTheoretic);
-	        theoreticSource = `${theoreticSource} + Permiso retribuido`;
+	        if (!theoreticSource.includes('Permiso retribuido')) {
+	          theoreticSource = `${theoreticSource} + Permiso retribuido`;
+	        }
 	      }
 
       // --- Computed enriched metrics for the detail panel ---
@@ -6971,9 +7296,14 @@ const FichajesModule = {
       // Si el BI de Sesame no está disponible, los permisos retribuidos reducen la jornada teórica local.
       const totalEquivalentSeconds = g.totalWorkedSeconds;
       const balanceSec = totalEquivalentSeconds - theoreticSeconds;
-      const balanceH = Math.floor(Math.abs(balanceSec) / 3600);
-      const balanceM = Math.floor((Math.abs(balanceSec) % 3600) / 60);
-      const balanceLabel = (balanceSec >= 0 ? '+' : '-') + `${balanceH}h ${balanceM}m`;
+      // Sesame usa Math.floor del balance EN SEGUNDOS CON SIGNO (truncar hacia
+      // el lado pesimista): -201s → -4m (no -3m), +173s → +2m (no +3m).
+      // Aplicar esta misma fórmula elimina las diferencias sistemáticas de 1m.
+      const balanceMinSigned = Math.floor(balanceSec / 60); // puede ser negativo
+      const _balanceAbsMin = Math.abs(balanceMinSigned);
+      const balanceH = Math.floor(_balanceAbsMin / 60);
+      const balanceM = _balanceAbsMin % 60;
+      const balanceLabel = (balanceMinSigned < 0 ? '-' : '+') + `${balanceH}h ${balanceM}m`;
 
       out.push({
         employeeId: g.employeeId,
@@ -8192,6 +8522,152 @@ const FichajesModule = {
     };
   },
 
+  exportEmployeeBalanceJSON(employeeId, summary, startKey, endKey) {
+    const empProfile = STATE.allEmployees.get(String(employeeId)) || {};
+    const fmt = s => this.formatDurationCompact(Number(s || 0));
+    const fmtSigned = s => {
+      const v = Number(s || 0);
+      const sign = v >= 0 ? '+' : '-';
+      const h = Math.floor(Math.abs(v) / 3600);
+      const m = Math.floor((Math.abs(v) % 3600) / 60);
+      return `${sign}${h}h ${m}m`;
+    };
+
+    // Serializar cada jornada con todos sus campos relevantes
+    const jornadas = (summary.rows || []).map(row => ({
+      date: row.date,
+      dayName: row.dayName,
+      inTime: row.inTime,
+      outTime: row.outTime,
+      workedSeconds: row.workedSeconds,
+      workedFormatted: fmt(row.workedSeconds),
+      theoreticSeconds: row.theoreticSeconds,
+      theoreticFormatted: fmt(row.theoreticSeconds),
+      theoreticBeforeCompensation: row.theoreticBeforeCompensation,
+      theoreticSource: row.theoreticSource,
+      pactedSeconds: (empProfile.workdays && typeof empProfile.workdays[new Date(row.date + 'T00:00:00').getDay()] !== 'undefined')
+        ? empProfile.workdays[new Date(row.date + 'T00:00:00').getDay()] : null,
+      compensatedSeconds: row.compensatedSeconds,
+      compensatedFormatted: fmt(row.compensatedSeconds),
+      compensatedAppliedToTheoretic: row.compensatedAppliedToTheoretic,
+      compensatedItems: row.compensatedItems || [],
+      totalPauseSec: row.totalPauseSec,
+      pauseFormatted: fmt(row.totalPauseSec),
+      balanceSec: row.balanceSec,
+      balanceLabel: row.balanceLabel,
+      absenceLabel: row.absenceLabel,
+      absenceSegments: row.absenceSegments || [],
+      workSegments: row.workSegments,
+      pauseSegments: row.pauseSegments,
+      isLive: row.isLive,
+      eveOfNonWorkingDayLabel: row.eveOfNonWorkingDayLabel || null,
+      entries: (row.entries || []).map(e => ({
+        type: e.type,
+        in: e.in,
+        out: e.out,
+        inOriginal: e.inOriginal || e.in,
+        outOriginal: e.outOriginal || e.out,
+        durationSec: e.durationSec,
+        durationFormatted: fmt(e.durationSec),
+        originIn: e.originIn || null,
+        originOut: e.originOut || null,
+        deviceNameIn: e.deviceNameIn || null,
+        deviceNameOut: e.deviceNameOut || null,
+        ipIn: e.ipIn || null,
+        ipOut: e.ipOut || null,
+        officeNameIn: e.officeNameIn || null,
+        officeNameOut: e.officeNameOut || null,
+        insideOfficeIn: e.insideOfficeIn ?? null,
+        latIn: e.checkInLat || null,
+        lonIn: e.checkInLon || null,
+        latOut: e.checkOutLat || null,
+        lonOut: e.checkOutLon || null,
+        performedByNameIn: e.performedByNameIn || null,
+        performedByIdIn: e.performedByIdIn || null,
+        performedByNameOut: e.performedByNameOut || null,
+        performedByIdOut: e.performedByIdOut || null,
+        pendingDeletion: e.pendingDeletion || false,
+        pendingEdit: e.pendingEdit || false
+      }))
+    }));
+
+    const payload = {
+      meta: {
+        exportedAt: new Date().toISOString(),
+        appVersion: typeof APP_VERSION !== 'undefined' ? APP_VERSION : 'unknown',
+        company: {
+          companyId: STATE.companyId,
+          name: (STATE.companies.find(c => c.companyId === STATE.companyId) || {}).name || null
+        },
+        range: { from: startKey, to: endKey },
+        scope: this.currentView === 'balance' ? (this.isBalanceMonthScope() ? 'month' : 'year') : 'period'
+      },
+      employee: {
+        id: String(employeeId),
+        name: summary.name,
+        photoUrl: empProfile.imageProfileURL || null,
+        jobTitle: empProfile.jobTitle || empProfile.jobChargeName || null,
+        scheduleTemplateName: empProfile.scheduleTemplateName || null,
+        workdaysSecondsByDayOfWeek: empProfile.workdays || null,
+        birthDate: empProfile.birthDate || null
+      },
+      summary: {
+        source: summary.source,
+        worked: summary.worked,
+        workedFormatted: fmt(summary.worked),
+        theoretic: summary.theoretic,
+        theoreticFormatted: fmt(summary.theoretic),
+        compensated: summary.compensated,
+        compensatedFormatted: fmt(summary.compensated),
+        compensatedApplied: summary.compensatedApplied,
+        pause: summary.pause,
+        pauseFormatted: fmt(summary.pause),
+        equivalent: summary.equivalent,
+        localBaseBalance: summary.localBaseBalance,
+        localBaseBalanceFormatted: fmtSigned(summary.localBaseBalance),
+        bagAdjustment: summary.bagAdjustment,
+        localAdjustedBalance: summary.localAdjustedBalance,
+        localAdjustedBalanceFormatted: fmtSigned(summary.localAdjustedBalance),
+        officialBalance: summary.officialBalance,
+        officialBalanceFormatted: summary.officialBalance !== null ? fmtSigned(summary.officialBalance) : null,
+        officialWorked: summary.officialWorked,
+        officialWorkedFormatted: summary.officialWorked !== null ? fmt(summary.officialWorked) : null,
+        officialTheoretic: summary.officialTheoretic,
+        officialTheoreticFormatted: summary.officialTheoretic !== null ? fmt(summary.officialTheoretic) : null,
+        workedDays: summary.workedDays,
+        theoreticDays: summary.theoreticDays,
+        workSegments: summary.workSegments,
+        pauseSegments: summary.pauseSegments,
+        entries: summary.entries,
+        absenceEvents: summary.absenceEvents,
+        vacationEvents: summary.vacationEvents,
+        averageEntryMinutes: summary.averageEntryMinutes,
+        averageExitMinutes: summary.averageExitMinutes,
+        averageWorkdaySeconds: summary.averageWorkdaySeconds,
+        averagePauseSeconds: summary.averagePauseSeconds,
+        liveDays: summary.liveDays
+      },
+      compensatedItems: summary.compensatedItems || [],
+      jornadas
+    };
+
+    const json = JSON.stringify(payload, null, 2);
+    const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const safeName = String(summary.name || `empleado-${employeeId}`)
+      .normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-zA-Z0-9_-]+/g, '_');
+    a.href = url;
+    a.download = `balance_${safeName}_${startKey}_a_${endKey}.json`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 100);
+  },
+
   openBalanceEmployeeModal(employeeId) {
     const summary = this.buildBalanceEmployeeSummary(employeeId);
     const formatSigned = seconds => {
@@ -8326,6 +8802,14 @@ const FichajesModule = {
             <span>${scopeTitle}</span>
             <h2>${safeName}</h2>
             <p>${safeRange} · ${summary.rows.length} jornadas · ${summary.source}</p>
+            <button class="balance-export-json-btn" type="button" data-employee-id="${escapeHTML(String(employeeId))}" title="Descargar JSON con todos los fichajes y métricas del periodo" aria-label="Descargar JSON de fichajes">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              Descargar JSON
+            </button>
           </div>
           <div class="balance-employee-score ${balanceTone}">
             <small>Balance usado</small>
@@ -8412,6 +8896,15 @@ const FichajesModule = {
       if (event.key === 'Escape') close();
     };
     overlay.querySelector('.balance-employee-close')?.addEventListener('click', close);
+    overlay.querySelector('.balance-export-json-btn')?.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      try {
+        this.exportEmployeeBalanceJSON(employeeId, summary, start, effectiveEnd);
+      } catch (err) {
+        console.error('Export JSON falló:', err);
+        alert('No se pudo exportar el JSON: ' + (err?.message || err));
+      }
+    });
     overlay.addEventListener('click', event => {
       if (event.target === overlay) close();
     });
