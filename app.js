@@ -5,7 +5,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.7.4';
+const APP_VERSION = '1.7.5';
 
 // ─── Debug Mode ───────────────────────────────────────────────────────────────
 // false en producción (silencia console.log/info/warn).
@@ -112,6 +112,199 @@ let REFRESH_TIMER = null;
 let APP_BOOTSTRAPPED = false;
 let APP_LISTENERS_WIRED = false;
 let SETUP_EDITING_COMPANY_ID = null;
+
+// ─── Sistema de TOASTS (notificaciones no bloqueantes) ─────────────────────
+// Reemplaza alert() y window.alert() en todo el código. Cuatro variantes:
+// success (verde), error (rojo), warn (ámbar), info (azul/violeta).
+const TOAST_ICONS = {
+  success: '✓',
+  error:   '✕',
+  warn:    '⚠',
+  info:    'ⓘ'
+};
+function ssmToast(msg, opts = {}) {
+  const variant = opts.variant || 'info';
+  const duration = opts.duration ?? (variant === 'error' ? 6000 : (variant === 'warn' ? 4500 : 3000));
+  let container = document.getElementById('ssm-toast-stack');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'ssm-toast-stack';
+    document.body.appendChild(container);
+  }
+  const toast = document.createElement('div');
+  toast.className = `ssm-toast ssm-toast-${variant}`;
+  toast.innerHTML = `
+    <span class="ssm-toast-icon" aria-hidden="true">${TOAST_ICONS[variant] || 'ⓘ'}</span>
+    <span class="ssm-toast-msg">${escapeHTML(String(msg))}</span>
+    <button class="ssm-toast-close" aria-label="Cerrar">×</button>
+  `;
+  container.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add('ssm-toast-show'));
+  let timer = null;
+  const close = () => {
+    if (timer) clearTimeout(timer);
+    toast.classList.remove('ssm-toast-show');
+    toast.classList.add('ssm-toast-hide');
+    setTimeout(() => toast.remove(), 320);
+  };
+  if (duration > 0) timer = setTimeout(close, duration);
+  toast.querySelector('.ssm-toast-close').onclick = close;
+  // Pausar el timer al pasar el ratón por encima
+  toast.addEventListener('mouseenter', () => { if (timer) { clearTimeout(timer); timer = null; } });
+  toast.addEventListener('mouseleave', () => { if (!timer && duration > 0) timer = setTimeout(close, 1500); });
+  return { close };
+}
+const toastOk    = (m, o) => ssmToast(m, { ...(o || {}), variant: 'success' });
+const toastErr   = (m, o) => ssmToast(m, { ...(o || {}), variant: 'error' });
+const toastWarn  = (m, o) => ssmToast(m, { ...(o || {}), variant: 'warn' });
+const toastInfo  = (m, o) => ssmToast(m, { ...(o || {}), variant: 'info' });
+
+// ─── Diálogo de confirmación propio (sustituye window.confirm) ──────────────
+// Devuelve Promise<boolean>. Opciones: { title, body, okLabel, cancelLabel, danger }
+function ssmConfirm(opts = {}) {
+  const title = opts.title || '¿Confirmar acción?';
+  const body  = opts.body  || '';
+  const okLabel = opts.okLabel || 'Continuar';
+  const cancelLabel = opts.cancelLabel || 'Cancelar';
+  const danger = !!opts.danger;
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'ssm-confirm-overlay';
+    overlay.innerHTML = `
+      <div class="ssm-confirm-dialog animate-pop" role="dialog" aria-modal="true" aria-labelledby="ssm-confirm-title">
+        <h3 id="ssm-confirm-title">${escapeHTML(title)}</h3>
+        ${body ? `<p>${escapeHTML(body).replace(/\n/g, '<br>')}</p>` : ''}
+        <div class="ssm-confirm-actions">
+          <button class="btn-secondary" data-action="cancel" type="button">${escapeHTML(cancelLabel)}</button>
+          <button class="btn-primary ${danger ? 'ssm-confirm-danger' : ''}" data-action="ok" type="button">${escapeHTML(okLabel)}</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const close = (val) => {
+      document.removeEventListener('keydown', onKey);
+      overlay.remove();
+      resolve(val);
+    };
+    overlay.querySelector('[data-action="cancel"]').onclick = () => close(false);
+    overlay.querySelector('[data-action="ok"]').onclick = () => close(true);
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(false); });
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); close(false); }
+      else if (e.key === 'Enter') { e.preventDefault(); close(true); }
+    };
+    document.addEventListener('keydown', onKey);
+    overlay.querySelector('[data-action="ok"]').focus({ preventScroll: true });
+  });
+}
+
+// ─── Cache local de empleados (arranque inmediato) ─────────────────────────
+// Guarda STATE.allEmployees serializado en localStorage. Al arrancar, si hay
+// cache válida para la empresa activa con TTL < 1h, hidratamos antes de hacer
+// el fetch. El fetch sigue ocurriendo en background y sobrescribe la cache.
+const EMP_CACHE_TTL_MS = 60 * 60 * 1000; // 1h
+function getEmployeesCacheKey() {
+  return STATE.companyId ? `ssm_emp_cache_${STATE.companyId}` : null;
+}
+function saveEmployeesCache() {
+  const key = getEmployeesCacheKey();
+  if (!key || STATE.allEmployees.size === 0) return;
+  try {
+    const payload = {
+      v: 1,
+      companyId: STATE.companyId,
+      timestamp: Date.now(),
+      employees: Array.from(STATE.allEmployees.entries())
+    };
+    localStorage.setItem(key, JSON.stringify(payload));
+  } catch (e) {
+    // Quota exceeded o JSON.stringify falla con Maps/Sets profundos: ignorar.
+    console.warn('saveEmployeesCache falló:', e?.message || e);
+  }
+}
+function loadEmployeesCache() {
+  const key = getEmployeesCacheKey();
+  if (!key) return false;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return false;
+    const data = JSON.parse(raw);
+    if (data.v !== 1) return false;
+    if (data.companyId !== STATE.companyId) return false;
+    if (Date.now() - data.timestamp > EMP_CACHE_TTL_MS) return false;
+    STATE.allEmployees.clear();
+    (data.employees || []).forEach(([id, emp]) => {
+      STATE.allEmployees.set(String(id), emp);
+    });
+    console.info(`[cache] Empleados hidratados desde cache (${STATE.allEmployees.size}, edad ${Math.round((Date.now()-data.timestamp)/1000)}s)`);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+// ─── Stack global de modales para breadcrumbs y navegación ────────────────
+// Cada entrada: { id, title, openFn } para reabrir el modal anterior si se cierra
+// el actual. La pila es manualmente gestionada por las funciones que abren modales.
+const MODAL_STACK = [];
+function pushModalToStack(entry) {
+  if (!entry || !entry.title) return;
+  MODAL_STACK.push(entry);
+}
+function popModalFromStack() {
+  return MODAL_STACK.pop();
+}
+function getModalStackSnapshot() {
+  return [...MODAL_STACK];
+}
+// Render del breadcrumb HTML para insertar en un header de modal
+function renderBreadcrumbHTML(currentTitle) {
+  if (MODAL_STACK.length === 0) return '';
+  const parts = MODAL_STACK.map((m, i) => {
+    return `<button class="ssm-breadcrumb-step" data-modal-step="${i}" type="button">${escapeHTML(m.title)}</button>`;
+  }).join('<span class="ssm-breadcrumb-sep">›</span>');
+  return `
+    <nav class="ssm-breadcrumb" aria-label="Navegación entre modales">
+      ${parts}
+      <span class="ssm-breadcrumb-sep">›</span>
+      <span class="ssm-breadcrumb-current">${escapeHTML(currentTitle)}</span>
+    </nav>
+  `;
+}
+// Conecta el click en pasos del breadcrumb a la función openFn registrada
+function wireBreadcrumb(overlay) {
+  overlay.querySelectorAll('.ssm-breadcrumb-step').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const stepIndex = Number(btn.dataset.modalStep);
+      const target = MODAL_STACK[stepIndex];
+      if (!target || typeof target.openFn !== 'function') return;
+      // Quita este modal y todos los posteriores en el stack
+      overlay.remove();
+      MODAL_STACK.length = stepIndex;
+      target.openFn();
+    });
+  });
+}
+
+// Helper para registrar ESC + click fuera de forma consistente en todos los modales
+// Devuelve una función para desregistrar manualmente si hace falta.
+function attachOverlayCloseHandlers(overlay, closeFn) {
+  if (!overlay || typeof closeFn !== 'function') return () => {};
+  const onOverlayClick = (e) => { if (e.target === overlay) closeFn(); };
+  const onKey = (e) => {
+    if (e.key !== 'Escape') return;
+    // Solo cierra si este overlay es el de más arriba en el DOM
+    const allOverlays = document.querySelectorAll('.contact-card-overlay, .ssm-confirm-overlay');
+    const visible = Array.from(allOverlays).filter(o => o.style.visibility !== 'hidden');
+    if (visible[visible.length - 1] === overlay) closeFn();
+  };
+  overlay.addEventListener('click', onOverlayClick);
+  document.addEventListener('keydown', onKey);
+  return () => {
+    overlay.removeEventListener('click', onOverlayClick);
+    document.removeEventListener('keydown', onKey);
+  };
+}
 
 // ── Utils ───────────────────────────────────────────────────────────────────
 function toggleSection(sectionId) {
@@ -2096,9 +2289,14 @@ async function handleDeleteCompany() {
   const company = STATE.companies.find(c => c.companyId === cid);
   const name = company ? (company.name || cid) : cid;
 
-  if (!confirm(`\u26A0\uFE0F \u00BFEst\u00E1s seguro de que quieres eliminar la empresa "${name}"?\n\nEsta acci\u00F3n no se puede deshacer.`)) {
-    return;
-  }
+  const confirmed = await ssmConfirm({
+    title: `\u00BFEliminar empresa "${name}"?`,
+    body: 'Esta acci\u00F3n no se puede deshacer. Se borrar\u00E1n las credenciales guardadas para esta empresa.',
+    okLabel: 'Eliminar empresa',
+    cancelLabel: 'Cancelar',
+    danger: true
+  });
+  if (!confirmed) return;
 
   showLoading(true);
   try {
@@ -2114,12 +2312,12 @@ async function handleDeleteCompany() {
       window.location.reload();
     } else {
       const err = await res.json();
-      alert("Error: " + (err.error || "No se pudo eliminar la empresa."));
+      toastErr("Error: " + (err.error || "No se pudo eliminar la empresa."));
       showLoading(false);
     }
   } catch (e) {
     console.error("Error deleting company:", e);
-    alert("Error de conexi\u00F3n con el servidor.");
+    toastErr("Error de conexi\u00F3n con el servidor.");
     showLoading(false);
   }
 }
@@ -2870,10 +3068,18 @@ async function persistConfigToServer(name, brandColor, logoUrl, masterPassword) 
 async function loadInitialData() {
   if (STATE.isLoading) return;
   STATE.isLoading = true;
-  showLoading(true);
 
-  // Limpieza preventiva de listas antes de la nueva carga
-  STATE.allEmployees.clear();
+  // Hidratar empleados desde cache local (TTL 1h) para mostrar la app de
+  // inmediato. El fetch real refresca después en background.
+  const cacheHit = loadEmployeesCache();
+  if (cacheHit) {
+    // Cache cogido: el overlay de loading se puede ocultar antes — la app
+    // ya tiene datos para renderizar.
+    showLoading(false);
+  } else {
+    showLoading(true);
+    STATE.allEmployees.clear();
+  }
   STATE.presenceMap.clear();
 
   try {
@@ -2944,6 +3150,9 @@ async function loadInitialData() {
     if (typeof FichajesModule !== 'undefined' && FichajesModule.initialized) {
       FichajesModule.loadData();
     }
+
+    // Persistir cache de empleados para acelerar el próximo arranque
+    saveEmployeesCache();
   } catch (e) {
     console.error('loadInitialData failed:', e);
     if (e.message.includes('401')) {
@@ -3640,7 +3849,12 @@ function renderEmployeeList() {
   });
 
   if (empList.length === 0) {
-    container.innerHTML = '<div class="empty-state-inline">Sin ausencias en este período</div>';
+    container.innerHTML = `
+      <div class="empty-state-card">
+        <div class="empty-state-icon" aria-hidden="true">📅</div>
+        <h3 class="empty-state-title">Sin ausencias en este periodo</h3>
+        <p class="empty-state-msg">No se han registrado vacaciones ni permisos en el periodo y filtros activos.</p>
+      </div>`;
     return;
   }
 
@@ -3725,14 +3939,15 @@ function renderEmployeeList() {
 
     const card = document.createElement('div');
     card.className = 'emp-card';
+    const safeEmpId = escapeHTML(String(emp.id));
     card.innerHTML = `
-      <div class="emp-avatar">
+      <div class="emp-avatar emp-avatar-clickable" data-employee-id="${safeEmpId}" role="button" tabindex="0" title="Ver ficha de ${safeName}">
         ${safePhoto
           ? `<img src="${safePhoto}" alt="${safeName}" referrerpolicy="no-referrer" />${initials}`
           : initials}
       </div>
       <div class="emp-info">
-        <div class="emp-name">${safeName}</div>
+        <div class="emp-name emp-name-clickable" data-employee-id="${safeEmpId}" role="button" tabindex="0" title="Ver ficha de ${safeName}">${safeName}</div>
         <div class="emp-absences">${tags}</div>
       </div>
       <div class="emp-days">
@@ -3743,6 +3958,12 @@ function renderEmployeeList() {
     `;
     card.querySelector('.emp-avatar img')?.addEventListener('error', event => {
       event.currentTarget.remove();
+    });
+    const openProfile = () => showContactCard(String(emp.id));
+    card.querySelector('.emp-avatar-clickable')?.addEventListener('click', openProfile);
+    card.querySelector('.emp-name-clickable')?.addEventListener('click', openProfile);
+    card.querySelector('.emp-avatar-clickable')?.addEventListener('keypress', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openProfile(); }
     });
     container.appendChild(card);
   });
@@ -3786,7 +4007,12 @@ function renderStats() {
   const avgDays = totalEmployees > 0 ? (totalAbsences / totalEmployees).toFixed(1) : 0;
 
   if (totalAbsences === 0) {
-    container.innerHTML = '<div class="no-data">No hay datos para el periodo seleccionado</div>';
+    container.innerHTML = `
+      <div class="empty-state-card">
+        <div class="empty-state-icon" aria-hidden="true">📊</div>
+        <h3 class="empty-state-title">Sin datos para este periodo</h3>
+        <p class="empty-state-msg">No hay registros para los criterios actuales. Prueba a cambiar el rango o quitar filtros.</p>
+      </div>`;
     return;
   }
 
@@ -4132,7 +4358,7 @@ function exportToIcal() {
   });
 
   if (events.length === 0) {
-    alert('No hay eventos visibles para exportar con los filtros actuales.');
+    toastWarn('No hay eventos visibles para exportar con los filtros actuales.');
     return;
   }
 
@@ -4239,7 +4465,7 @@ function _buildVacationsExportFilename(ext, ctx) {
 
 function exportVacationsCSV() {
   const { rows, from, to } = _collectVacationsRows();
-  if (!rows.length) return alert('No hay ausencias visibles para exportar en este rango.');
+  if (!rows.length) return toastWarn('No hay ausencias visibles para exportar en este rango.');
 
   const esc = _csvEscapeValue;
   let csv = 'Empleado;Fecha;DiaSemana;TipoAusencia;DiaCompleto;HoraInicio;HoraFin;Duracion\n';
@@ -4257,7 +4483,7 @@ function exportVacationsCSV() {
 
 function exportVacationsJSON() {
   const { rows, from, to } = _collectVacationsRows();
-  if (!rows.length) return alert('No hay ausencias visibles para exportar en este rango.');
+  if (!rows.length) return toastWarn('No hay ausencias visibles para exportar en este rango.');
 
   const company = (STATE.companies.find(c => c.companyId === STATE.companyId) || {}).name || '';
   const payload = {
@@ -4283,7 +4509,7 @@ function exportVacationsJSON() {
  */
 async function showSubscriptionModal() {
   if (!isLocalProxy()) {
-    alert("Esta función requiere que la app corra a través de server.py");
+    toastWarn("Esta función requiere que la app corra a través de server.py");
     return;
   }
 
@@ -4296,21 +4522,21 @@ async function showSubscriptionModal() {
 
     const url = `${window.location.origin}/feed.ics?token=${token}`;
 
-    const choice = confirm(
-      `🔗 Enlace de Suscripción para Google Calendar:\n\n` +
-      `${url}\n\n` +
-      `¿Deseas intentar copiar este enlace al portapapeles?\n` +
-      `En Google Calendar móvil/web: Añadir -> 'Desde URL'.`
-    );
+    const choice = await ssmConfirm({
+      title: '🔗 Suscripción para Google Calendar',
+      body: `Enlace: ${url}\n\n¿Copiarlo al portapapeles? Después en Google Calendar: Añadir → "Desde URL".`,
+      okLabel: 'Copiar enlace',
+      cancelLabel: 'Cerrar'
+    });
 
     if (choice) {
       navigator.clipboard.writeText(url).then(() => {
-        alert("✅ Enlace copiado. Pégalo en Google Calendar -> Añadir desde URL.");
+        toastOk("Enlace copiado. Pégalo en Google Calendar → Añadir desde URL.");
       });
     }
   } catch (e) {
     console.error(e);
-    alert("No se pudo generar el enlace.");
+    toastErr("No se pudo generar el enlace.");
   }
 }
 
@@ -8616,7 +8842,7 @@ const FichajesModule = {
   // ─── Export FICHAJES (mes/semana/día) ───────────────────────────────────
   _exportSigningsCSV() {
     const visibleRows = this.getFilteredRows();
-    if (!visibleRows || visibleRows.length === 0) return alert("No hay datos visibles para exportar");
+    if (!visibleRows || visibleRows.length === 0) return toastWarn("No hay datos visibles para exportar");
 
     const ctx = this._buildFilenameContext();
     const esc = v => this._csvEscape(v);
@@ -8645,7 +8871,7 @@ const FichajesModule = {
 
   _exportSigningsJSON() {
     const visibleRows = this.getFilteredRows();
-    if (!visibleRows || visibleRows.length === 0) return alert("No hay datos visibles para exportar");
+    if (!visibleRows || visibleRows.length === 0) return toastWarn("No hay datos visibles para exportar");
 
     const ctx = this._buildFilenameContext();
     const payload = {
@@ -8678,7 +8904,7 @@ const FichajesModule = {
 
   _exportBalanceCSV() {
     const empIds = this._getVisibleBalanceEmployeeIds();
-    if (!empIds.length) return alert('No hay empleados visibles para exportar balances');
+    if (!empIds.length) return toastWarn('No hay empleados visibles para exportar balances');
 
     const ctx = this._buildFilenameContext();
     const fmtSecHM = s => {
@@ -8738,7 +8964,7 @@ const FichajesModule = {
 
   _exportBalanceJSON() {
     const empIds = this._getVisibleBalanceEmployeeIds();
-    if (!empIds.length) return alert('No hay empleados visibles para exportar balances');
+    if (!empIds.length) return toastWarn('No hay empleados visibles para exportar balances');
 
     const ctx = this._buildFilenameContext();
     const employees = empIds.map(empId => {
@@ -9570,21 +9796,23 @@ const FichajesModule = {
             </div>
           </div>
 
-          <div class="balance-modal-section">
-            <div class="balance-modal-section-head">
+          <details class="balance-modal-section balance-modal-section-collapsible" open>
+            <summary class="balance-modal-section-head">
               <strong>Ajustes de jornada retribuidos</strong>
               <span>${formatDuration(summary.compensated)} detectado · ${formatDuration(summary.compensatedApplied)} aplicado</span>
-            </div>
+              <span class="balance-modal-section-toggle" aria-hidden="true">▾</span>
+            </summary>
             <div class="balance-compensated-list">${compensatedRowsHtml}</div>
-          </div>
+          </details>
 
-          <div class="balance-modal-section">
-            <div class="balance-modal-section-head">
+          <details class="balance-modal-section balance-modal-section-collapsible" open>
+            <summary class="balance-modal-section-head">
               <strong>Jornadas y fichajes</strong>
               <span>${summary.rows.length} dias · abre cada jornada</span>
-            </div>
+              <span class="balance-modal-section-toggle" aria-hidden="true">▾</span>
+            </summary>
             <div class="balance-days-list">${dayRowsHtml}</div>
-          </div>
+          </details>
         </div>
       </div>
     `;
@@ -9603,18 +9831,33 @@ const FichajesModule = {
         this.exportEmployeeBalanceJSON(employeeId, summary, start, effectiveEnd);
       } catch (err) {
         console.error('Export JSON falló:', err);
-        alert('No se pudo exportar el JSON: ' + (err?.message || err));
+        toastErr('No se pudo exportar el JSON: ' + (err?.message || err));
       }
     });
     overlay.querySelector('.balance-manage-schedule-btn')?.addEventListener('click', (ev) => {
       ev.stopPropagation();
-      // Cerramos este modal y abrimos el gestor de calendario del mismo empleado
-      close();
+      // Ocultar (no cerrar) el balance, abrir el gestor y al cerrar volver a mostrar el balance
+      overlay.style.visibility = 'hidden';
+      // Registrar en el stack para que el gestor muestre breadcrumb "‹ Balance"
+      pushModalToStack({
+        id: `balance_${employeeId}`,
+        title: `Balance · ${summary.name || 'Empleado'}`,
+        openFn: () => {
+          overlay.style.visibility = 'visible';
+        }
+      });
       try {
-        openEmployeeScheduleManager(employeeId);
+        openEmployeeScheduleManager(employeeId, {
+          onClose: () => {
+            popModalFromStack();
+            overlay.style.visibility = 'visible';
+          }
+        });
       } catch (err) {
+        popModalFromStack();
+        overlay.style.visibility = 'visible';
         console.error('No se pudo abrir el gestor de calendario:', err);
-        alert('No se pudo abrir el gestor: ' + (err?.message || err));
+        toastErr('No se pudo abrir el gestor: ' + (err?.message || err));
       }
     });
     overlay.addEventListener('click', event => {
@@ -9828,7 +10071,14 @@ const FichajesModule = {
     }
 
     if (rows.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="5" class="text-center" style="padding: 40px; color: var(--text-muted);">No hay datos suficientes para calcular balances en este rango.</td></tr>';
+      tbody.innerHTML = `
+        <tr><td colspan="5" style="padding: 0;">
+          <div class="empty-state-card">
+            <div class="empty-state-icon" aria-hidden="true">⚖️</div>
+            <h3 class="empty-state-title">Sin datos de balance</h3>
+            <p class="empty-state-msg">No hay fichajes suficientes en este rango para calcular el balance.</p>
+          </div>
+        </td></tr>`;
       return;
     }
 
@@ -10304,7 +10554,7 @@ async function showContactCard(employeeId) {
 // onClose: callback opcional para refrescar la vista que lo abrió.
 async function openTemplatesManager(onClose) {
   if (!isLocalProxy()) {
-    alert('Solo disponible con el proxy local (server.py).');
+    toastWarn('Solo disponible con el proxy local (server.py).');
     return;
   }
 
@@ -10347,8 +10597,16 @@ async function openTemplatesManager(onClose) {
   const $list = overlay.querySelector('[data-templates-list]');
   const close = () => {
     overlay.remove();
+    document.removeEventListener('keydown', onKey);
     if (typeof onClose === 'function') onClose();
   };
+  const onKey = (e) => {
+    if (e.key !== 'Escape') return;
+    const visible = Array.from(document.querySelectorAll('.contact-card-overlay'))
+      .filter(o => o.style.visibility !== 'hidden');
+    if (visible[visible.length - 1] === overlay) close();
+  };
+  document.addEventListener('keydown', onKey);
   overlay.querySelector('.schedule-manager-close').onclick = close;
   overlay.querySelector('[data-action="done"]').onclick = close;
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
@@ -10411,7 +10669,7 @@ async function openTemplatesManager(onClose) {
           await saveCustomTemplate({ name: tmpl.name, ...tmpl.minutes });
           renderList();
           renderDetected();
-        } catch (e) { alert('No se pudo importar: ' + e.message); }
+        } catch (e) { toastErr('No se pudo importar: ' + e.message); }
       };
     });
   };
@@ -10467,16 +10725,22 @@ async function openTemplatesManager(onClose) {
         try {
           await saveCustomTemplate(copy);
           renderList();
-        } catch (e) { alert('No se pudo duplicar: ' + e.message); }
+        } catch (e) { toastErr('No se pudo duplicar: ' + e.message); }
       };
       row.querySelector('[data-action="delete"]').onclick = async () => {
         const src = (STATE.customScheduleTemplates || []).find(t => String(t.id) === id);
         if (!src) return;
-        if (!confirm(`¿Borrar la plantilla "${src.name}"? También se eliminarán los overrides que la usen.`)) return;
+        const ok = await ssmConfirm({
+          title: `¿Borrar "${src.name}"?`,
+          body: 'También se eliminarán los overrides de empleados que usen esta plantilla.',
+          okLabel: 'Borrar plantilla',
+          danger: true
+        });
+        if (!ok) return;
         try {
           await deleteCustomTemplate(id);
           renderList();
-        } catch (e) { alert('No se pudo borrar: ' + e.message); }
+        } catch (e) { toastErr('No se pudo borrar: ' + e.message); }
       };
     });
   };
@@ -10528,7 +10792,7 @@ async function openTemplatesManager(onClose) {
     popup.addEventListener('click', (e) => { if (e.target === popup) closePopup(); });
     popup.querySelector('[data-save]').onclick = async () => {
       const name = popup.querySelector('[data-name]').value.trim();
-      if (!name) { alert('El nombre es obligatorio.'); return; }
+      if (!name) { toastWarn('El nombre es obligatorio.'); return; }
       const out = { name };
       if (existing) out.id = existing.id;
       ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].forEach(d => {
@@ -10539,7 +10803,7 @@ async function openTemplatesManager(onClose) {
         closePopup();
         renderList();
       } catch (e) {
-        alert('No se pudo guardar: ' + e.message);
+        toastErr('No se pudo guardar: ' + e.message);
       }
     };
   };
@@ -10573,32 +10837,36 @@ async function openTemplatesManager(onClose) {
   overlay.querySelector('[data-action="cleanup"]').onclick = async () => {
     const { dupByName, dupByMinutes } = findDuplicateGroups();
     if (dupByName.length === 0 && dupByMinutes.length === 0) {
-      alert('✅ No hay duplicados que limpiar.');
+      toastOk('No hay duplicados que limpiar.');
       return;
     }
     const toDelete = [];
     dupByName.forEach(group => {
-      // Conservar la del id más antiguo (mantiene la integridad de los overrides)
       const sorted = [...group].sort((a, b) => String(a.id).localeCompare(String(b.id)));
       toDelete.push(...sorted.slice(1).map(t => t.id));
     });
-    // Para los duplicados por minutos pero distinto nombre, solo avisar.
     const minutesOnlyDupNames = dupByMinutes
       .filter(g => new Set(g.map(t => t.name.toLowerCase())).size > 1)
       .map(g => g.map(t => t.name).join(' = '))
-      .join('\n  • ');
-    let msg = '';
+      .join('\n• ');
+    let body = '';
     if (toDelete.length > 0) {
-      msg += `Se borrarán ${toDelete.length} duplicados por nombre.\n`;
+      body += `Se borrarán ${toDelete.length} duplicados por nombre.\n`;
     }
     if (minutesOnlyDupNames) {
-      msg += `\nℹ️ Además detecté plantillas con mismos minutos pero distinto nombre (NO se borrarán):\n  • ${minutesOnlyDupNames}\n`;
+      body += `\nℹ️ También detecté plantillas con los mismos minutos pero distinto nombre (NO se borrarán):\n• ${minutesOnlyDupNames}`;
     }
     if (toDelete.length === 0) {
-      alert(msg || 'Nada que borrar.');
+      toastInfo(body || 'Nada que borrar.');
       return;
     }
-    if (!confirm(msg + '\n¿Continuar?')) return;
+    const ok = await ssmConfirm({
+      title: '¿Limpiar duplicados?',
+      body,
+      okLabel: 'Limpiar',
+      danger: true
+    });
+    if (!ok) return;
     let fails = 0;
     for (const id of toDelete) {
       try { await deleteCustomTemplate(id); }
@@ -10606,18 +10874,30 @@ async function openTemplatesManager(onClose) {
     }
     renderList();
     renderDetected();
-    alert(`✅ Limpieza completa. Borradas: ${toDelete.length - fails}${fails ? `, errores: ${fails}` : ''}.`);
+    toastOk(`Limpieza completa. Borradas: ${toDelete.length - fails}${fails ? `, errores: ${fails}` : ''}.`);
   };
 
   // Purgar TODAS las plantillas locales
   overlay.querySelector('[data-action="purge"]').onclick = async () => {
     const local = STATE.customScheduleTemplates || [];
     if (local.length === 0) {
-      alert('No hay plantillas que borrar.');
+      toastInfo('No hay plantillas que borrar.');
       return;
     }
-    if (!confirm(`⚠️ Esto borrará TUS ${local.length} plantillas locales y todos los overrides de empleado que las usan.\n\n¿Continuar?`)) return;
-    if (!confirm('Última confirmación: esta acción NO se puede deshacer.\n\n¿Estás seguro?')) return;
+    const ok1 = await ssmConfirm({
+      title: '¿Borrar TODAS tus plantillas locales?',
+      body: `Esto eliminará ${local.length} plantillas y todos los overrides de empleado que las usan.`,
+      okLabel: 'Continuar',
+      danger: true
+    });
+    if (!ok1) return;
+    const ok2 = await ssmConfirm({
+      title: 'Última confirmación',
+      body: 'Esta acción NO se puede deshacer. ¿Estás completamente seguro?',
+      okLabel: 'Sí, borrar todo',
+      danger: true
+    });
+    if (!ok2) return;
     let fails = 0;
     const ids = local.map(t => t.id);
     for (const id of ids) {
@@ -10626,36 +10906,40 @@ async function openTemplatesManager(onClose) {
     }
     renderList();
     renderDetected();
-    alert(fails === 0
-      ? '✅ Todas las plantillas locales han sido eliminadas.'
-      : `Borradas ${ids.length - fails} de ${ids.length}. ${fails} fallaron.`);
+    if (fails === 0) toastOk('Todas las plantillas locales han sido eliminadas.');
+    else toastWarn(`Borradas ${ids.length - fails} de ${ids.length}. ${fails} fallaron.`);
   };
 
   // Importar todas las plantillas detectadas (saltar las que ya tengamos como locales)
   overlay.querySelector('[data-action="import-detected"]').onclick = async () => {
     const detected = discoverCompanyTemplates();
     if (detected.length === 0) {
-      alert('No se han detectado plantillas en los empleados cargados.\n\n' +
-            'Asegúrate de tener los empleados cargados (módulo Fichajes) antes de abrir este gestor.');
+      toastWarn('No se han detectado plantillas en los empleados cargados. Asegúrate de tener los empleados cargados (módulo Fichajes) antes de abrir este gestor.');
       return;
     }
     const localNames = new Set((STATE.customScheduleTemplates || []).map(t => t.name.toLowerCase()));
     const fresh = detected.filter(t => !localNames.has(t.name.toLowerCase()));
     if (fresh.length === 0) {
-      alert('Todas las plantillas detectadas ya están importadas como locales.');
+      toastInfo('Todas las plantillas detectadas ya están importadas como locales.');
       return;
     }
     const summary = fresh.map(t =>
       `• ${t.name} (L-V: ${Math.floor((t.minutes.mondayMinutes||0)/60)}h, asignada a ${t.employees.length} empleado${t.employees.length === 1 ? '' : 's'})`
     ).join('\n');
-    if (!confirm(`Se importarán ${fresh.length} plantilla${fresh.length === 1 ? '' : 's'} detectada${fresh.length === 1 ? '' : 's'}:\n\n${summary}\n\n¿Continuar?`)) return;
+    const ok = await ssmConfirm({
+      title: `¿Importar ${fresh.length} plantilla${fresh.length === 1 ? '' : 's'}?`,
+      body: summary,
+      okLabel: 'Importar'
+    });
+    if (!ok) return;
     try {
       for (const t of fresh) {
         await saveCustomTemplate({ name: t.name, ...t.minutes });
       }
       renderList();
       renderDetected();
-    } catch (e) { alert('Error al importar: ' + e.message); }
+      toastOk(`${fresh.length} plantilla${fresh.length === 1 ? '' : 's'} importada${fresh.length === 1 ? '' : 's'} correctamente.`);
+    } catch (e) { toastErr('Error al importar: ' + e.message); }
   };
 
   // Cargar / refrescar overrides para asegurar customScheduleTemplates al día
@@ -10665,15 +10949,17 @@ async function openTemplatesManager(onClose) {
 }
 
 // ─── Modal: Gestor de calendario por empleado (Fase 3) ────────────────────
-async function openEmployeeScheduleManager(employeeId) {
+// options: { onClose: fn() } — callback ejecutado al cerrar este modal, útil
+// para reabrir/restaurar la ventana desde la que se invocó.
+async function openEmployeeScheduleManager(employeeId, options = {}) {
   const empIdStr = String(employeeId);
   const emp = STATE.allEmployees.get(empIdStr);
   if (!emp) {
-    alert('No se ha podido cargar la información del empleado.');
+    toastErr('No se ha podido cargar la información del empleado.');
     return;
   }
   if (!isLocalProxy()) {
-    alert('La gestión de calendario solo está disponible cuando la app corre con el proxy local (server.py).');
+    toastWarn('La gestión de calendario solo está disponible cuando la app corre con el proxy local (server.py).');
     return;
   }
 
@@ -10685,21 +10971,26 @@ async function openEmployeeScheduleManager(employeeId) {
 
   const overlay = document.createElement('div');
   overlay.className = 'contact-card-overlay schedule-manager-overlay';
+  const breadcrumbHTML = renderBreadcrumbHTML(`Gestionar calendario · ${`${emp.firstName || ''} ${emp.lastName || ''}`.trim()}`);
   overlay.innerHTML = `
     <div class="schedule-manager-modal animate-pop" role="dialog" aria-modal="true" aria-label="Gestor de calendario de ${escapeHTML(emp.firstName + ' ' + emp.lastName)}">
       <header class="schedule-manager-header">
         <div class="schedule-manager-title">
-          <div class="schedule-manager-avatar">
+          <div class="schedule-manager-avatar schedule-manager-avatar-clickable" data-action="view-profile" role="button" tabindex="0" title="Ver ficha del empleado">
             ${safeHttpUrlAttr(emp.imageProfileURL)
               ? `<img src="${safeHttpUrlAttr(emp.imageProfileURL)}" alt="" referrerpolicy="no-referrer">`
               : escapeHTML(getInitials(`${emp.firstName} ${emp.lastName}`))}
           </div>
           <div>
+            ${breadcrumbHTML}
             <h2>${escapeHTML(`${emp.firstName || ''} ${emp.lastName || ''}`.trim())}</h2>
             <p>Calendario de jornada · cambios guardados solo en local</p>
           </div>
         </div>
-        <button class="schedule-manager-close" aria-label="Cerrar">&times;</button>
+        <div class="schedule-manager-header-actions">
+          <button class="schedule-toolbar-btn schedule-view-balance-btn" data-action="view-balance" type="button" title="Ver balance del ejercicio de este empleado">📊 Ver balance</button>
+          <button class="schedule-manager-close" aria-label="Cerrar">&times;</button>
+        </div>
       </header>
 
       <div class="schedule-manager-toolbar">
@@ -10742,8 +11033,67 @@ async function openEmployeeScheduleManager(employeeId) {
   const $saveBtn = overlay.querySelector('[data-action="save"]');
   const $resetBtn = overlay.querySelector('[data-action="reset-month"]');
 
-  const close = () => overlay.remove();
+  // Conectar breadcrumb si existe (navegación a modales anteriores)
+  wireBreadcrumb(overlay);
+
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+    if (typeof options.onClose === 'function') {
+      try { options.onClose(); } catch {}
+    }
+  };
+  const onKey = (e) => {
+    if (e.key !== 'Escape') return;
+    const visible = Array.from(document.querySelectorAll('.contact-card-overlay'))
+      .filter(o => o.style.visibility !== 'hidden');
+    if (visible[visible.length - 1] === overlay) close();
+  };
+  document.addEventListener('keydown', onKey);
   overlay.querySelector('.schedule-manager-close').onclick = close;
+
+  // Botón "Ver balance" → cierra este modal y abre el balance del ejercicio
+  overlay.querySelector('[data-action="view-balance"]')?.addEventListener('click', () => {
+    close();
+    try {
+      if (typeof FichajesModule !== 'undefined' && FichajesModule.openBalanceEmployeeModal) {
+        FichajesModule.openBalanceEmployeeModal(empIdStr);
+      } else {
+        toastWarn('Esta opción solo está disponible si has cargado el módulo Fichajes.');
+      }
+    } catch (e) {
+      console.error('No se pudo abrir el balance:', e);
+      toastErr('No se pudo abrir el balance: ' + (e?.message || e));
+    }
+  });
+
+  // Avatar clickeable → abre la ficha del empleado encima del gestor (back-stack)
+  const $avatar = overlay.querySelector('[data-action="view-profile"]');
+  if ($avatar) {
+    const openProfile = () => {
+      overlay.style.visibility = 'hidden';
+      // showContactCard ya crea su propio overlay; cuando se cierre, restauramos este
+      const restore = () => { overlay.style.visibility = 'visible'; };
+      try {
+        showContactCard(empIdStr);
+        // Observamos cuándo se cierra la tarjeta de contacto para restaurar
+        const watcher = setInterval(() => {
+          const card = document.querySelector('.contact-card-overlay:not(.schedule-manager-overlay):not(.templates-manager-overlay)');
+          if (!card) {
+            clearInterval(watcher);
+            restore();
+          }
+        }, 200);
+      } catch (e) {
+        restore();
+        console.error('No se pudo abrir la ficha:', e);
+      }
+    };
+    $avatar.addEventListener('click', openProfile);
+    $avatar.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openProfile(); }
+    });
+  }
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
 
   const updatePendingBadge = () => {
@@ -11257,7 +11607,7 @@ async function openEmployeeScheduleManager(employeeId) {
       const onlyWeekdays = popup.querySelector('[data-only-weekdays]').checked;
       const target = popup.querySelector('[name="range-target"]:checked').value;
       if (!from || !to || from > to) {
-        alert('Rango inválido: revisa las fechas.');
+        toastWarn('Rango inválido: revisa las fechas.');
         return;
       }
 
@@ -11271,7 +11621,7 @@ async function openEmployeeScheduleManager(employeeId) {
         datesInRange.push(fmtDate(d));
       }
       if (datesInRange.length === 0) {
-        alert('El rango no tiene días aplicables.');
+        toastWarn('El rango no tiene días aplicables.');
         return;
       }
 
@@ -11290,7 +11640,7 @@ async function openEmployeeScheduleManager(employeeId) {
         updatePendingBadge();
         closePopup();
         renderMonth();
-        if (count === 0) alert('No se ha aplicado ningún cambio (puede que ya estuvieran asignados).');
+        if (count === 0) toastInfo('No se ha aplicado ningún cambio (puede que ya estuvieran asignados).');
         return;
       }
 
@@ -11299,20 +11649,25 @@ async function openEmployeeScheduleManager(employeeId) {
       if (target === 'selected') {
         empIds = Array.from(selectedIds);
         if (empIds.length === 0) {
-          alert('No has seleccionado ningún empleado.');
+          toastWarn('No has seleccionado ningún empleado.');
           return;
         }
       } else {
         empIds = Array.from(STATE.allEmployees.keys()).map(String);
       }
       if (empIds.length === 0) {
-        alert('No hay empleados cargados.');
+        toastWarn('No hay empleados cargados.');
         return;
       }
       const targetLabel = target === 'selected'
         ? `${empIds.length} empleado${empIds.length === 1 ? '' : 's'} seleccionado${empIds.length === 1 ? '' : 's'}`
         : `los ${empIds.length} empleados de la empresa`;
-      if (!confirm(`Se aplicará la plantilla a ${targetLabel} durante ${datesInRange.length} días (${from} a ${to}).\n\nLos cambios se guardarán inmediatamente. ¿Continuar?`)) return;
+      const ok = await ssmConfirm({
+        title: '¿Aplicar plantilla por rango?',
+        body: `Se aplicará a ${targetLabel} durante ${datesInRange.length} días (${from} → ${to}).\n\nLos cambios se guardarán inmediatamente.`,
+        okLabel: 'Aplicar'
+      });
+      if (!ok) return;
 
       const applyBtn = popup.querySelector('[data-apply]');
       applyBtn.disabled = true;
@@ -11345,9 +11700,9 @@ async function openEmployeeScheduleManager(employeeId) {
 
       closePopup();
       if (failCount === 0) {
-        alert(`✅ Aplicado a ${okCount} empleados.`);
+        toastOk(`Aplicado a ${okCount} empleados.`);
       } else {
-        alert(`Aplicado a ${okCount} empleados.\n⚠️ ${failCount} empleados fallaron (revisa la consola).`);
+        toastWarn(`Aplicado a ${okCount} empleados. ${failCount} fallaron (revisa la consola).`);
       }
     };
   };
@@ -11367,8 +11722,13 @@ async function openEmployeeScheduleManager(employeeId) {
   };
   overlay.querySelector('[data-action="assign-range"]').onclick = openRangeAssigner;
 
-  $resetBtn.onclick = () => {
-    if (!confirm('¿Restaurar todos los días de este mes a la plantilla de Sesame? Los cambios serán pending hasta que guardes.')) return;
+  $resetBtn.onclick = async () => {
+    const ok = await ssmConfirm({
+      title: '¿Restaurar el mes a Sesame?',
+      body: 'Todos los overrides del mes visible volverán a la plantilla por defecto. Quedarán como pending hasta que guardes.',
+      okLabel: 'Restaurar'
+    });
+    if (!ok) return;
     const firstDay = new Date(viewYear, viewMonth, 1);
     const lastDay = new Date(viewYear, viewMonth + 1, 0);
     for (let d = new Date(firstDay); d <= lastDay; d.setDate(d.getDate() + 1)) {
@@ -11387,14 +11747,16 @@ async function openEmployeeScheduleManager(employeeId) {
     try {
       const overridesMap = {};
       pending.forEach((tid, date) => { overridesMap[date] = tid; });
+      const count = Object.keys(overridesMap).length;
       await saveScheduleOverrides(empIdStr, overridesMap, false);
       pending.clear();
       updatePendingBadge();
       $saveBtn.textContent = '✅ Guardado';
       setTimeout(() => { $saveBtn.textContent = '💾 Guardar cambios'; }, 1400);
+      toastOk(`${count} cambio${count === 1 ? '' : 's'} guardado${count === 1 ? '' : 's'} en local.`);
       renderMonth();
     } catch (e) {
-      alert('Error guardando: ' + (e?.message || e));
+      toastErr('Error guardando: ' + (e?.message || e));
       $saveBtn.disabled = false;
       $saveBtn.textContent = '💾 Guardar cambios';
     }

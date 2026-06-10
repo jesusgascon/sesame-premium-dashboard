@@ -2847,21 +2847,30 @@ body {
 .balance-warmup-track {
   grid-column: 1 / -1;
   position: relative;
-  height: 7px;
+  height: 6px;
   overflow: hidden;
   border-radius: 999px;
-  background: rgba(148, 163, 184, 0.14);
-  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.16);
 }
 
+/* Misma estética que .signings-progress-bar indeterminado: cometa fluido */
 .balance-warmup-track span {
   position: absolute;
-  inset: 0 auto 0 0;
-  width: 42%;
+  inset: 0;
+  width: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #2dd4bf, #60a5fa, #a78bfa);
-  box-shadow: 0 0 18px rgba(96, 165, 250, 0.24);
-  animation: balance-indeterminate 1.05s ease-in-out infinite;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(45, 212, 191, 0.40) 18%,
+    rgba(96, 165, 250, 0.95) 50%,
+    rgba(167, 139, 250, 0.40) 82%,
+    transparent 100%);
+  background-size: 50% 100%;
+  background-repeat: no-repeat;
+  background-position: -50% 0;
+  box-shadow: 0 0 18px rgba(96, 165, 250, 0.40);
+  animation: signings-progress-comet 1.6s cubic-bezier(0.65, 0.05, 0.36, 1) infinite;
 }
 
 .balance-warmup-skeleton-row td {
@@ -2870,12 +2879,16 @@ body {
 
 .balance-warmup-skeleton-row span {
   display: block;
-  height: 12px;
+  height: 11px;
   max-width: 100%;
   border-radius: 999px;
-  background: linear-gradient(90deg, rgba(148, 163, 184, 0.10), rgba(148, 163, 184, 0.24), rgba(148, 163, 184, 0.10));
-  background-size: 220% 100%;
-  animation: balance-skeleton-scan 1.2s ease-in-out infinite;
+  background: linear-gradient(90deg,
+    rgba(99, 102, 241, 0.08) 0%,
+    rgba(96, 165, 250, 0.32) 40%,
+    rgba(167, 139, 250, 0.32) 60%,
+    rgba(99, 102, 241, 0.08) 100%);
+  background-size: 240% 100%;
+  animation: balance-skeleton-scan 1.6s ease-in-out infinite;
 }
 
 .balance-warmup-skeleton-row td:first-child span { width: 72%; }
@@ -3083,7 +3096,10 @@ body {
 }
 
 .balance-row.is-loading {
-  background: linear-gradient(90deg, rgba(96,165,250,0.045), rgba(45,212,191,0.025), transparent);
+  background: linear-gradient(90deg,
+    rgba(45, 212, 191, 0.045),
+    rgba(96, 165, 250, 0.06),
+    rgba(167, 139, 250, 0.045));
 }
 
 .balance-row.is-active::after {
@@ -3091,8 +3107,13 @@ body {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.055), transparent);
-  animation: balance-row-scan 1.35s ease-in-out infinite;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(45, 212, 191, 0.06) 30%,
+    rgba(96, 165, 250, 0.14) 50%,
+    rgba(167, 139, 250, 0.06) 70%,
+    transparent 100%);
+  animation: balance-row-scan 1.8s cubic-bezier(0.65, 0.05, 0.36, 1) infinite;
 }
 
 .balance-row-processing {
@@ -3432,7 +3453,73 @@ body {
 .balance-modal-section-head span,
 .balance-activity-strip span {
   color: var(--text-muted);
-  font-size: 0.72rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+/* ── Secciones colapsables del modal de balance ─────────────────────── */
+.balance-modal-section-collapsible > summary {
+  /* Sobrescribir el display: list-item por defecto del navegador */
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  width: 100%;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  padding: 8px 12px;
+  margin: -4px -8px 0;  /* expandir el área clicable más allá del padding base */
+  border-radius: 10px;
+  outline: none;
+  transition: background 0.15s ease;
+}
+.balance-modal-section-collapsible > summary::-webkit-details-marker,
+.balance-modal-section-collapsible > summary::marker {
+  display: none;
+  content: '';
+}
+.balance-modal-section-collapsible > summary:hover {
+  background: rgba(99, 102, 241, 0.07);
+}
+.balance-modal-section-collapsible > summary:focus-visible {
+  outline: 2px solid rgba(99, 102, 241, 0.45);
+  outline-offset: 2px;
+}
+.balance-modal-section-collapsible[open] > summary {
+  margin-bottom: 10px;
+}
+/* El strong es el título principal, que NO debe encogerse ni crecer */
+.balance-modal-section-collapsible > summary > strong {
+  flex: 0 0 auto;
+}
+/* El primer span es el badge informativo; lo empujamos al final con margin-left:auto */
+.balance-modal-section-collapsible > summary > span:not(.balance-modal-section-toggle) {
+  margin-left: auto;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.balance-modal-section-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: rgba(99, 102, 241, 0.10);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  flex-shrink: 0;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), background 0.15s ease;
+}
+.balance-modal-section-collapsible:not([open]) > summary > .balance-modal-section-toggle {
+  transform: rotate(-90deg);
+}
+.balance-modal-section-collapsible[open] > summary > .balance-modal-section-toggle {
+  background: rgba(99, 102, 241, 0.18);
+  color: var(--text-main);
 }
 
 .balance-activity-strip {
@@ -4338,32 +4425,52 @@ body {
   border-color: var(--accent);
 }
 
+/* ── Barra de progreso superior (modo determinado + indeterminado) ──
+   Estilo unificado con .balance-warmup-track: gradiente teal→azul→violeta,
+   efecto cometa fluido y glow sutil del color medio. */
 .signings-progress-container {
   width: 100%;
-  height: 3px;
-  background: rgba(255,255,255,0.05);
+  height: 4px;
+  background: rgba(99, 102, 241, 0.08);
   position: relative;
   overflow: hidden;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.10);
 }
 
 .signings-progress-bar {
   width: 0%;
   height: 100%;
-  background: var(--accent);
-  transition: width 0.3s ease;
-  box-shadow: 0 0 10px var(--accent);
+  background: linear-gradient(90deg, #2dd4bf 0%, #60a5fa 50%, #a78bfa 100%);
+  background-size: 200% 100%;
+  transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 0 14px rgba(96, 165, 250, 0.55);
+  animation: signings-progress-flow 2.4s ease-in-out infinite;
 }
 
+/* Modo indeterminate: barra "cometa" que recorre fluidamente el track */
 .signings-progress-container.is-indeterminate .signings-progress-bar {
-  width: 38%;
-  background: linear-gradient(90deg, var(--accent), var(--accent2), var(--accent));
-  animation: signings-progress-indeterminate 1.05s ease-in-out infinite;
+  width: 100%;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(45, 212, 191, 0.35) 18%,
+    rgba(96, 165, 250, 0.95) 50%,
+    rgba(167, 139, 250, 0.35) 82%,
+    transparent 100%);
+  background-size: 50% 100%;
+  background-repeat: no-repeat;
+  background-position: -50% 0;
+  animation: signings-progress-comet 1.6s cubic-bezier(0.65, 0.05, 0.36, 1) infinite;
+  box-shadow: 0 0 18px rgba(96, 165, 250, 0.45);
 }
 
-@keyframes signings-progress-indeterminate {
-  0% { transform: translateX(-110%); }
-  55% { transform: translateX(120%); }
-  100% { transform: translateX(260%); }
+@keyframes signings-progress-comet {
+  0%   { background-position: -50% 0; }
+  100% { background-position: 150% 0; }
+}
+
+@keyframes signings-progress-flow {
+  0%, 100% { background-position: 0% 0; }
+  50%      { background-position: 100% 0; }
 }
 
 .employee-mode-bar {
@@ -7074,4 +7181,316 @@ body {
 .templates-purge-btn:hover {
   background: rgba(248, 113, 113, 0.22) !important;
   border-color: rgba(248, 113, 113, 0.55) !important;
+}
+
+/* Avatar y nombre clickables en la vista Vacaciones → Empleados */
+.emp-avatar-clickable,
+.emp-name-clickable {
+  cursor: pointer;
+  transition: transform 0.12s ease, color 0.12s ease;
+}
+.emp-avatar-clickable:hover {
+  transform: scale(1.06);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.45);
+}
+.emp-name-clickable:hover { color: var(--accent2, #a78bfa); }
+.emp-avatar-clickable:focus-visible,
+.emp-name-clickable:focus-visible {
+  outline: 2px solid var(--accent2, #a78bfa);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Header del gestor de calendario: layout y avatar clickable */
+.schedule-manager-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.schedule-view-balance-btn {
+  background: rgba(45, 212, 191, 0.12);
+  border: 1px solid rgba(45, 212, 191, 0.4);
+  color: var(--text-main);
+  border-radius: 8px;
+  padding: 0 14px;
+  height: 32px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.schedule-view-balance-btn:hover {
+  background: rgba(45, 212, 191, 0.22);
+  border-color: rgba(45, 212, 191, 0.6);
+}
+.schedule-manager-avatar-clickable {
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.schedule-manager-avatar-clickable:hover {
+  transform: scale(1.06);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.4);
+}
+.schedule-manager-avatar-clickable:focus-visible {
+  outline: 2px solid var(--accent2, #a78bfa);
+  outline-offset: 2px;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   TOASTS — notificaciones no bloqueantes (sustituye alert())
+   ════════════════════════════════════════════════════════════════════ */
+#ssm-toast-stack {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 10100;
+  pointer-events: none;
+  max-width: min(440px, calc(100vw - 40px));
+}
+.ssm-toast {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(20, 22, 36, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(14px);
+  color: var(--text-main);
+  pointer-events: auto;
+  opacity: 0;
+  transform: translateX(20px) scale(0.96);
+  transition: opacity 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+              transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  font-size: 0.85rem;
+  min-width: 240px;
+}
+.ssm-toast-show { opacity: 1; transform: translateX(0) scale(1); }
+.ssm-toast-hide { opacity: 0; transform: translateX(20px) scale(0.94); }
+[data-theme="light"] .ssm-toast {
+  background: rgba(255, 255, 255, 0.98);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+.ssm-toast-icon {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+.ssm-toast-msg {
+  flex: 1 1 auto;
+  line-height: 1.4;
+  word-break: break-word;
+}
+.ssm-toast-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+  border-radius: 4px;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.ssm-toast-close:hover { color: var(--text-main); background: rgba(255,255,255,0.06); }
+
+/* Variantes */
+.ssm-toast-success { border-left: 3px solid #4ade80; }
+.ssm-toast-success .ssm-toast-icon { background: rgba(74, 222, 128, 0.18); color: #4ade80; }
+.ssm-toast-error   { border-left: 3px solid #f87171; }
+.ssm-toast-error   .ssm-toast-icon { background: rgba(248, 113, 113, 0.18); color: #f87171; }
+.ssm-toast-warn    { border-left: 3px solid #f59e0b; }
+.ssm-toast-warn    .ssm-toast-icon { background: rgba(245, 158, 11, 0.18); color: #f59e0b; }
+.ssm-toast-info    { border-left: 3px solid #60a5fa; }
+.ssm-toast-info    .ssm-toast-icon { background: rgba(96, 165, 250, 0.18); color: #60a5fa; }
+
+/* ════════════════════════════════════════════════════════════════════
+   CONFIRM DIALOG — sustituye window.confirm()
+   ════════════════════════════════════════════════════════════════════ */
+.ssm-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10090;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: ssm-overlay-fade 0.2s ease;
+}
+@keyframes ssm-overlay-fade { from { opacity: 0; } to { opacity: 1; } }
+.ssm-confirm-dialog {
+  width: min(420px, 100%);
+  background: var(--bg-panel, rgba(20, 22, 36, 0.97));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.5);
+  color: var(--text-main);
+  backdrop-filter: blur(20px);
+}
+[data-theme="light"] .ssm-confirm-dialog {
+  background: rgba(255, 255, 255, 0.98);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.15);
+}
+.ssm-confirm-dialog h3 {
+  margin: 0 0 10px;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+.ssm-confirm-dialog p {
+  margin: 0 0 20px;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+.ssm-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.ssm-confirm-actions button {
+  font-size: 0.85rem;
+  padding: 8px 18px;
+  min-width: 90px;
+}
+.ssm-confirm-danger {
+  background: linear-gradient(135deg, #ef4444, #dc2626) !important;
+  border-color: rgba(239, 68, 68, 0.55) !important;
+}
+.ssm-confirm-danger:hover {
+  background: linear-gradient(135deg, #f87171, #ef4444) !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   ESTADOS VACÍOS — tarjeta elegante con icono, título y mensaje
+   ════════════════════════════════════════════════════════════════════ */
+.empty-state-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 48px 28px;
+  text-align: center;
+  background: linear-gradient(180deg, rgba(99, 102, 241, 0.03), rgba(99, 102, 241, 0.01));
+  border-radius: 14px;
+  margin: 16px 8px;
+}
+.empty-state-icon {
+  font-size: 2.6rem;
+  width: 72px;
+  height: 72px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(45, 212, 191, 0.12), rgba(96, 165, 250, 0.12), rgba(167, 139, 250, 0.12));
+  border: 1px solid rgba(99, 102, 241, 0.18);
+  box-shadow: 0 0 30px rgba(96, 165, 250, 0.10);
+}
+.empty-state-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+.empty-state-msg {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  line-height: 1.55;
+  max-width: 360px;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   TOOLTIPS CONTEXTUALES — atributo [data-tip]
+   ════════════════════════════════════════════════════════════════════ */
+[data-tip] {
+  position: relative;
+}
+[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translate(-50%, -2px);
+  background: rgba(20, 22, 36, 0.96);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 500;
+  padding: 6px 9px;
+  border-radius: 6px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  z-index: 9999;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.35);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+[data-tip]:hover::after,
+[data-tip]:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+/* Variante para posicionar el tooltip abajo */
+[data-tip-pos="bottom"]::after {
+  bottom: auto;
+  top: calc(100% + 6px);
+  transform: translate(-50%, 2px);
+}
+[data-tip-pos="bottom"]:hover::after { transform: translate(-50%, 0); }
+
+/* ════════════════════════════════════════════════════════════════════
+   BREADCRUMBS — navegación entre modales encadenados
+   ════════════════════════════════════════════════════════════════════ */
+.ssm-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.ssm-breadcrumb-step {
+  background: none;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  color: var(--text-muted);
+  padding: 3px 9px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: inherit;
+  font-weight: 500;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ssm-breadcrumb-step:hover {
+  background: rgba(99, 102, 241, 0.12);
+  border-color: rgba(99, 102, 241, 0.5);
+  color: var(--text-main);
+}
+.ssm-breadcrumb-sep { opacity: 0.5; user-select: none; }
+.ssm-breadcrumb-current {
+  font-weight: 600;
+  color: var(--text-main);
+  background: rgba(99, 102, 241, 0.15);
+  padding: 3px 9px;
+  border-radius: 999px;
 }
