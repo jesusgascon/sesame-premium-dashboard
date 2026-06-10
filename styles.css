@@ -7528,124 +7528,22 @@ body {
   border-radius: 999px;
 }
 
-/* ════════════════════════════════════════════════════════════════════
-   SELECTOR DE MES/AÑO del gestor de calendario
-   ════════════════════════════════════════════════════════════════════ */
-.schedule-current-month {
-  /* Era <div>, ahora <button> clickeable */
-  background: transparent;
-  border: 1px dashed transparent;
+/* Selector de mes/año del gestor de calendario — reutiliza .month-picker-popover
+   y .month-selector-title del módulo Fichajes/Vacaciones para consistencia
+   visual completa con el resto de la app. La lógica JS posiciona el popover
+   con position:fixed, así que no necesitamos wrapper relativo. */
+.schedule-current-month.month-selector-title {
+  font-weight: 700;
+  font-size: 1rem;
   color: var(--text-main);
-  font: inherit;
+  background: transparent;
+  border: none;
   cursor: pointer;
   padding: 4px 12px;
-  border-radius: 8px;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  border-radius: 6px;
+  transition: background 0.15s ease;
 }
-.schedule-current-month:hover {
+.schedule-current-month.month-selector-title:hover,
+.schedule-current-month.month-selector-title.active {
   background: rgba(99, 102, 241, 0.10);
-  border-color: rgba(99, 102, 241, 0.30);
-}
-
-.schedule-month-picker {
-  position: absolute;
-  z-index: 50;
-  margin-top: 8px;
-  width: 280px;
-  padding: 14px;
-  border-radius: 14px;
-  background: var(--bg-panel, rgba(20, 22, 36, 0.98));
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(20px);
-  animation: ssm-overlay-fade 0.18s ease;
-}
-[data-theme="light"] .schedule-month-picker {
-  background: rgba(255, 255, 255, 0.98);
-  border-color: rgba(0, 0, 0, 0.10);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
-}
-.schedule-month-picker.hidden { display: none; }
-
-.schedule-month-picker-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-  gap: 8px;
-}
-.schedule-month-picker-nav {
-  width: 30px; height: 30px;
-  border-radius: 8px;
-  background: rgba(99, 102, 241, 0.10);
-  border: 1px solid rgba(99, 102, 241, 0.25);
-  color: var(--text-main);
-  cursor: pointer;
-  font-size: 1.1rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.schedule-month-picker-nav:hover {
-  background: rgba(99, 102, 241, 0.20);
-  border-color: rgba(99, 102, 241, 0.5);
-}
-.schedule-month-picker-year {
-  flex: 1 1 auto;
-  text-align: center;
-  font-weight: 700;
-  font-size: 1.05rem;
-  color: var(--text-main);
-}
-.schedule-month-picker-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
-}
-.schedule-month-cell {
-  padding: 12px 6px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--text-main);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease, transform 0.08s ease;
-}
-[data-theme="light"] .schedule-month-cell {
-  background: rgba(0, 0, 0, 0.03);
-  border-color: rgba(0, 0, 0, 0.08);
-}
-.schedule-month-cell:hover {
-  background: rgba(99, 102, 241, 0.15);
-  border-color: rgba(99, 102, 241, 0.45);
-}
-.schedule-month-cell:active { transform: scale(0.97); }
-.schedule-month-cell.today {
-  border-color: rgba(96, 165, 250, 0.60);
-  color: #60a5fa;
-}
-.schedule-month-cell.current {
-  background: linear-gradient(135deg, #6c63ff, #a78bfa);
-  border-color: rgba(167, 139, 250, 0.55);
-  color: #fff;
-}
-.schedule-month-cell.current:hover {
-  background: linear-gradient(135deg, #7c73ff, #b8a4ff);
-}
-
-.schedule-month-picker-foot {
-  margin-top: 12px;
-  display: flex;
-  justify-content: flex-end;
-}
-.schedule-month-picker-today {
-  font-size: 0.75rem;
-  padding: 5px 14px;
-}
-
-/* Necesario para que el picker se posicione respecto a la toolbar */
-.schedule-manager-toolbar {
-  position: relative;
 }

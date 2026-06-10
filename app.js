@@ -10997,21 +10997,18 @@ async function openEmployeeScheduleManager(employeeId, options = {}) {
 
       <div class="schedule-manager-toolbar">
         <button class="schedule-nav-btn" data-nav="prev" aria-label="Mes anterior">‹</button>
-        <button class="schedule-current-month" data-month-label data-action="open-month-picker" type="button" title="Saltar a otro mes/año"></button>
-        <div class="schedule-month-picker hidden" data-month-picker>
-          <header class="schedule-month-picker-head">
-            <button class="schedule-month-picker-nav" data-picker-year-prev type="button" aria-label="Año anterior">‹</button>
-            <span class="schedule-month-picker-year" data-picker-year-label></span>
-            <button class="schedule-month-picker-nav" data-picker-year-next type="button" aria-label="Año siguiente">›</button>
-          </header>
-          <div class="schedule-month-picker-grid" data-picker-months>
+        <button class="schedule-current-month month-selector-title" data-month-label data-action="open-month-picker" type="button" title="Saltar a otro mes/año"></button>
+        <div class="month-picker-popover schedule-month-picker-popover" data-month-picker>
+          <div class="month-picker-header">
+            <button class="mp-year-btn prev-year" data-picker-year-prev type="button">‹</button>
+            <span class="mp-year-display" data-picker-year-label></span>
+            <button class="mp-year-btn next-year" data-picker-year-next type="button">›</button>
+          </div>
+          <div class="month-picker-grid">
             ${['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
-              .map((m, i) => `<button type="button" class="schedule-month-cell" data-month-index="${i}">${m}</button>`)
+              .map((m, i) => `<button type="button" class="mp-month-btn" data-month-index="${i}">${m}</button>`)
               .join('')}
           </div>
-          <footer class="schedule-month-picker-foot">
-            <button class="btn-secondary schedule-month-picker-today" data-picker-today type="button">Hoy</button>
-          </footer>
         </div>
         <button class="schedule-nav-btn" data-nav="next" aria-label="Mes siguiente">›</button>
         <div class="schedule-toolbar-spacer"></div>
@@ -11764,38 +11761,51 @@ async function openEmployeeScheduleManager(employeeId, options = {}) {
     renderMonth();
   };
 
-  // ── Selector rápido de año/mes ─────────────────────────────────────────
+  // ── Selector rápido de año/mes (reutiliza estilos .month-picker-popover) ──
   const $picker = overlay.querySelector('[data-month-picker]');
   const $pickerYearLabel = overlay.querySelector('[data-picker-year-label]');
+  const $monthTrigger = overlay.querySelector('[data-action="open-month-picker"]');
   let pickerYear = viewYear;
+
   const renderPicker = () => {
     $pickerYearLabel.textContent = pickerYear;
     overlay.querySelectorAll('[data-month-index]').forEach(btn => {
       const m = Number(btn.dataset.monthIndex);
-      btn.classList.toggle('current', m === viewMonth && pickerYear === viewYear);
-      btn.classList.toggle('today',
-        m === new Date().getMonth() && pickerYear === new Date().getFullYear());
+      btn.classList.toggle('selected', m === viewMonth && pickerYear === viewYear);
     });
+  };
+  const closePicker = () => {
+    $picker.classList.remove('active');
+    $monthTrigger.classList.remove('active');
   };
   const openPicker = () => {
     pickerYear = viewYear;
     renderPicker();
-    $picker.classList.remove('hidden');
-    // Cerrar al hacer click fuera del picker
+    // Posicionar el popover bajo el botón trigger (igual que en la barra superior)
+    const rect = $monthTrigger.getBoundingClientRect();
+    const popoverW = 220;
+    let leftPos = rect.left + rect.width / 2 - popoverW / 2;
+    if (leftPos + popoverW > window.innerWidth - 8) leftPos = window.innerWidth - popoverW - 8;
+    if (leftPos < 8) leftPos = 8;
+    $picker.style.position = 'fixed';
+    $picker.style.top = (rect.bottom + 8) + 'px';
+    $picker.style.left = leftPos + 'px';
+    $picker.classList.add('active');
+    $monthTrigger.classList.add('active');
     setTimeout(() => {
       const onDocClick = (e) => {
-        if (!$picker.contains(e.target) && !overlay.querySelector('[data-action="open-month-picker"]').contains(e.target)) {
-          $picker.classList.add('hidden');
+        if (!$picker.contains(e.target) && !$monthTrigger.contains(e.target)) {
+          closePicker();
           document.removeEventListener('click', onDocClick);
         }
       };
       document.addEventListener('click', onDocClick);
     }, 0);
   };
-  overlay.querySelector('[data-action="open-month-picker"]').onclick = (e) => {
+  $monthTrigger.onclick = (e) => {
     e.stopPropagation();
-    if ($picker.classList.contains('hidden')) openPicker();
-    else $picker.classList.add('hidden');
+    if ($picker.classList.contains('active')) closePicker();
+    else openPicker();
   };
   overlay.querySelector('[data-picker-year-prev]').onclick = (e) => {
     e.stopPropagation();
@@ -11810,18 +11820,10 @@ async function openEmployeeScheduleManager(employeeId, options = {}) {
       e.stopPropagation();
       viewMonth = Number(btn.dataset.monthIndex);
       viewYear = pickerYear;
-      $picker.classList.add('hidden');
+      closePicker();
       renderMonth();
     };
   });
-  overlay.querySelector('[data-picker-today]').onclick = (e) => {
-    e.stopPropagation();
-    const now = new Date();
-    viewMonth = now.getMonth();
-    viewYear = now.getFullYear();
-    $picker.classList.add('hidden');
-    renderMonth();
-  };
 
   overlay.querySelector('[data-action="manage-templates"]').onclick = () => {
     openTemplatesManager(() => renderMonth());
