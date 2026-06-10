@@ -11052,6 +11052,9 @@ async function openEmployeeScheduleManager(employeeId, options = {}) {
 
   const close = () => {
     overlay.remove();
+    // Limpiar el popover del selector mes/año que vive fuera del modal (en body)
+    const orphanPicker = document.querySelector('.schedule-month-picker-popover');
+    if (orphanPicker) orphanPicker.remove();
     document.removeEventListener('keydown', onKey);
     if (typeof options.onClose === 'function') {
       try { options.onClose(); } catch {}
@@ -11763,13 +11766,18 @@ async function openEmployeeScheduleManager(employeeId, options = {}) {
 
   // ── Selector rápido de año/mes (reutiliza estilos .month-picker-popover) ──
   const $picker = overlay.querySelector('[data-month-picker]');
-  const $pickerYearLabel = overlay.querySelector('[data-picker-year-label]');
+  const $pickerYearLabel = $picker.querySelector('[data-picker-year-label]');
   const $monthTrigger = overlay.querySelector('[data-action="open-month-picker"]');
   let pickerYear = viewYear;
 
+  // El modal tiene backdrop-filter + overflow:hidden, lo que crea un nuevo
+  // containing block para `position: fixed` y recorta el popover. Lo movemos
+  // al <body> para que se renderice fuera del modal y se vea correctamente.
+  document.body.appendChild($picker);
+
   const renderPicker = () => {
     $pickerYearLabel.textContent = pickerYear;
-    overlay.querySelectorAll('[data-month-index]').forEach(btn => {
+    $picker.querySelectorAll('[data-month-index]').forEach(btn => {
       const m = Number(btn.dataset.monthIndex);
       btn.classList.toggle('selected', m === viewMonth && pickerYear === viewYear);
     });
@@ -11807,15 +11815,15 @@ async function openEmployeeScheduleManager(employeeId, options = {}) {
     if ($picker.classList.contains('active')) closePicker();
     else openPicker();
   };
-  overlay.querySelector('[data-picker-year-prev]').onclick = (e) => {
+  $picker.querySelector('[data-picker-year-prev]').onclick = (e) => {
     e.stopPropagation();
     pickerYear--; renderPicker();
   };
-  overlay.querySelector('[data-picker-year-next]').onclick = (e) => {
+  $picker.querySelector('[data-picker-year-next]').onclick = (e) => {
     e.stopPropagation();
     pickerYear++; renderPicker();
   };
-  overlay.querySelectorAll('[data-month-index]').forEach(btn => {
+  $picker.querySelectorAll('[data-month-index]').forEach(btn => {
     btn.onclick = (e) => {
       e.stopPropagation();
       viewMonth = Number(btn.dataset.monthIndex);
