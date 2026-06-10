@@ -40,6 +40,7 @@ LAN_MODE  = HOST in ('0.0.0.0', '::') or os.environ.get('SESAME_LAN') == '1'
 BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE   = os.path.join(BASE_DIR, 'config.json')
 SECRETS_FILE  = os.path.join(BASE_DIR, 'config.secrets.json')
+SCHEDULES_FILE = os.path.join(BASE_DIR, 'config.schedules.json')  # Overrides locales de jornada
 KEY_FILE      = os.path.join(BASE_DIR, 'key.bin')       # Clave AES local (gitignored)
 CERT_FILE     = os.path.join(BASE_DIR, 'cert.pem')      # Certificado TLS (gitignored)
 PRIVKEY_FILE  = os.path.join(BASE_DIR, 'privkey.pem')   # Clave TLS privada (gitignored)
@@ -47,6 +48,7 @@ PUBLIC_FILES  = {'/index.html', '/styles.css', '/app.js', '/favicon.png'}
 SENSITIVE_PATHS = {
     '/config.json',
     '/config.secrets.json',
+    '/config.schedules.json',
     '/key.bin',
     '/cert.pem',
     '/privkey.pem',
@@ -350,6 +352,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._proxy('GET', None)
         elif parsed_path == '/config':
             self._serve_config()
+        elif parsed_path == '/schedules':
+            self._serve_schedules()
         elif parsed_path.startswith('/feed.ics'):
             self._serve_ics_feed()
         elif parsed_path in ['/', '/index.html']:
@@ -384,9 +388,262 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._wipe_all_config()
         elif self.path == '/validate-password':
             self._validate_password(body)
+        elif self.path == '/save-schedules':
+            if has_master_passwords() and not self._require_session():
+                return
+            self._save_schedules(body)
+        elif self.path == '/save-custom-template':
+            if has_master_passwords() and not self._require_session():
+                return
+            self._save_custom_template(body)
+        elif self.path == '/delete-custom-template':
+            if has_master_passwords() and not self._require_session():
+                return
+            self._delete_custom_template(body)
         else:
             self.send_response(404)
             self.end_headers()
+
+    # ── Schedules endpoints (plantillas locales + overrides por empleado/día) ──
+    def _load_schedules_file(self):
+        """Lee config.schedules.json y migra el formato si es necesario.
+        Formato nuevo:
+          { "<companyId>": {
+              "customTemplates": [ { id, name, mondayMinutes,... sundayMinutes, isLocal:true } ],
+              "overrides": { "<employeeId>": { "<YYYY-MM-DD>": "<templateId>" } }
+          }}
+        Formato antiguo (retrocompatible):
+          { "<companyId>": { "<employeeId>": { "<YYYY-MM-DD>": "<templateId>" } } }
+        """
+        if not os.path.exists(SCHEDULES_FILE):
+            return {}
+        try:
+            with open(SCHEDULES_FILE) as f:
+                raw = json.load(f) or {}
+        except Exception as e:
+            print(f"Error loading schedules: {e}")
+            return {}
+        # Migración silenciosa al formato nuevo
+        migrated = {}
+        for company_id, block in (raw or {}).items():
+            if not isinstance(block, dict):
+                continue
+            if 'overrides' in block or 'customTemplates' in block:
+                migrated[company_id] = {
+                    'customTemplates': block.get('customTemplates') or [],
+                    'overrides': block.get('overrides') or {}
+                }
+            else:
+                # Formato antiguo: todo el bloque eran overrides por empleado
+                migrated[company_id] = {
+                    'customTemplates': [],
+                    'overrides': block
+                }
+        return migrated
+
+    def _write_schedules_file(self, data):
+        with open(SCHEDULES_FILE, 'w') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        try:
+            os.chmod(SCHEDULES_FILE, 0o600)
+        except Exception:
+            pass
+
+    def _serve_schedules(self):
+        """Devuelve plantillas locales y overrides. NO toca Sesame."""
+        data = self._load_schedules_file()
+        payload = json.dumps(data).encode()
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self._cors_headers()
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _save_schedules(self, body):
+        """Guarda overrides locales. Body esperado:
+            { "companyId": str, "employeeId": str, "overrides": { "<date>": "<templateId>" | null } }
+        Si `templateId` es null/empty, ese día se elimina del override (restaurar default).
+        Si llega `replaceAll: true`, sustituye el bloque entero del empleado en esa empresa.
+        """
+        try:
+            payload = json.loads(body or b'{}')
+            company_id = str(payload.get('companyId') or '').strip()
+            employee_id = str(payload.get('employeeId') or '').strip()
+            overrides = payload.get('overrides') or {}
+            replace_all = bool(payload.get('replaceAll'))
+            if not company_id or not employee_id:
+                self._send_error(400, 'companyId y employeeId son obligatorios')
+                return
+            if not isinstance(overrides, dict):
+                self._send_error(400, 'overrides debe ser un objeto fecha→templateId')
+                return
+
+            existing = self._load_schedules_file()
+            company_block = existing.get(company_id) or {'customTemplates': [], 'overrides': {}}
+            employee_block = {} if replace_all else (company_block.get('overrides', {}).get(employee_id) or {})
+
+            for date_str, template_id in overrides.items():
+                date_clean = str(date_str or '').strip()
+                if not date_clean:
+                    continue
+                if template_id is None or template_id == '':
+                    employee_block.pop(date_clean, None)
+                else:
+                    employee_block[date_clean] = str(template_id)
+
+            ov = company_block.get('overrides') or {}
+            if employee_block:
+                ov[employee_id] = employee_block
+            else:
+                ov.pop(employee_id, None)
+            company_block['overrides'] = ov
+
+            # No removemos la empresa si solo tiene customTemplates
+            if not company_block.get('overrides') and not company_block.get('customTemplates'):
+                existing.pop(company_id, None)
+            else:
+                existing[company_id] = company_block
+
+            self._write_schedules_file(existing)
+
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self._cors_headers()
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                'ok': True,
+                'companyId': company_id,
+                'employeeId': employee_id,
+                'count': len(employee_block)
+            }).encode())
+        except Exception as e:
+            self._send_error(400, f'Error guardando schedules: {str(e)}')
+
+    def _save_custom_template(self, body):
+        """Crea o actualiza una plantilla LOCAL custom para la empresa.
+        Body: { companyId, template: { id?, name, mondayMinutes,... sundayMinutes } }
+        Si no se pasa id, se genera uno nuevo. Devuelve la plantilla guardada.
+        """
+        try:
+            payload = json.loads(body or b'{}')
+            company_id = str(payload.get('companyId') or '').strip()
+            tmpl = payload.get('template') or {}
+            if not company_id:
+                self._send_error(400, 'companyId es obligatorio')
+                return
+            name = str(tmpl.get('name') or '').strip()
+            if not name:
+                self._send_error(400, 'name es obligatorio')
+                return
+
+            def _mins(key):
+                try:
+                    v = int(tmpl.get(key) or 0)
+                except Exception:
+                    v = 0
+                return max(0, min(24 * 60, v))
+
+            normalized = {
+                'id': str(tmpl.get('id') or '').strip() or f'local-{secrets.token_urlsafe(8)}',
+                'name': name,
+                'mondayMinutes':    _mins('mondayMinutes'),
+                'tuesdayMinutes':   _mins('tuesdayMinutes'),
+                'wednesdayMinutes': _mins('wednesdayMinutes'),
+                'thursdayMinutes':  _mins('thursdayMinutes'),
+                'fridayMinutes':    _mins('fridayMinutes'),
+                'saturdayMinutes':  _mins('saturdayMinutes'),
+                'sundayMinutes':    _mins('sundayMinutes'),
+                'isLocal': True
+            }
+
+            existing = self._load_schedules_file()
+            company_block = existing.get(company_id) or {'customTemplates': [], 'overrides': {}}
+            templates = list(company_block.get('customTemplates') or [])
+            replaced = False
+            # Si el cliente pasó id explícito, reemplazar por id
+            if tmpl.get('id'):
+                for i, t in enumerate(templates):
+                    if str(t.get('id')) == normalized['id']:
+                        templates[i] = normalized
+                        replaced = True
+                        break
+            # Prevenir duplicados: si NO se está editando una existente y ya hay una
+            # con el mismo nombre (case-insensitive), actualizar la existente en vez
+            # de crear otra entrada.
+            if not replaced:
+                target_name = normalized['name'].strip().lower()
+                for i, t in enumerate(templates):
+                    if str(t.get('name', '')).strip().lower() == target_name:
+                        normalized['id'] = str(t.get('id'))  # conservar id antiguo
+                        templates[i] = normalized
+                        replaced = True
+                        break
+            if not replaced:
+                templates.append(normalized)
+            company_block['customTemplates'] = templates
+            existing[company_id] = company_block
+            self._write_schedules_file(existing)
+
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self._cors_headers()
+            self.end_headers()
+            self.wfile.write(json.dumps({'ok': True, 'template': normalized}).encode())
+        except Exception as e:
+            self._send_error(400, f'Error guardando plantilla custom: {str(e)}')
+
+    def _delete_custom_template(self, body):
+        """Borra una plantilla LOCAL custom. Body: { companyId, templateId }
+        Si la plantilla está siendo usada en overrides, también se eliminan esos overrides.
+        """
+        try:
+            payload = json.loads(body or b'{}')
+            company_id = str(payload.get('companyId') or '').strip()
+            template_id = str(payload.get('templateId') or '').strip()
+            if not company_id or not template_id:
+                self._send_error(400, 'companyId y templateId son obligatorios')
+                return
+
+            existing = self._load_schedules_file()
+            company_block = existing.get(company_id)
+            if not company_block:
+                self.send_response(200)
+                self._cors_headers()
+                self.end_headers()
+                self.wfile.write(json.dumps({'ok': True, 'removed': 0}).encode())
+                return
+
+            templates = [t for t in (company_block.get('customTemplates') or [])
+                         if str(t.get('id')) != template_id]
+            company_block['customTemplates'] = templates
+
+            removed_refs = 0
+            overrides = company_block.get('overrides') or {}
+            for emp_id in list(overrides.keys()):
+                emp_block = overrides[emp_id]
+                for date_key in list(emp_block.keys()):
+                    if str(emp_block[date_key]) == template_id:
+                        del emp_block[date_key]
+                        removed_refs += 1
+                if not emp_block:
+                    del overrides[emp_id]
+            company_block['overrides'] = overrides
+
+            if not company_block.get('customTemplates') and not company_block.get('overrides'):
+                existing.pop(company_id, None)
+            else:
+                existing[company_id] = company_block
+            self._write_schedules_file(existing)
+
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self._cors_headers()
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                'ok': True, 'templateId': template_id, 'removedOverrides': removed_refs
+            }).encode())
+        except Exception as e:
+            self._send_error(400, f'Error borrando plantilla: {str(e)}')
 
     # ── Config endpoints ──────────────────────────────────────────────────
     def _serve_config(self):

@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=20260610-v173" />
+  <link rel="stylesheet" href="styles.css?v=1.7.4" />
   <script>
     // Apply theme as early as possible to avoid dark flash
     const savedTheme = localStorage.getItem('theme') || 'dark';
@@ -53,7 +53,7 @@
       </div>
 
       <div class="setup-footer-info">
-        <span id="app-version-display">Sesame HR Premium Dashboard v1.7.3</span>
+        <span id="app-version-display">Sesame HR Premium Dashboard v1.7.4</span>
       </div>
     </div>
   </div>
@@ -392,6 +392,12 @@
           <button id="theme-btn" class="theme-toggle btn-icon-round" title="Cambiar tema" aria-label="Cambiar tema">🌙</button>
           <button id="subscribe-btn" class="btn-icon-round" title="Sincronizar con Google Calendar" aria-label="Sincronizar con Google Calendar">🔗</button>
           <button id="export-btn" class="btn-icon-round" title="Exportar calendario (.ics)" aria-label="Exportar calendario en formato ICS">📅</button>
+          <button id="export-vacaciones-csv" class="btn-icon-round" title="Exportar CSV de ausencias visibles" aria-label="Exportar CSV de ausencias visibles">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          </button>
+          <button id="export-vacaciones-json" class="btn-icon-round" title="Exportar JSON de ausencias visibles" aria-label="Exportar JSON de ausencias visibles">
+            <span class="json-icon-label">{ }</span>
+          </button>
           <button id="refresh-btn" class="btn-icon-round" title="Actualizar" aria-label="Actualizar calendario">🔄</button>
         </div>
       </header>
@@ -663,10 +669,10 @@
       </div>
       <h2>Conectando a Sesame</h2>
       <p>Sincronizando y normalizando la inteligencia operativa...</p>
-      <div class="loading-version-badge" id="loading-version-badge">v1.7.3</div>
+      <div class="loading-version-badge" id="loading-version-badge">v1.7.4</div>
     </div>
   </div>
 
-  <script src="app.js?v=1.7.3"></script>
+  <script src="app.js?v=1.7.4"></script>
 </body>
 </html>

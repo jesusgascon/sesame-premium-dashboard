@@ -5,7 +5,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.7.3';
+const APP_VERSION = '1.7.4';
 
 // ─── Debug Mode ───────────────────────────────────────────────────────────────
 // false en producción (silencia console.log/info/warn).
@@ -97,7 +97,15 @@ const STATE = {
   currentModule: localStorage.getItem('ssm_current_module') || 'vacaciones',
   presenceMap: new Map(), // employeeId -> status ('work', 'pause', 'out')
   presenceList: [],
-  presenceSummaryContext: null
+  presenceSummaryContext: null,
+  // Plantillas de jornada disponibles en la empresa (id, name, minutes por día).
+  scheduleTemplates: [],
+  // Plantillas custom locales creadas por el usuario en el dashboard
+  customScheduleTemplates: [], // [{ id, name, mondayMinutes,... isLocal:true }]
+  // Cache de minutos por plantilla (combinada: Sesame + locales)
+  scheduleTemplateMinutes: new Map(),
+  // Overrides locales: { companyId: { employeeId: { 'YYYY-MM-DD': templateId } } }
+  scheduleOverrides: {}
 };
 
 let REFRESH_TIMER = null;
@@ -261,6 +269,24 @@ function resolveEmployeeScheduleForDate(employee, dateKey) {
   if (!employee || !dateKey) return null;
   const dayOfWeek = new Date(String(dateKey) + 'T00:00:00').getDay();
   if (Number.isNaN(dayOfWeek)) return null;
+
+  // ── PRIORIDAD MÁXIMA: override local (configurado desde el modal del empleado) ──
+  // Si el usuario sobreescribió la plantilla para ese día, se respeta sin importar
+  // lo que diga Sesame. Solo aplica si tenemos los minutos de la plantilla en caché.
+  const overrideTemplateId = (typeof getScheduleOverrideForDate === 'function')
+    ? getScheduleOverrideForDate(employee.id, dateKey)
+    : null;
+  if (overrideTemplateId && STATE.scheduleTemplateMinutes?.has(String(overrideTemplateId))) {
+    const tmpl = STATE.scheduleTemplateMinutes.get(String(overrideTemplateId));
+    const keys = ['sundayMinutes','mondayMinutes','tuesdayMinutes','wednesdayMinutes',
+                  'thursdayMinutes','fridayMinutes','saturdayMinutes'];
+    const mins = Number(tmpl?.[keys[dayOfWeek]] || 0);
+    return {
+      secondsForDay: mins * 60,
+      templateName: tmpl?.name || 'Override local',
+      isLocalOverride: true
+    };
+  }
 
   const views = Array.isArray(employee.scheduleTemplateAllViews)
     ? employee.scheduleTemplateAllViews
@@ -807,6 +833,346 @@ const PREMIUM_PALETTE = [
   '#0891B2', '#CA8A04', '#DC2626', '#4F46E5', '#0D9488',
   '#0369A1', '#854D0E', '#991B1B', '#4338CA', '#0F766E'
 ];
+
+// ─── Schedule Templates (Fase 2 — gestor de calendario por empleado) ──────
+// IMPORTANTE: estos endpoints viven en api-eu1.sesametime.com (no en back-eu1).
+// Por eso pasamos overrideBackend explícitamente a apiFetch.
+const SCHEDULE_API_BACKEND = 'https://api-eu1.sesametime.com';
+
+// Endpoint oficial Sesame: GET /schedule/v1/schedule-templates devuelve solo id+name.
+// Cacheado en STATE.scheduleTemplates para alimentar dropdowns del modal.
+async function fetchScheduleTemplates() {
+  try {
+    const data = await apiFetch('/schedule/v1/schedule-templates?limit=200', {
+      method: 'GET',
+      overrideBackend: SCHEDULE_API_BACKEND
+    });
+    const list = data?.data || data || [];
+    const normalized = (Array.isArray(list) ? list : []).map(t => ({
+      id: String(t.id || ''),
+      name: String(t.name || 'Sin nombre'),
+      type: String(t.type || ''),
+      createdAt: t.createdAt || null,
+      updatedAt: t.updatedAt || null
+    })).filter(t => t.id);
+    normalized.sort((a, b) => a.name.localeCompare(b.name));
+    STATE.scheduleTemplates = normalized;
+    console.info(`[schedule] Plantillas cargadas: ${normalized.length}`);
+    return normalized;
+  } catch (e) {
+    console.warn('fetchScheduleTemplates falló:', e?.message || e);
+    STATE.scheduleTemplates = [];
+    return [];
+  }
+}
+
+// Endpoint resuelto por día con minutos exactos. La fuente de verdad de Sesame.
+// Devuelve un Map: 'YYYY-MM-DD' -> { templateId, templateName, mondayMinutes,... currentDayMinutes }
+async function fetchEmployeeScheduleByDay(employeeId, from, to) {
+  if (!employeeId || !from || !to) return new Map();
+  const path = `/schedule/v1/employees/${employeeId}/schedule-templates?from=${from}&to=${to}&limit=400`;
+  try {
+    const data = await apiFetch(path, {
+      method: 'GET',
+      overrideBackend: SCHEDULE_API_BACKEND
+    });
+    const arr = data?.data || [];
+    const out = new Map();
+    (Array.isArray(arr) ? arr : []).forEach(item => {
+      // item es { 'YYYY-MM-DD': [ { ...plantilla... } ] }
+      Object.entries(item).forEach(([dateKey, templates]) => {
+        const tmpl = Array.isArray(templates) ? templates[0] : templates;
+        if (!tmpl) return;
+        const id = String(tmpl.id || '');
+        out.set(dateKey, {
+          templateId: id,
+          templateName: tmpl.name || '',
+          mondayMinutes:    Number(tmpl.mondayMinutes    || 0),
+          tuesdayMinutes:   Number(tmpl.tuesdayMinutes   || 0),
+          wednesdayMinutes: Number(tmpl.wednesdayMinutes || 0),
+          thursdayMinutes:  Number(tmpl.thursdayMinutes  || 0),
+          fridayMinutes:    Number(tmpl.fridayMinutes    || 0),
+          saturdayMinutes:  Number(tmpl.saturdayMinutes  || 0),
+          sundayMinutes:    Number(tmpl.sundayMinutes    || 0),
+          currentDayMinutes: tmpl.currentDayMinutes != null ? Number(tmpl.currentDayMinutes) : null
+        });
+        // Cachear minutos por templateId para reusar en otros días
+        if (id) {
+          STATE.scheduleTemplateMinutes.set(id, {
+            id,
+            name: tmpl.name || '',
+            mondayMinutes:    Number(tmpl.mondayMinutes    || 0),
+            tuesdayMinutes:   Number(tmpl.tuesdayMinutes   || 0),
+            wednesdayMinutes: Number(tmpl.wednesdayMinutes || 0),
+            thursdayMinutes:  Number(tmpl.thursdayMinutes  || 0),
+            fridayMinutes:    Number(tmpl.fridayMinutes    || 0),
+            saturdayMinutes:  Number(tmpl.saturdayMinutes  || 0),
+            sundayMinutes:    Number(tmpl.sundayMinutes    || 0)
+          });
+        }
+      });
+    });
+    return out;
+  } catch (e) {
+    console.warn(`fetchEmployeeScheduleByDay(${employeeId}) falló:`, e?.message || e);
+    return new Map();
+  }
+}
+
+// Carga overrides locales + plantillas custom desde server.py — /schedules.
+// Estructura del fichero (formato nuevo):
+//   { "<companyId>": { customTemplates: [{ id, name, ...minutes }], overrides: { ... } } }
+async function loadScheduleOverrides() {
+  if (!isLocalProxy()) {
+    STATE.scheduleOverrides = {};
+    STATE.customScheduleTemplates = [];
+    return {};
+  }
+  try {
+    const res = await fetch(`${window.location.origin}/schedules`, {
+      credentials: 'include'
+    });
+    if (!res.ok) {
+      STATE.scheduleOverrides = {};
+      STATE.customScheduleTemplates = [];
+      return {};
+    }
+    const all = await res.json();
+    // Adaptamos a la estructura interna que usa el resto del código:
+    // STATE.scheduleOverrides[companyId][empId][date] = templateId
+    const overridesFlat = {};
+    Object.entries(all || {}).forEach(([cid, block]) => {
+      overridesFlat[cid] = block?.overrides || {};
+    });
+    STATE.scheduleOverrides = overridesFlat;
+    STATE.customScheduleTemplates = (all?.[STATE.companyId]?.customTemplates) || [];
+    // Inyectar plantillas custom en el cache de minutos para que el cálculo
+    // del teórico pueda resolverlas (igual que las de Sesame).
+    STATE.customScheduleTemplates.forEach(t => {
+      STATE.scheduleTemplateMinutes.set(String(t.id), {
+        id: String(t.id),
+        name: t.name,
+        mondayMinutes:    Number(t.mondayMinutes    || 0),
+        tuesdayMinutes:   Number(t.tuesdayMinutes   || 0),
+        wednesdayMinutes: Number(t.wednesdayMinutes || 0),
+        thursdayMinutes:  Number(t.thursdayMinutes  || 0),
+        fridayMinutes:    Number(t.fridayMinutes    || 0),
+        saturdayMinutes:  Number(t.saturdayMinutes  || 0),
+        sundayMinutes:    Number(t.sundayMinutes    || 0)
+      });
+    });
+    return all;
+  } catch (e) {
+    console.warn('loadScheduleOverrides falló:', e?.message || e);
+    STATE.scheduleOverrides = {};
+    STATE.customScheduleTemplates = [];
+    return {};
+  }
+}
+
+// Descubre las plantillas que YA tienen asignadas los empleados cargados.
+// Lee `scheduleTemplateAllViews` de cada empleado (que viene del API de Sesame
+// en /api/v3/employees/{id}) y agrupa por (nombre + minutos por día), sin duplicar.
+// Para cada plantilla detectada cachea sus minutos en STATE.scheduleTemplateMinutes
+// para que el cálculo del teórico pueda resolverla cuando se use como override.
+function discoverCompanyTemplates() {
+  const groups = new Map(); // key estable -> { id, name, minutes, employees:[name] }
+  // 0=domingo, 1=lunes... 6=sábado (formato Date.getDay())
+  const dayKeys = ['sundayMinutes','mondayMinutes','tuesdayMinutes','wednesdayMinutes',
+                   'thursdayMinutes','fridayMinutes','saturdayMinutes'];
+  STATE.allEmployees.forEach((emp) => {
+    const views = Array.isArray(emp?.scheduleTemplateAllViews)
+      ? emp.scheduleTemplateAllViews
+      : [];
+    views.forEach(view => {
+      const name = (view.name || emp.scheduleTemplateName || '').trim();
+      const wd = view.workdays || null; // segundos por día de semana (0..6)
+      if (!name || !wd) return;
+      // workdays viene en SEGUNDOS por día → convertir a minutos
+      const mins = {};
+      let validAny = false;
+      for (let i = 0; i < 7; i++) {
+        const m = Math.round(Number(wd[i] || 0) / 60);
+        mins[dayKeys[i]] = m;
+        if (m > 0) validAny = true;
+      }
+      if (!validAny) return; // plantilla vacía → descartar
+      const key = `det_${name}|${dayKeys.map(k => mins[k]).join('|')}`;
+      const empName = `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || `ID ${emp.id}`;
+      const existing = groups.get(key);
+      if (existing) {
+        if (!existing.employees.includes(empName)) existing.employees.push(empName);
+      } else {
+        groups.set(key, {
+          id: key,                  // id estable para reutilizar en overrides
+          name,
+          isDetected: true,
+          minutes: mins,
+          employees: [empName]
+        });
+      }
+    });
+  });
+  const result = Array.from(groups.values())
+    .sort((a, b) => b.employees.length - a.employees.length);
+  // Cachear minutos para que resolveEmployeeScheduleForDate pueda resolver el override
+  result.forEach(t => {
+    STATE.scheduleTemplateMinutes.set(String(t.id), { id: t.id, name: t.name, ...t.minutes });
+  });
+  return result;
+}
+
+// Devuelve la lista combinada de plantillas locales + detectadas + de Sesame
+// (sin duplicar; locales y Sesame mantienen su id original).
+function getAllAvailableTemplates() {
+  const local = (STATE.customScheduleTemplates || []).map(t => ({
+    id: String(t.id),
+    name: t.name,
+    isLocal: true,
+    minutes: {
+      mondayMinutes:    Number(t.mondayMinutes    || 0),
+      tuesdayMinutes:   Number(t.tuesdayMinutes   || 0),
+      wednesdayMinutes: Number(t.wednesdayMinutes || 0),
+      thursdayMinutes:  Number(t.thursdayMinutes  || 0),
+      fridayMinutes:    Number(t.fridayMinutes    || 0),
+      saturdayMinutes:  Number(t.saturdayMinutes  || 0),
+      sundayMinutes:    Number(t.sundayMinutes    || 0)
+    }
+  }));
+  const detected = discoverCompanyTemplates().map(t => ({
+    id: String(t.id),
+    name: t.name,
+    isDetected: true,
+    minutes: t.minutes,
+    employees: t.employees
+  }));
+  // Evitar que una "detectada" aparezca duplicada si el usuario ya la importó como local
+  // (comparamos por nombre normalizado).
+  const localNames = new Set(local.map(t => t.name.toLowerCase()));
+  const detectedClean = detected.filter(t => !localNames.has(t.name.toLowerCase()));
+
+  const sesame = (STATE.scheduleTemplates || []).map(t => ({
+    id: String(t.id),
+    name: t.name,
+    isLocal: false
+  }));
+  return { local, detected: detectedClean, sesame };
+}
+
+// Persistir una plantilla local (crear o actualizar)
+async function saveCustomTemplate(template) {
+  if (!isLocalProxy()) throw new Error('Solo disponible con proxy local');
+  const res = await fetch(`${window.location.origin}/save-custom-template`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ companyId: STATE.companyId, template })
+  });
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try { msg = (await res.json())?.error || msg; } catch {}
+    throw new Error(msg);
+  }
+  const saved = (await res.json())?.template;
+  if (saved?.id) {
+    // Refrescar caché
+    const idx = (STATE.customScheduleTemplates || []).findIndex(t => String(t.id) === String(saved.id));
+    if (idx >= 0) STATE.customScheduleTemplates[idx] = saved;
+    else (STATE.customScheduleTemplates ||= []).push(saved);
+    STATE.scheduleTemplateMinutes.set(String(saved.id), {
+      id: String(saved.id),
+      name: saved.name,
+      mondayMinutes:    Number(saved.mondayMinutes    || 0),
+      tuesdayMinutes:   Number(saved.tuesdayMinutes   || 0),
+      wednesdayMinutes: Number(saved.wednesdayMinutes || 0),
+      thursdayMinutes:  Number(saved.thursdayMinutes  || 0),
+      fridayMinutes:    Number(saved.fridayMinutes    || 0),
+      saturdayMinutes:  Number(saved.saturdayMinutes  || 0),
+      sundayMinutes:    Number(saved.sundayMinutes    || 0)
+    });
+  }
+  return saved;
+}
+
+// Borrar una plantilla local
+async function deleteCustomTemplate(templateId) {
+  if (!isLocalProxy()) throw new Error('Solo disponible con proxy local');
+  const res = await fetch(`${window.location.origin}/delete-custom-template`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ companyId: STATE.companyId, templateId: String(templateId) })
+  });
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try { msg = (await res.json())?.error || msg; } catch {}
+    throw new Error(msg);
+  }
+  // Actualizar caché local
+  STATE.customScheduleTemplates = (STATE.customScheduleTemplates || [])
+    .filter(t => String(t.id) !== String(templateId));
+  STATE.scheduleTemplateMinutes.delete(String(templateId));
+  // Quitar también referencias en STATE.scheduleOverrides del cliente
+  const cidBlock = STATE.scheduleOverrides?.[STATE.companyId] || {};
+  Object.keys(cidBlock).forEach(empId => {
+    const empBlock = cidBlock[empId] || {};
+    Object.keys(empBlock).forEach(date => {
+      if (String(empBlock[date]) === String(templateId)) delete empBlock[date];
+    });
+    if (Object.keys(empBlock).length === 0) delete cidBlock[empId];
+  });
+  return res.json();
+}
+
+// Devuelve el override local para un empleado-fecha o null si no hay.
+function getScheduleOverrideForDate(employeeId, dateKey) {
+  if (!employeeId || !dateKey) return null;
+  const empBlock = STATE.scheduleOverrides?.[STATE.companyId]?.[String(employeeId)];
+  if (!empBlock) return null;
+  return empBlock[String(dateKey)] || null;
+}
+
+// Persiste overrides para un empleado en el servidor local.
+// `overridesMap` = { 'YYYY-MM-DD': templateId | null }, null = borrar override
+async function saveScheduleOverrides(employeeId, overridesMap, replaceAll = false) {
+  if (!isLocalProxy()) {
+    throw new Error('Solo disponible con el proxy local (server.py)');
+  }
+  const body = {
+    companyId: STATE.companyId,
+    employeeId: String(employeeId),
+    overrides: overridesMap || {},
+    replaceAll: !!replaceAll
+  };
+  const res = await fetch(`${window.location.origin}/save-schedules`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try { msg = (await res.json())?.error || msg; } catch {}
+    throw new Error(msg);
+  }
+  // Actualizar caché local en STATE
+  const cidBlock = STATE.scheduleOverrides[STATE.companyId] || {};
+  const empBlock = replaceAll ? {} : (cidBlock[String(employeeId)] || {});
+  Object.entries(overridesMap || {}).forEach(([d, tid]) => {
+    if (tid === null || tid === '' || tid === undefined) {
+      delete empBlock[d];
+    } else {
+      empBlock[d] = String(tid);
+    }
+  });
+  if (Object.keys(empBlock).length > 0) {
+    cidBlock[String(employeeId)] = empBlock;
+  } else {
+    delete cidBlock[String(employeeId)];
+  }
+  STATE.scheduleOverrides[STATE.companyId] = cidBlock;
+  return res.json();
+}
 
 async function fetchAbsenceTypes() {
   const data = await apiFetch(`/api/v3/companies/${STATE.companyId}/absence-types`);
@@ -2237,6 +2603,12 @@ async function startApp() {
   const exportBtn = $('export-btn');
   if (exportBtn) exportBtn.addEventListener('click', exportToIcal);
 
+  const exportVacCsvBtn = $('export-vacaciones-csv');
+  if (exportVacCsvBtn) exportVacCsvBtn.addEventListener('click', () => exportVacationsCSV());
+
+  const exportVacJsonBtn = $('export-vacaciones-json');
+  if (exportVacJsonBtn) exportVacJsonBtn.addEventListener('click', () => exportVacationsJSON());
+
   const subscribeBtn = $('subscribe-btn');
   if (subscribeBtn) subscribeBtn.addEventListener('click', showSubscriptionModal);
 
@@ -2505,6 +2877,11 @@ async function loadInitialData() {
   STATE.presenceMap.clear();
 
   try {
+    // Carga en paralelo de plantillas disponibles y overrides locales (no críticos).
+    // No bloquean si fallan: el resto de la app sigue funcionando.
+    fetchScheduleTemplates().catch(() => {});
+    loadScheduleOverrides().catch(() => {});
+
     // 1. Parallel fetch of core metadata (siempre datos reales)
     const [absTypes, meData, teamEmps, presenceData] = await Promise.all([
       fetchAbsenceTypes(),
@@ -3775,6 +4152,130 @@ function exportToIcal() {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+}
+
+// ─── Export CSV/JSON de Vacaciones (respeta filtros activos) ──────────────
+function _getVacationsExportRange() {
+  // Mismo rango que la vista actual (mes/semana/día)
+  if (STATE.calView === 'day') return getDayRange(STATE.currentDate);
+  if (STATE.calView === 'week') return getWeekRange(STATE.currentDate);
+  return getMonthRange(STATE.currentDate);
+}
+
+function _collectVacationsRows() {
+  const { from, to } = _getVacationsExportRange();
+  const rows = [];
+  Object.entries(STATE.calendarData || {}).forEach(([dateStr, dayEntries]) => {
+    if (dateStr < from || dateStr > to) return;
+    (dayEntries || []).forEach(evt => {
+      if (!evt?.type?.id || !STATE.activeFilters.has(evt.type.id)) return;
+      const typeName = evt.type.name || 'Ausencia';
+      (evt.employees || []).forEach(emp => {
+        const empIdStr = String(emp.id || '');
+        if (STATE.hiddenEmployeeIds.has(empIdStr)) return;
+        // Cruzar con absenceTimesIndex para horario exacto si lo hay
+        const timesKey = `${empIdStr}_${dateStr}`;
+        const times = STATE.absenceTimesIndex?.get(timesKey) || null;
+        const startTime = times?.startTime || emp.start_time || emp.startTime || '';
+        const endTime   = times?.endTime   || emp.end_time   || emp.endTime   || '';
+        const seconds   = times?.seconds   || (startTime && endTime
+          ? getDayOffSeconds({ startTime, endTime })
+          : 0);
+        const dObj = new Date(dateStr + 'T00:00:00');
+        const dayName = dObj.toLocaleDateString('es-ES', { weekday: 'long' });
+        const empName = `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || `ID ${empIdStr}`;
+        rows.push({
+          employeeId: empIdStr,
+          employeeName: empName,
+          date: dateStr,
+          dayName: dayName.charAt(0).toUpperCase() + dayName.slice(1),
+          absenceType: typeName,
+          absenceTypeId: String(evt.type.id),
+          isFullDay: !startTime,
+          startTime: startTime || '',
+          endTime: endTime || '',
+          durationSeconds: seconds,
+          durationFormatted: seconds
+            ? `${Math.floor(seconds/3600)}h ${Math.floor((seconds%3600)/60)}m`
+            : 'Día completo'
+        });
+      });
+    });
+  });
+  // Orden estable: por fecha, después por empleado
+  rows.sort((a, b) => {
+    if (a.date !== b.date) return a.date.localeCompare(b.date);
+    return a.employeeName.localeCompare(b.employeeName);
+  });
+  return { rows, from, to };
+}
+
+function _csvEscapeValue(value) {
+  const s = String(value ?? '');
+  if (/[",;\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function _downloadExportFile(content, mime, filename) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 100);
+}
+
+function _buildVacationsExportFilename(ext, ctx) {
+  const company = (STATE.companies.find(c => c.companyId === STATE.companyId) || {}).name || 'sesame';
+  const safeCompany = String(company).normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-zA-Z0-9_-]+/g, '_');
+  return `vacaciones_${safeCompany}_${ctx.from}_a_${ctx.to}.${ext}`;
+}
+
+function exportVacationsCSV() {
+  const { rows, from, to } = _collectVacationsRows();
+  if (!rows.length) return alert('No hay ausencias visibles para exportar en este rango.');
+
+  const esc = _csvEscapeValue;
+  let csv = 'Empleado;Fecha;DiaSemana;TipoAusencia;DiaCompleto;HoraInicio;HoraFin;Duracion\n';
+  rows.forEach(r => {
+    csv += [
+      esc(r.employeeName), esc(r.date), esc(r.dayName), esc(r.absenceType),
+      r.isFullDay ? 'Si' : 'No',
+      esc(r.startTime), esc(r.endTime),
+      esc(r.durationFormatted)
+    ].join(';') + '\n';
+  });
+  _downloadExportFile(csv, 'text/csv;charset=utf-8;',
+    _buildVacationsExportFilename('csv', { from, to }));
+}
+
+function exportVacationsJSON() {
+  const { rows, from, to } = _collectVacationsRows();
+  if (!rows.length) return alert('No hay ausencias visibles para exportar en este rango.');
+
+  const company = (STATE.companies.find(c => c.companyId === STATE.companyId) || {}).name || '';
+  const payload = {
+    meta: {
+      exportedAt: new Date().toISOString(),
+      appVersion: typeof APP_VERSION !== 'undefined' ? APP_VERSION : 'unknown',
+      company,
+      companyId: STATE.companyId,
+      range: { from, to },
+      view: STATE.calView,
+      activeAbsenceTypeIds: Array.from(STATE.activeFilters || []),
+      hiddenEmployeeCount: STATE.hiddenEmployeeIds?.size || 0,
+      rowCount: rows.length
+    },
+    rows
+  };
+  _downloadExportFile(JSON.stringify(payload, null, 2), 'application/json',
+    _buildVacationsExportFilename('json', { from, to }));
 }
 
 /**
@@ -5877,9 +6378,10 @@ const FichajesModule = {
         });
       }
 
-      if (this.currentView === 'balance') {
+      if (this.currentView === 'balance' && !isSilent) {
+        // En refresh automático no relanzamos warmup ni pulses (anima sin pedirlo)
         this.prepareOfficialWorkedHoursLoad(start, end);
-      } else {
+      } else if (this.currentView !== 'balance') {
         this.resetOfficialWorkedHoursState({ cancel: true });
       }
 
@@ -8068,36 +8570,229 @@ const FichajesModule = {
     }
   },
 
-  exportToCSV() {
-    const visibleRows = this.getFilteredRows();
-    if (!visibleRows || visibleRows.length === 0) return alert("No hay datos visibles para exportar");
-
-    let csv = "Empleado;Fecha;Entrada;Salida;Duracion;Tipo;Localizacion\n";
-    visibleRows.forEach(row => {
-      row.entries.forEach(e => {
-        csv += `${row.employeeName};${row.date};${e.in};${e.out};${e.duration};${e.typeLabel};${e.loc}\n`;
-      });
-    });
-
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  // ─── Helpers genéricos de descarga ──────────────────────────────────────
+  _downloadBlob(content, mime, filename) {
+    const blob = new Blob([content], { type: mime });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `fichajes_sesame_${new Date().toISOString().split('T')[0]}.csv`;
-    link.click();
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 100);
+  },
+
+  _csvEscape(value) {
+    const s = String(value ?? '');
+    if (/[",;\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  },
+
+  _buildFilenameContext() {
+    const { start, end } = this.getCurrentRangeKeys();
+    const company = (STATE.companies.find(c => c.companyId === STATE.companyId) || {}).name || 'sesame';
+    const safeCompany = String(company).normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-zA-Z0-9_-]+/g, '_');
+    const empPart = this.selectedEmployee && this.selectedEmployee !== 'all'
+      ? `_emp_${String(this.selectedEmployee).slice(0, 8)}`
+      : '_todos';
+    return { start, end, safeCompany, empPart };
+  },
+
+  exportToCSV() {
+    // Contextual: en vista balance exporta balances por empleado, en mes/sem/día fichajes
+    if (this.currentView === 'balance') return this._exportBalanceCSV();
+    return this._exportSigningsCSV();
   },
 
   exportToJSON() {
+    if (this.currentView === 'balance') return this._exportBalanceJSON();
+    return this._exportSigningsJSON();
+  },
+
+  // ─── Export FICHAJES (mes/semana/día) ───────────────────────────────────
+  _exportSigningsCSV() {
     const visibleRows = this.getFilteredRows();
     if (!visibleRows || visibleRows.length === 0) return alert("No hay datos visibles para exportar");
 
-    const dataStr = JSON.stringify(visibleRows, null, 2);
-    const blob = new Blob([dataStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `fichajes_sesame_${new Date().toISOString().split('T')[0]}.json`;
-    link.click();
+    const ctx = this._buildFilenameContext();
+    const esc = v => this._csvEscape(v);
+
+    let csv = 'Empleado;Fecha;DiaSemana;Entrada;Salida;Duracion;Tipo;Localizacion\n';
+    visibleRows.forEach(row => {
+      (row.entries || []).forEach(e => {
+        csv += [
+          esc(row.employeeName),
+          esc(row.date),
+          esc(row.dayName || ''),
+          esc(e.in),
+          esc(e.out),
+          esc(e.duration),
+          esc(e.typeLabel),
+          esc(e.loc || '')
+        ].join(';') + '\n';
+      });
+    });
+
+    this._downloadBlob(
+      csv, 'text/csv;charset=utf-8;',
+      `fichajes_${ctx.safeCompany}${ctx.empPart}_${ctx.start}_a_${ctx.end}.csv`
+    );
+  },
+
+  _exportSigningsJSON() {
+    const visibleRows = this.getFilteredRows();
+    if (!visibleRows || visibleRows.length === 0) return alert("No hay datos visibles para exportar");
+
+    const ctx = this._buildFilenameContext();
+    const payload = {
+      meta: {
+        exportedAt: new Date().toISOString(),
+        appVersion: typeof APP_VERSION !== 'undefined' ? APP_VERSION : 'unknown',
+        company: ctx.safeCompany,
+        range: { from: ctx.start, to: ctx.end },
+        selectedEmployee: this.selectedEmployee || 'all',
+        searchQuery: this.searchQuery || '',
+        view: this.currentView,
+        rowCount: visibleRows.length
+      },
+      rows: visibleRows
+    };
+    this._downloadBlob(
+      JSON.stringify(payload, null, 2), 'application/json',
+      `fichajes_${ctx.safeCompany}${ctx.empPart}_${ctx.start}_a_${ctx.end}.json`
+    );
+  },
+
+  // ─── Export BALANCES (vista balance) ────────────────────────────────────
+  _getVisibleBalanceEmployeeIds() {
+    const ids = this.getBalanceEmployeeIds({ applySearch: true });
+    if (this.selectedEmployee && this.selectedEmployee !== 'all') {
+      return ids.filter(id => String(id) === String(this.selectedEmployee));
+    }
+    return ids;
+  },
+
+  _exportBalanceCSV() {
+    const empIds = this._getVisibleBalanceEmployeeIds();
+    if (!empIds.length) return alert('No hay empleados visibles para exportar balances');
+
+    const ctx = this._buildFilenameContext();
+    const fmtSecHM = s => {
+      const v = Number(s || 0);
+      const sign = v < 0 ? '-' : '';
+      const abs = Math.abs(v);
+      return `${sign}${Math.floor(abs/3600)}h ${Math.floor((abs%3600)/60)}m`;
+    };
+    const esc = v => this._csvEscape(v);
+
+    let csv = [
+      'Empleado','Trabajado','Teorico','Balance','Fuente','Jornadas',
+      'Dias_trabajados','Dias_teoricos','Ajuste_jornada','Pausas',
+      'Entrada_media','Salida_media','Ausencias','Vacaciones',
+      'Balance_local','Balance_oficial_Sesame'
+    ].join(';') + '\n';
+
+    empIds.forEach(empId => {
+      try {
+        const s = this.buildBalanceEmployeeSummary(empId);
+        const usedBalance = s.officialBalance ?? s.localAdjustedBalance;
+        const usedWorked  = s.officialWorked  ?? s.worked;
+        const usedTheo    = s.officialTheoretic ?? s.theoretic;
+        const fmtClock = m => {
+          if (m === null || m === undefined) return '';
+          const n = Math.max(0, Math.floor(Number(m) || 0));
+          return `${String(Math.floor(n/60)).padStart(2,'0')}:${String(n%60).padStart(2,'0')}`;
+        };
+        csv += [
+          esc(s.name),
+          esc(fmtSecHM(usedWorked)),
+          esc(fmtSecHM(usedTheo)),
+          esc((usedBalance >= 0 ? '+' : '') + fmtSecHM(usedBalance)),
+          esc(s.source),
+          (s.rows || []).length,
+          s.workedDays,
+          s.theoreticDays,
+          esc(fmtSecHM(s.compensated)),
+          esc(fmtSecHM(s.pause)),
+          esc(fmtClock(s.averageEntryMinutes)),
+          esc(fmtClock(s.averageExitMinutes)),
+          s.absenceEvents,
+          s.vacationEvents,
+          esc((s.localAdjustedBalance >= 0 ? '+' : '') + fmtSecHM(s.localAdjustedBalance)),
+          esc(s.officialBalance !== null ? ((s.officialBalance >= 0 ? '+' : '') + fmtSecHM(s.officialBalance)) : '')
+        ].join(';') + '\n';
+      } catch (err) {
+        console.warn(`Balance export failed for ${empId}:`, err);
+      }
+    });
+
+    this._downloadBlob(
+      csv, 'text/csv;charset=utf-8;',
+      `balances_${ctx.safeCompany}${ctx.empPart}_${ctx.start}_a_${ctx.end}.csv`
+    );
+  },
+
+  _exportBalanceJSON() {
+    const empIds = this._getVisibleBalanceEmployeeIds();
+    if (!empIds.length) return alert('No hay empleados visibles para exportar balances');
+
+    const ctx = this._buildFilenameContext();
+    const employees = empIds.map(empId => {
+      try {
+        const s = this.buildBalanceEmployeeSummary(empId);
+        return {
+          id: String(empId),
+          name: s.name,
+          source: s.source,
+          worked: s.worked,
+          theoretic: s.theoretic,
+          compensated: s.compensated,
+          compensatedApplied: s.compensatedApplied,
+          pause: s.pause,
+          localBaseBalance: s.localBaseBalance,
+          bagAdjustment: s.bagAdjustment,
+          localAdjustedBalance: s.localAdjustedBalance,
+          officialBalance: s.officialBalance,
+          officialWorked: s.officialWorked,
+          officialTheoretic: s.officialTheoretic,
+          workedDays: s.workedDays,
+          theoreticDays: s.theoreticDays,
+          workSegments: s.workSegments,
+          pauseSegments: s.pauseSegments,
+          averageEntryMinutes: s.averageEntryMinutes,
+          averageExitMinutes: s.averageExitMinutes,
+          averageWorkdaySeconds: s.averageWorkdaySeconds,
+          averagePauseSeconds: s.averagePauseSeconds,
+          absenceEvents: s.absenceEvents,
+          vacationEvents: s.vacationEvents,
+          liveDays: s.liveDays,
+          jornadasCount: (s.rows || []).length
+        };
+      } catch (err) {
+        return { id: String(empId), error: String(err?.message || err) };
+      }
+    });
+
+    const payload = {
+      meta: {
+        exportedAt: new Date().toISOString(),
+        appVersion: typeof APP_VERSION !== 'undefined' ? APP_VERSION : 'unknown',
+        company: ctx.safeCompany,
+        range: { from: ctx.start, to: ctx.end },
+        scope: this.isBalanceMonthScope() ? 'month' : 'year',
+        selectedEmployee: this.selectedEmployee || 'all',
+        employeeCount: employees.length
+      },
+      employees
+    };
+    this._downloadBlob(
+      JSON.stringify(payload, null, 2), 'application/json',
+      `balances_${ctx.safeCompany}${ctx.empPart}_${ctx.start}_a_${ctx.end}.json`
+    );
   },
 
   formatDurationCompact(seconds) {
@@ -8802,14 +9497,20 @@ const FichajesModule = {
             <span>${scopeTitle}</span>
             <h2>${safeName}</h2>
             <p>${safeRange} · ${summary.rows.length} jornadas · ${summary.source}</p>
-            <button class="balance-export-json-btn" type="button" data-employee-id="${escapeHTML(String(employeeId))}" title="Descargar JSON con todos los fichajes y métricas del periodo" aria-label="Descargar JSON de fichajes">
-              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="7 10 12 15 17 10"></polyline>
-                <line x1="12" y1="15" x2="12" y2="3"></line>
-              </svg>
-              Descargar JSON
-            </button>
+            <div class="balance-title-actions">
+              <button class="balance-export-json-btn" type="button" data-employee-id="${escapeHTML(String(employeeId))}" title="Descargar JSON con todos los fichajes y métricas del periodo" aria-label="Descargar JSON de fichajes">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                Descargar JSON
+              </button>
+              <button class="balance-manage-schedule-btn" type="button" data-employee-id="${escapeHTML(String(employeeId))}" title="Editar plantilla de jornada del empleado por día (local)" aria-label="Gestionar calendario del empleado">
+                <span class="balance-action-emoji" aria-hidden="true">📅</span>
+                Gestionar calendario
+              </button>
+            </div>
           </div>
           <div class="balance-employee-score ${balanceTone}">
             <small>Balance usado</small>
@@ -8905,6 +9606,17 @@ const FichajesModule = {
         alert('No se pudo exportar el JSON: ' + (err?.message || err));
       }
     });
+    overlay.querySelector('.balance-manage-schedule-btn')?.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      // Cerramos este modal y abrimos el gestor de calendario del mismo empleado
+      close();
+      try {
+        openEmployeeScheduleManager(employeeId);
+      } catch (err) {
+        console.error('No se pudo abrir el gestor de calendario:', err);
+        alert('No se pudo abrir el gestor: ' + (err?.message || err));
+      }
+    });
     overlay.addEventListener('click', event => {
       if (event.target === overlay) close();
     });
@@ -8945,7 +9657,26 @@ const FichajesModule = {
 
     // Agregamos por empleado usando las mismas filas visibles del periodo activo.
     const stats = new Map();
-    const balanceRows = this.getFilteredRows({ includePresenceFilter: false });
+    let balanceRows = this.getFilteredRows({ includePresenceFilter: false });
+
+    // En vista Balance el filtro de presencia (Trabajando/Pausa/Fuera) debe
+    // filtrar EL CONJUNTO DE EMPLEADOS VISIBLES según su estado actual, no
+    // filtrar filas concretas por fecha. Calculamos los empleados que cumplen
+    // el estado actual y limitamos las filas a ellos.
+    if (this.presenceFilter && this.presenceFilter !== 'all') {
+      const matchingEmpIds = new Set();
+      STATE.allEmployees.forEach((_, id) => {
+        const status = this.getCurrentActivityKind(id);
+        if (this.presenceFilter === 'working' && (status === 'working' || status === 'remote')) {
+          matchingEmpIds.add(String(id));
+        } else if (this.presenceFilter === 'paused' && status === 'paused') {
+          matchingEmpIds.add(String(id));
+        } else if (this.presenceFilter === 'out' && (status === 'out' || !status)) {
+          matchingEmpIds.add(String(id));
+        }
+      });
+      balanceRows = balanceRows.filter(r => matchingEmpIds.has(String(r.employeeId)));
+    }
 
     balanceRows.forEach(row => {
       const rowId = String(row.employeeId);
@@ -9548,6 +10279,14 @@ async function showContactCard(employeeId) {
             </div>
           ` : ''}
         </div>
+
+        <div class="contact-card-actions">
+          <button class="contact-card-action-btn" data-action="manage-schedule" type="button">
+            <span class="contact-card-action-icon">📅</span>
+            <span>Gestionar calendario</span>
+            <span class="contact-card-action-hint">Asignar plantilla por día (local)</span>
+          </button>
+        </div>
       </div>
     </div>
   `;
@@ -9555,6 +10294,1113 @@ async function showContactCard(employeeId) {
 
   document.body.appendChild(overlay);
   overlay.querySelector('.contact-card-close').onclick = () => overlay.remove();
+  overlay.querySelector('[data-action="manage-schedule"]')?.addEventListener('click', () => {
+    overlay.remove();
+    openEmployeeScheduleManager(emp.id);
+  });
+}
+
+// ─── Modal: Gestor de Plantillas locales custom ───────────────────────────
+// onClose: callback opcional para refrescar la vista que lo abrió.
+async function openTemplatesManager(onClose) {
+  if (!isLocalProxy()) {
+    alert('Solo disponible con el proxy local (server.py).');
+    return;
+  }
+
+  const overlay = document.createElement('div');
+  overlay.className = 'contact-card-overlay templates-manager-overlay';
+  overlay.innerHTML = `
+    <div class="templates-manager-modal animate-pop" role="dialog" aria-modal="true" aria-label="Mis plantillas">
+      <header class="schedule-manager-header">
+        <div class="schedule-manager-title">
+          <div class="schedule-manager-avatar" style="background: linear-gradient(135deg,#22d3ee,#6366f1);">🗂️</div>
+          <div>
+            <h2>Mis plantillas</h2>
+            <p>Plantillas locales de jornada para esta empresa</p>
+          </div>
+        </div>
+        <button class="schedule-manager-close" aria-label="Cerrar">&times;</button>
+      </header>
+
+      <div class="templates-toolbar">
+        <button class="btn-primary" data-action="new" type="button">➕ Nueva plantilla</button>
+        <button class="btn-secondary" data-action="import-detected" type="button" title="Importa como locales todas las plantillas que ya tienen asignadas los empleados de la empresa">🔍 Importar plantillas detectadas</button>
+        <button class="btn-secondary" data-action="cleanup" type="button" title="Fusiona o borra plantillas duplicadas (mismo nombre o mismos minutos)">🧹 Limpiar duplicados</button>
+        <button class="btn-secondary templates-purge-btn" data-action="purge" type="button" title="Borra TODAS tus plantillas locales y los overrides que las usan">🗑️ Borrar todas</button>
+      </div>
+
+      <div class="templates-list" data-templates-list>
+        <div class="templates-empty">Cargando plantillas...</div>
+      </div>
+
+      <div class="templates-detected-section" data-detected-section></div>
+
+      <footer class="schedule-manager-footer">
+        <span>Las plantillas viven en <code>config.schedules.json</code>. Sesame no se modifica.</span>
+        <button class="btn-secondary schedule-toolbar-btn" data-action="done" type="button">Hecho</button>
+      </footer>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const $list = overlay.querySelector('[data-templates-list]');
+  const close = () => {
+    overlay.remove();
+    if (typeof onClose === 'function') onClose();
+  };
+  overlay.querySelector('.schedule-manager-close').onclick = close;
+  overlay.querySelector('[data-action="done"]').onclick = close;
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+  const fmtMinutes = m => {
+    const n = Math.max(0, Math.floor(Number(m) || 0));
+    if (n === 0) return '0h';
+    return `${Math.floor(n/60)}h ${n%60}m`.replace(' 0m','');
+  };
+
+  const $detectedSection = overlay.querySelector('[data-detected-section]');
+
+  const renderDetected = () => {
+    const detected = discoverCompanyTemplates();
+    const localNames = new Set((STATE.customScheduleTemplates || []).map(t => t.name.toLowerCase()));
+    const fresh = detected.filter(t => !localNames.has(t.name.toLowerCase()));
+    if (fresh.length === 0) {
+      $detectedSection.innerHTML = '';
+      return;
+    }
+    const fmtM = m => {
+      const n = Math.max(0, Math.floor(Number(m) || 0));
+      if (n === 0) return '0h';
+      return `${Math.floor(n/60)}h ${n%60}m`.replace(' 0m','');
+    };
+    $detectedSection.innerHTML = `
+      <div class="templates-detected-header">
+        🔍 Plantillas detectadas en los empleados de la empresa
+        <span class="templates-detected-hint">${fresh.length} sin importar</span>
+      </div>
+      <div class="templates-detected-list">
+        ${fresh.map(t => `
+          <div class="template-row detected">
+            <div class="template-row-main">
+              <div class="template-row-name">${escapeHTML(t.name)}</div>
+              <div class="template-row-meta">
+                <span>L ${fmtM(t.minutes.mondayMinutes)}</span>
+                <span>M ${fmtM(t.minutes.tuesdayMinutes)}</span>
+                <span>X ${fmtM(t.minutes.wednesdayMinutes)}</span>
+                <span>J ${fmtM(t.minutes.thursdayMinutes)}</span>
+                <span>V ${fmtM(t.minutes.fridayMinutes)}</span>
+                <span class="weekend">S ${fmtM(t.minutes.saturdayMinutes)}</span>
+                <span class="weekend">D ${fmtM(t.minutes.sundayMinutes)}</span>
+                <span class="template-row-total">👥 ${t.employees.length} empleado${t.employees.length === 1 ? '' : 's'}</span>
+              </div>
+            </div>
+            <div class="template-row-actions">
+              <button class="template-row-btn" data-action="import-one" data-detected-id="${escapeHTML(t.id)}" type="button">📥 Importar</button>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+    $detectedSection.querySelectorAll('[data-action="import-one"]').forEach(btn => {
+      btn.onclick = async () => {
+        const id = btn.dataset.detectedId;
+        const tmpl = fresh.find(t => t.id === id);
+        if (!tmpl) return;
+        try {
+          await saveCustomTemplate({ name: tmpl.name, ...tmpl.minutes });
+          renderList();
+          renderDetected();
+        } catch (e) { alert('No se pudo importar: ' + e.message); }
+      };
+    });
+  };
+
+  const renderList = () => {
+    const local = STATE.customScheduleTemplates || [];
+    if (local.length === 0) {
+      $list.innerHTML = `
+        <div class="templates-empty">
+          Aún no tienes plantillas locales. Pulsa "➕ Nueva plantilla" para crear una,
+          o usa "🔍 Importar plantillas detectadas" si aparecen plantillas debajo
+          (extraídas de los empleados ya cargados).
+        </div>
+      `;
+      return;
+    }
+    $list.innerHTML = local.map(t => {
+      const totalMin = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday']
+        .reduce((s, d) => s + Number(t[d + 'Minutes'] || 0), 0);
+      return `
+        <div class="template-row" data-template-id="${escapeHTML(t.id)}">
+          <div class="template-row-main">
+            <div class="template-row-name">${escapeHTML(t.name)}</div>
+            <div class="template-row-meta">
+              <span>L ${fmtMinutes(t.mondayMinutes)}</span>
+              <span>M ${fmtMinutes(t.tuesdayMinutes)}</span>
+              <span>X ${fmtMinutes(t.wednesdayMinutes)}</span>
+              <span>J ${fmtMinutes(t.thursdayMinutes)}</span>
+              <span>V ${fmtMinutes(t.fridayMinutes)}</span>
+              <span class="weekend">S ${fmtMinutes(t.saturdayMinutes)}</span>
+              <span class="weekend">D ${fmtMinutes(t.sundayMinutes)}</span>
+              <span class="template-row-total">Σ ${fmtMinutes(totalMin)}/sem</span>
+            </div>
+          </div>
+          <div class="template-row-actions">
+            <button class="template-row-btn" data-action="edit" type="button">✏️ Editar</button>
+            <button class="template-row-btn" data-action="duplicate" type="button">📋 Duplicar</button>
+            <button class="template-row-btn danger" data-action="delete" type="button">🗑️ Borrar</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    $list.querySelectorAll('.template-row').forEach(row => {
+      const id = row.dataset.templateId;
+      row.querySelector('[data-action="edit"]').onclick = () => openTemplateEditor(id);
+      row.querySelector('[data-action="duplicate"]').onclick = async () => {
+        const src = (STATE.customScheduleTemplates || []).find(t => String(t.id) === id);
+        if (!src) return;
+        const copy = { ...src };
+        delete copy.id;
+        copy.name = `${src.name} (copia)`;
+        try {
+          await saveCustomTemplate(copy);
+          renderList();
+        } catch (e) { alert('No se pudo duplicar: ' + e.message); }
+      };
+      row.querySelector('[data-action="delete"]').onclick = async () => {
+        const src = (STATE.customScheduleTemplates || []).find(t => String(t.id) === id);
+        if (!src) return;
+        if (!confirm(`¿Borrar la plantilla "${src.name}"? También se eliminarán los overrides que la usen.`)) return;
+        try {
+          await deleteCustomTemplate(id);
+          renderList();
+        } catch (e) { alert('No se pudo borrar: ' + e.message); }
+      };
+    });
+  };
+
+  const openTemplateEditor = (templateId = null) => {
+    const existing = templateId
+      ? (STATE.customScheduleTemplates || []).find(t => String(t.id) === templateId) || null
+      : null;
+    const popup = document.createElement('div');
+    popup.className = 'schedule-cell-editor-overlay';
+    const v = (k) => Number(existing?.[k] || 0);
+    popup.innerHTML = `
+      <div class="schedule-cell-editor template-editor animate-pop" role="dialog">
+        <header class="schedule-editor-header">
+          <h3>${existing ? '✏️ Editar plantilla' : '➕ Nueva plantilla'}</h3>
+          <button class="schedule-cell-editor-close" aria-label="Cerrar">&times;</button>
+        </header>
+        <div class="schedule-editor-body">
+          <label class="schedule-editor-label">Nombre</label>
+          <input type="text" data-name class="template-input-text" placeholder="Ej: Jornada 40h Turno 13:30h - ZGZ" value="${escapeHTML(existing?.name || '')}">
+
+          <label class="schedule-editor-label" style="margin-top:16px;">Minutos por día (24h máximo = 1440 min)</label>
+          <div class="template-minutes-grid">
+            ${['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].map((d, i) => {
+              const labels = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+              return `
+                <label class="template-minutes-cell ${i >= 5 ? 'weekend' : ''}">
+                  <span>${labels[i]}</span>
+                  <input type="number" min="0" max="1440" step="1" data-day="${d}" value="${v(d + 'Minutes')}">
+                </label>
+              `;
+            }).join('')}
+          </div>
+          <p class="schedule-editor-hint">
+            Ejemplo Fibercom Jornada 40h L-J: 8h 15min = <strong>495 min</strong>.
+            Viernes: 7h = <strong>420 min</strong>.
+          </p>
+          <div class="schedule-editor-actions">
+            <button class="btn-secondary" data-cancel type="button">Cancelar</button>
+            <button class="btn-primary" data-save type="button">${existing ? 'Guardar' : 'Crear'}</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(popup);
+    const closePopup = () => popup.remove();
+    popup.querySelector('.schedule-cell-editor-close').onclick = closePopup;
+    popup.querySelector('[data-cancel]').onclick = closePopup;
+    popup.addEventListener('click', (e) => { if (e.target === popup) closePopup(); });
+    popup.querySelector('[data-save]').onclick = async () => {
+      const name = popup.querySelector('[data-name]').value.trim();
+      if (!name) { alert('El nombre es obligatorio.'); return; }
+      const out = { name };
+      if (existing) out.id = existing.id;
+      ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].forEach(d => {
+        out[d + 'Minutes'] = Number(popup.querySelector(`[data-day="${d}"]`).value || 0);
+      });
+      try {
+        await saveCustomTemplate(out);
+        closePopup();
+        renderList();
+      } catch (e) {
+        alert('No se pudo guardar: ' + e.message);
+      }
+    };
+  };
+
+  overlay.querySelector('[data-action="new"]').onclick = () => openTemplateEditor();
+
+  // Detectar duplicados: agrupa por nombre normalizado y también por minutos idénticos.
+  // El primero del grupo se conserva, el resto se eliminan (y con ellos sus overrides).
+  const findDuplicateGroups = () => {
+    const local = STATE.customScheduleTemplates || [];
+    const dayKeys = ['mondayMinutes','tuesdayMinutes','wednesdayMinutes',
+                     'thursdayMinutes','fridayMinutes','saturdayMinutes','sundayMinutes'];
+    const byName = new Map();
+    const byMinutes = new Map();
+    local.forEach(t => {
+      const nameKey = String(t.name).trim().toLowerCase();
+      if (!byName.has(nameKey)) byName.set(nameKey, []);
+      byName.get(nameKey).push(t);
+      const minKey = dayKeys.map(k => Number(t[k] || 0)).join('|');
+      if (!byMinutes.has(minKey)) byMinutes.set(minKey, []);
+      byMinutes.get(minKey).push(t);
+    });
+    const dupByName = Array.from(byName.values()).filter(g => g.length > 1);
+    const dupByMinutes = Array.from(byMinutes.values()).filter(g => g.length > 1);
+    return { dupByName, dupByMinutes };
+  };
+
+  // Limpiar duplicados: prioriza nombre. Para grupos con mismo nombre, conserva la
+  // primera entrada y borra el resto. Para grupos con mismos minutos pero distinto
+  // nombre, lo deja porque puede ser intencional.
+  overlay.querySelector('[data-action="cleanup"]').onclick = async () => {
+    const { dupByName, dupByMinutes } = findDuplicateGroups();
+    if (dupByName.length === 0 && dupByMinutes.length === 0) {
+      alert('✅ No hay duplicados que limpiar.');
+      return;
+    }
+    const toDelete = [];
+    dupByName.forEach(group => {
+      // Conservar la del id más antiguo (mantiene la integridad de los overrides)
+      const sorted = [...group].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+      toDelete.push(...sorted.slice(1).map(t => t.id));
+    });
+    // Para los duplicados por minutos pero distinto nombre, solo avisar.
+    const minutesOnlyDupNames = dupByMinutes
+      .filter(g => new Set(g.map(t => t.name.toLowerCase())).size > 1)
+      .map(g => g.map(t => t.name).join(' = '))
+      .join('\n  • ');
+    let msg = '';
+    if (toDelete.length > 0) {
+      msg += `Se borrarán ${toDelete.length} duplicados por nombre.\n`;
+    }
+    if (minutesOnlyDupNames) {
+      msg += `\nℹ️ Además detecté plantillas con mismos minutos pero distinto nombre (NO se borrarán):\n  • ${minutesOnlyDupNames}\n`;
+    }
+    if (toDelete.length === 0) {
+      alert(msg || 'Nada que borrar.');
+      return;
+    }
+    if (!confirm(msg + '\n¿Continuar?')) return;
+    let fails = 0;
+    for (const id of toDelete) {
+      try { await deleteCustomTemplate(id); }
+      catch (e) { fails++; console.warn('No se pudo borrar', id, e); }
+    }
+    renderList();
+    renderDetected();
+    alert(`✅ Limpieza completa. Borradas: ${toDelete.length - fails}${fails ? `, errores: ${fails}` : ''}.`);
+  };
+
+  // Purgar TODAS las plantillas locales
+  overlay.querySelector('[data-action="purge"]').onclick = async () => {
+    const local = STATE.customScheduleTemplates || [];
+    if (local.length === 0) {
+      alert('No hay plantillas que borrar.');
+      return;
+    }
+    if (!confirm(`⚠️ Esto borrará TUS ${local.length} plantillas locales y todos los overrides de empleado que las usan.\n\n¿Continuar?`)) return;
+    if (!confirm('Última confirmación: esta acción NO se puede deshacer.\n\n¿Estás seguro?')) return;
+    let fails = 0;
+    const ids = local.map(t => t.id);
+    for (const id of ids) {
+      try { await deleteCustomTemplate(id); }
+      catch (e) { fails++; console.warn('No se pudo borrar', id, e); }
+    }
+    renderList();
+    renderDetected();
+    alert(fails === 0
+      ? '✅ Todas las plantillas locales han sido eliminadas.'
+      : `Borradas ${ids.length - fails} de ${ids.length}. ${fails} fallaron.`);
+  };
+
+  // Importar todas las plantillas detectadas (saltar las que ya tengamos como locales)
+  overlay.querySelector('[data-action="import-detected"]').onclick = async () => {
+    const detected = discoverCompanyTemplates();
+    if (detected.length === 0) {
+      alert('No se han detectado plantillas en los empleados cargados.\n\n' +
+            'Asegúrate de tener los empleados cargados (módulo Fichajes) antes de abrir este gestor.');
+      return;
+    }
+    const localNames = new Set((STATE.customScheduleTemplates || []).map(t => t.name.toLowerCase()));
+    const fresh = detected.filter(t => !localNames.has(t.name.toLowerCase()));
+    if (fresh.length === 0) {
+      alert('Todas las plantillas detectadas ya están importadas como locales.');
+      return;
+    }
+    const summary = fresh.map(t =>
+      `• ${t.name} (L-V: ${Math.floor((t.minutes.mondayMinutes||0)/60)}h, asignada a ${t.employees.length} empleado${t.employees.length === 1 ? '' : 's'})`
+    ).join('\n');
+    if (!confirm(`Se importarán ${fresh.length} plantilla${fresh.length === 1 ? '' : 's'} detectada${fresh.length === 1 ? '' : 's'}:\n\n${summary}\n\n¿Continuar?`)) return;
+    try {
+      for (const t of fresh) {
+        await saveCustomTemplate({ name: t.name, ...t.minutes });
+      }
+      renderList();
+      renderDetected();
+    } catch (e) { alert('Error al importar: ' + e.message); }
+  };
+
+  // Cargar / refrescar overrides para asegurar customScheduleTemplates al día
+  try { await loadScheduleOverrides(); } catch {}
+  renderList();
+  renderDetected();
+}
+
+// ─── Modal: Gestor de calendario por empleado (Fase 3) ────────────────────
+async function openEmployeeScheduleManager(employeeId) {
+  const empIdStr = String(employeeId);
+  const emp = STATE.allEmployees.get(empIdStr);
+  if (!emp) {
+    alert('No se ha podido cargar la información del empleado.');
+    return;
+  }
+  if (!isLocalProxy()) {
+    alert('La gestión de calendario solo está disponible cuando la app corre con el proxy local (server.py).');
+    return;
+  }
+
+  // Estado del modal: fecha base (mes/año actual) y pending changes sin guardar
+  const today = new Date();
+  let viewYear = today.getFullYear();
+  let viewMonth = today.getMonth(); // 0-11
+  const pending = new Map(); // 'YYYY-MM-DD' -> templateId | null (null = restaurar default)
+
+  const overlay = document.createElement('div');
+  overlay.className = 'contact-card-overlay schedule-manager-overlay';
+  overlay.innerHTML = `
+    <div class="schedule-manager-modal animate-pop" role="dialog" aria-modal="true" aria-label="Gestor de calendario de ${escapeHTML(emp.firstName + ' ' + emp.lastName)}">
+      <header class="schedule-manager-header">
+        <div class="schedule-manager-title">
+          <div class="schedule-manager-avatar">
+            ${safeHttpUrlAttr(emp.imageProfileURL)
+              ? `<img src="${safeHttpUrlAttr(emp.imageProfileURL)}" alt="" referrerpolicy="no-referrer">`
+              : escapeHTML(getInitials(`${emp.firstName} ${emp.lastName}`))}
+          </div>
+          <div>
+            <h2>${escapeHTML(`${emp.firstName || ''} ${emp.lastName || ''}`.trim())}</h2>
+            <p>Calendario de jornada · cambios guardados solo en local</p>
+          </div>
+        </div>
+        <button class="schedule-manager-close" aria-label="Cerrar">&times;</button>
+      </header>
+
+      <div class="schedule-manager-toolbar">
+        <button class="schedule-nav-btn" data-nav="prev" aria-label="Mes anterior">‹</button>
+        <div class="schedule-current-month" data-month-label></div>
+        <button class="schedule-nav-btn" data-nav="next" aria-label="Mes siguiente">›</button>
+        <div class="schedule-toolbar-spacer"></div>
+        <span class="schedule-pending-badge hidden" data-pending-badge>0 cambios sin guardar</span>
+        <button class="btn-secondary schedule-toolbar-btn" data-action="manage-templates" type="button" title="Crear y gestionar tus plantillas de jornada">🗂️ Mis plantillas</button>
+        <button class="btn-secondary schedule-toolbar-btn" data-action="assign-range" type="button" title="Asignar una plantilla a un rango de fechas">📆 Por rango</button>
+        <button class="btn-secondary schedule-reset-month-btn" data-action="reset-month" type="button">Restaurar mes</button>
+        <button class="btn-primary schedule-save-btn" data-action="save" type="button" disabled>💾 Guardar cambios</button>
+      </div>
+
+      <div class="schedule-legend">
+        <span class="legend-item"><span class="legend-dot is-sesame"></span> Plantilla de Sesame</span>
+        <span class="legend-item"><span class="legend-dot is-override"></span> Override local (pendiente o guardado)</span>
+        <span class="legend-item"><span class="legend-dot is-pending"></span> Cambio sin guardar</span>
+      </div>
+
+      <div class="schedule-grid-head">
+        <div>Lun</div><div>Mar</div><div>Mié</div><div>Jue</div><div>Vie</div>
+        <div class="weekend">Sáb</div><div class="weekend">Dom</div>
+      </div>
+      <div class="schedule-grid" data-schedule-grid>
+        <div class="schedule-grid-loading">Cargando plantilla actual...</div>
+      </div>
+
+      <footer class="schedule-manager-footer">
+        <span class="schedule-footer-template">Plantilla por defecto: <strong>${escapeHTML(emp.scheduleTemplateName || '—')}</strong></span>
+        <span class="schedule-footer-hint">Click en un día para asignar otra plantilla. Sesame no se modifica.</span>
+      </footer>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const $grid = overlay.querySelector('[data-schedule-grid]');
+  const $monthLabel = overlay.querySelector('[data-month-label]');
+  const $pendingBadge = overlay.querySelector('[data-pending-badge]');
+  const $saveBtn = overlay.querySelector('[data-action="save"]');
+  const $resetBtn = overlay.querySelector('[data-action="reset-month"]');
+
+  const close = () => overlay.remove();
+  overlay.querySelector('.schedule-manager-close').onclick = close;
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+  const updatePendingBadge = () => {
+    const n = pending.size;
+    $pendingBadge.classList.toggle('hidden', n === 0);
+    $pendingBadge.textContent = `${n} cambio${n === 1 ? '' : 's'} sin guardar`;
+    $saveBtn.disabled = n === 0;
+  };
+
+  // Cargar plantillas de Sesame (no bloqueante; si falla por 403 seguimos con locales)
+  if (!STATE.scheduleTemplates || STATE.scheduleTemplates.length === 0) {
+    try { await fetchScheduleTemplates(); } catch {}
+  }
+  // Asegurar que tenemos las plantillas locales y overrides cargados
+  if (!STATE.customScheduleTemplates) {
+    try { await loadScheduleOverrides(); } catch {}
+  }
+  // Descubrir plantillas detectadas en los empleados de la empresa para que
+  // estén disponibles en el dropdown (y cacheadas en scheduleTemplateMinutes
+  // por si se usan como override).
+  discoverCompanyTemplates();
+
+  // Aviso suave si Sesame da 403 pero ya hay plantillas locales: solo informativo.
+  const hasSesame = (STATE.scheduleTemplates || []).length > 0;
+  const hasLocal = (STATE.customScheduleTemplates || []).length > 0;
+  if (!hasSesame && !hasLocal) {
+    const banner = document.createElement('div');
+    banner.className = 'schedule-templates-warning';
+    banner.innerHTML = `
+      ℹ️ Aún no tienes plantillas locales y Sesame no ha devuelto la lista (probablemente 403).
+      <button class="schedule-reload-templates" type="button" data-action="open-templates">🗂️ Crear plantilla</button>
+    `;
+    overlay.querySelector('.schedule-manager-toolbar').after(banner);
+    banner.querySelector('[data-action="open-templates"]').addEventListener('click', () => {
+      banner.remove();
+      openTemplatesManager(() => renderMonth());
+    });
+  }
+
+  // Calcula minutos del día según una plantilla concreta
+  const minutesForDay = (templateMinutes, dayOfWeek) => {
+    if (!templateMinutes) return null;
+    const keys = ['sundayMinutes','mondayMinutes','tuesdayMinutes','wednesdayMinutes',
+                  'thursdayMinutes','fridayMinutes','saturdayMinutes'];
+    return Number(templateMinutes[keys[dayOfWeek]] || 0);
+  };
+  const fmtMinutes = m => {
+    if (m === null || m === undefined) return '—';
+    const n = Math.max(0, Math.floor(Number(m) || 0));
+    if (n === 0) return '0h';
+    return `${Math.floor(n/60)}h ${n%60}m`.replace(' 0m','');
+  };
+
+  // Render del mes activo
+  const renderMonth = async () => {
+    $grid.innerHTML = '<div class="schedule-grid-loading">Cargando plantilla de Sesame...</div>';
+    $monthLabel.textContent = new Date(viewYear, viewMonth, 1)
+      .toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })
+      .replace(/^\w/, c => c.toUpperCase());
+
+    const firstDay = new Date(viewYear, viewMonth, 1);
+    const lastDay = new Date(viewYear, viewMonth + 1, 0);
+    const from = fmtDate(firstDay);
+    const to = fmtDate(lastDay);
+    let sesameByDay = new Map();
+    try {
+      sesameByDay = await fetchEmployeeScheduleByDay(empIdStr, from, to);
+    } catch (e) {
+      console.warn('schedule fetch error:', e);
+    }
+
+    // Cargar ausencias del mes si no las tenemos ya (módulo Vacaciones puede no
+    // haberse visitado o haber cargado otro periodo). No bloquea el render.
+    try {
+      const dayKeys = [];
+      for (let d = new Date(firstDay); d <= lastDay; d.setDate(d.getDate() + 1)) {
+        dayKeys.push(fmtDate(d));
+      }
+      const hasAnyForMonth = dayKeys.some(k => Array.isArray(STATE.calendarData?.[k]) && STATE.calendarData[k].length > 0);
+      if (!hasAnyForMonth) {
+        const absRes = await fetchCalendarGrouped(from, to, []).catch(() => []);
+        STATE.calendarData = STATE.calendarData || {};
+        (absRes || []).forEach(dayObj => {
+          if (!dayObj.date) return;
+          // Normalizar al mismo formato que usa el módulo Vacaciones:
+          // [{ type: { id, name, color }, employees: [...] }]
+          STATE.calendarData[dayObj.date] = (dayObj.calendar_types || []).map(ct => {
+            const rawType = ct.calendar_type || {};
+            const masterType = STATE.absenceTypes.find(t => t.id === rawType.id) || {};
+            return {
+              type: {
+                ...rawType,
+                name: masterType.name || displayAbsenceTypeName(rawType),
+                color: masterType.color || rawType.color || ''
+              },
+              employees: ct.employees || []
+            };
+          });
+        });
+      }
+      // Refrescar el índice de horarios de ausencias parciales si falta
+      if (typeof fetchAbsenceTimesIndex === 'function') {
+        const idx = await fetchAbsenceTimesIndex(from, to).catch(() => null);
+        if (idx) STATE.absenceTimesIndex = idx;
+      }
+    } catch (e) {
+      console.warn('No se pudieron cargar ausencias para el calendario del empleado:', e?.message || e);
+    }
+
+    // Construir grid: empezar el lunes anterior si el día 1 no es lunes
+    const offset = (firstDay.getDay() + 6) % 7; // 0 si es lunes
+    const totalCells = Math.ceil((offset + lastDay.getDate()) / 7) * 7;
+    const cells = [];
+    for (let i = 0; i < totalCells; i++) {
+      const dateObj = new Date(viewYear, viewMonth, i - offset + 1);
+      const inMonth = dateObj.getMonth() === viewMonth;
+      const dateKey = fmtDate(dateObj);
+      const dow = dateObj.getDay();
+      const isWeekend = dow === 0 || dow === 6;
+
+      // Plantilla actual aplicada según prioridad: pending > override guardado > Sesame
+      const pendingVal = pending.get(dateKey);
+      const savedOverride = getScheduleOverrideForDate(empIdStr, dateKey);
+      const sesameDay = sesameByDay.get(dateKey);
+      let effectiveTemplateId = null;
+      let effectiveMinutes = null;
+      let effectiveName = '—';
+      let source = 'sesame';
+
+      // FALLBACK: si el API admin de Sesame no devolvió datos (403, etc.),
+      // resolver desde `scheduleTemplateAllViews` del empleado, que ya viene
+      // cargado en STATE.allEmployees vía /api/v3/employees/{id}.
+      const fallbackResolved = (!sesameDay)
+        ? resolveEmployeeScheduleForDate(emp, dateKey)
+        : null;
+      // Construir un "sesameDay" sintético si llega del fallback
+      const effectiveSesame = sesameDay || (fallbackResolved ? {
+        templateId: emp?.scheduleTemplateAllViews?.[0] ? `default_${empIdStr}` : null,
+        templateName: fallbackResolved.templateName || emp?.scheduleTemplateName || '',
+        // minutes acumulados solo para este día (no plantilla completa)
+        currentDayMinutes: Math.round(Number(fallbackResolved.secondsForDay || 0) / 60)
+      } : null);
+
+      if (pendingVal !== undefined) {
+        if (pendingVal === null) {
+          // Reset → vuelve a la plantilla por defecto del empleado
+          source = 'sesame';
+          if (effectiveSesame) {
+            effectiveTemplateId = effectiveSesame.templateId;
+            effectiveMinutes = effectiveSesame.currentDayMinutes != null
+              ? effectiveSesame.currentDayMinutes
+              : minutesForDay(effectiveSesame, dow);
+            effectiveName = effectiveSesame.templateName || '—';
+          }
+        } else {
+          source = 'pending';
+          const tmplCache = STATE.scheduleTemplateMinutes.get(String(pendingVal));
+          effectiveTemplateId = pendingVal;
+          effectiveMinutes = minutesForDay(tmplCache, dow);
+          effectiveName = tmplCache?.name || STATE.scheduleTemplates.find(t => t.id === pendingVal)?.name || 'Plantilla';
+        }
+      } else if (savedOverride) {
+        source = 'override';
+        const tmplCache = STATE.scheduleTemplateMinutes.get(String(savedOverride));
+        effectiveTemplateId = savedOverride;
+        effectiveMinutes = minutesForDay(tmplCache, dow);
+        effectiveName = tmplCache?.name || STATE.scheduleTemplates.find(t => t.id === savedOverride)?.name || 'Plantilla guardada';
+      } else if (effectiveSesame) {
+        effectiveTemplateId = effectiveSesame.templateId;
+        effectiveMinutes = effectiveSesame.currentDayMinutes != null
+          ? effectiveSesame.currentDayMinutes
+          : minutesForDay(effectiveSesame, dow);
+        effectiveName = effectiveSesame.templateName || '—';
+      }
+
+      // Detectar ausencias del empleado para este día desde STATE.calendarData
+      // (datos cargados por el módulo Vacaciones). Cada entrada trae el tipo
+      // de ausencia y el empleado dentro de su array `employees`.
+      const absences = [];
+      const dayEntries = (STATE.calendarData && STATE.calendarData[dateKey]) || [];
+      dayEntries.forEach(entry => {
+        const myAbs = (entry.employees || []).find(e => String(e.id) === empIdStr);
+        if (!myAbs) return;
+        const type = entry.type || {};
+        const sTime = myAbs.start_time || myAbs.startTime ||
+                      myAbs.partialDay?.start_time || myAbs.partialDay?.startTime ||
+                      myAbs.details?.start_time || myAbs.details?.startTime;
+        const eTime = myAbs.end_time || myAbs.endTime ||
+                      myAbs.partialDay?.end_time || myAbs.partialDay?.endTime ||
+                      myAbs.details?.end_time || myAbs.details?.endTime;
+        // Cruzar con absenceTimesIndex si existe para tiempos precisos
+        let timesFromIndex = null;
+        if (STATE.absenceTimesIndex) {
+          timesFromIndex = STATE.absenceTimesIndex.get(empIdStr + '_' + dateKey) || null;
+        }
+        absences.push({
+          name: type.name || 'Ausencia',
+          color: type.color || '',
+          startTime: timesFromIndex?.startTime || sTime || '',
+          endTime:   timesFromIndex?.endTime   || eTime || '',
+          isFullDay: !(timesFromIndex?.startTime || sTime),
+          isVacation: /vacaci/i.test(type.name || '')
+        });
+      });
+
+      cells.push({
+        dateKey, dateObj, inMonth, isWeekend, source,
+        effectiveTemplateId, effectiveMinutes, effectiveName,
+        absences
+      });
+    }
+
+    const renderAbsenceChip = (a) => {
+      const txt = a.isFullDay
+        ? `${a.isVacation ? '🌴' : '📌'} ${a.name}`
+        : `🕐 ${a.startTime?.slice(0,5) || ''}${a.endTime ? '–' + a.endTime.slice(0,5) : ''} ${a.name}`;
+      const bg = a.color
+        ? `style="background:${escapeHTML(a.color)};color:#fff;border-color:${escapeHTML(a.color)};"`
+        : '';
+      const cls = `schedule-cell-absence ${a.isVacation ? 'vac' : 'abs'} ${a.isFullDay ? 'full' : 'partial'}`;
+      return `<span class="${cls}" ${bg} title="${escapeHTML(a.name)}${a.startTime ? ' · ' + escapeHTML(a.startTime) + (a.endTime ? '–' + escapeHTML(a.endTime) : '') : ''}">${escapeHTML(txt)}</span>`;
+    };
+
+    $grid.innerHTML = cells.map(c => `
+      <div class="schedule-cell ${c.inMonth ? '' : 'out-month'} ${c.isWeekend ? 'weekend' : ''} source-${c.source} ${c.absences.length ? 'has-absence' : ''}"
+           data-date="${c.dateKey}"
+           data-template-id="${escapeHTML(c.effectiveTemplateId || '')}"
+           data-template-name="${escapeHTML(c.effectiveName || '')}"
+           role="button" tabindex="0">
+        <div class="schedule-cell-date">${c.dateObj.getDate()}</div>
+        <div class="schedule-cell-hours">${escapeHTML(fmtMinutes(c.effectiveMinutes))}</div>
+        <div class="schedule-cell-name" title="${escapeHTML(c.effectiveName)}">${escapeHTML(c.effectiveName)}</div>
+        ${c.absences.length ? `<div class="schedule-cell-absences">${c.absences.map(renderAbsenceChip).join('')}</div>` : ''}
+        ${c.source === 'pending' ? '<span class="schedule-cell-flag pending">●</span>' : ''}
+        ${c.source === 'override' ? '<span class="schedule-cell-flag override">●</span>' : ''}
+      </div>
+    `).join('');
+
+    // Click handler para abrir el selector
+    $grid.querySelectorAll('.schedule-cell').forEach(cell => {
+      cell.addEventListener('click', () => openCellEditor(cell.dataset.date, cell.dataset.templateId, cell.dataset.templateName));
+      cell.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          openCellEditor(cell.dataset.date, cell.dataset.templateId, cell.dataset.templateName);
+        }
+      });
+    });
+  };
+
+  // Popup pequeño para elegir plantilla (combina locales + Sesame)
+  const openCellEditor = (dateKey, currentTemplateId, currentTemplateName) => {
+    const popup = document.createElement('div');
+    popup.className = 'schedule-cell-editor-overlay';
+    const dateLabel = new Date(dateKey + 'T00:00:00')
+      .toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })
+      .replace(/^\w/, c => c.toUpperCase());
+
+    const { local, detected, sesame } = getAllAvailableTemplates();
+    // Helper: marca selected si el id coincide, o si NO hay id válido y el nombre
+    // coincide (case-insensitive). Esto preselecciona la plantilla del empleado
+    // aunque solo conozcamos su nombre (caso fallback sin id de Sesame).
+    const nameKey = String(currentTemplateName || '').trim().toLowerCase();
+    const hasValidId = currentTemplateId && (
+      local.some(t => t.id === currentTemplateId) ||
+      detected.some(t => t.id === currentTemplateId) ||
+      sesame.some(t => t.id === currentTemplateId)
+    );
+    const isSel = (t) => {
+      if (hasValidId) return t.id === currentTemplateId;
+      if (nameKey) return String(t.name).trim().toLowerCase() === nameKey;
+      return false;
+    };
+    const localOpts = local.map(t => `
+      <option value="${escapeHTML(t.id)}" ${isSel(t) ? 'selected' : ''}>🗂️ ${escapeHTML(t.name)}</option>
+    `).join('');
+    const detectedOpts = detected.map(t => `
+      <option value="${escapeHTML(t.id)}" ${isSel(t) ? 'selected' : ''}>🔍 ${escapeHTML(t.name)}</option>
+    `).join('');
+    const sesameOpts = sesame.map(t => `
+      <option value="${escapeHTML(t.id)}" ${isSel(t) ? 'selected' : ''}>☁️ ${escapeHTML(t.name)}</option>
+    `).join('');
+
+    popup.innerHTML = `
+      <div class="schedule-cell-editor animate-pop" role="dialog">
+        <header class="schedule-editor-header">
+          <h3>${escapeHTML(dateLabel)}</h3>
+          <button class="schedule-cell-editor-close" aria-label="Cerrar">&times;</button>
+        </header>
+        <div class="schedule-editor-body">
+          <label class="schedule-editor-label">Plantilla para este día</label>
+          <select class="schedule-editor-select">
+            <option value="">— Restaurar plantilla por defecto —</option>
+            ${local.length ? `<optgroup label="🗂️ Mis plantillas locales">${localOpts}</optgroup>` : ''}
+            ${detected.length ? `<optgroup label="🔍 Detectadas en empleados de la empresa">${detectedOpts}</optgroup>` : ''}
+            ${sesame.length ? `<optgroup label="☁️ Plantillas de Sesame">${sesameOpts}</optgroup>` : ''}
+          </select>
+          <p class="schedule-editor-hint">Los cambios se aplican localmente. Pulsa "Guardar cambios" en el modal principal para persistir.</p>
+          ${(!local.length && !detected.length && !sesame.length) ? `<p class="schedule-editor-hint" style="color:#f59e0b;">No hay plantillas disponibles. Crea una desde "🗂️ Mis plantillas".</p>` : ''}
+          <div class="schedule-editor-actions">
+            <button class="btn-secondary" data-cancel type="button">Cancelar</button>
+            <button class="btn-primary" data-apply type="button">Aplicar</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(popup);
+    const closePopup = () => popup.remove();
+    popup.querySelector('.schedule-cell-editor-close').onclick = closePopup;
+    popup.querySelector('[data-cancel]').onclick = closePopup;
+    popup.addEventListener('click', e => { if (e.target === popup) closePopup(); });
+    popup.querySelector('[data-apply]').onclick = () => {
+      const select = popup.querySelector('.schedule-editor-select');
+      const chosen = select.value;
+      const savedOverride = getScheduleOverrideForDate(empIdStr, dateKey);
+      if (!chosen) {
+        if (savedOverride) pending.set(dateKey, null);
+        else pending.delete(dateKey);
+      } else if (savedOverride === chosen) {
+        pending.delete(dateKey);
+      } else {
+        pending.set(dateKey, chosen);
+      }
+      updatePendingBadge();
+      closePopup();
+      renderMonth();
+    };
+  };
+
+  // Diálogo para asignar plantilla a un rango de fechas
+  const openRangeAssigner = () => {
+    const popup = document.createElement('div');
+    popup.className = 'schedule-cell-editor-overlay';
+    const { local, detected, sesame } = getAllAvailableTemplates();
+    const localOpts = local.map(t => `<option value="${escapeHTML(t.id)}">🗂️ ${escapeHTML(t.name)}</option>`).join('');
+    const detectedOpts = detected.map(t => `<option value="${escapeHTML(t.id)}">🔍 ${escapeHTML(t.name)}</option>`).join('');
+    const sesameOpts = sesame.map(t => `<option value="${escapeHTML(t.id)}">☁️ ${escapeHTML(t.name)}</option>`).join('');
+
+    const today = fmtDate(new Date());
+    const allEmpsCount = STATE.allEmployees.size;
+    const empName = `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || `ID ${empIdStr}`;
+
+    popup.innerHTML = `
+      <div class="schedule-cell-editor schedule-range-editor animate-pop" role="dialog">
+        <header class="schedule-editor-header">
+          <h3>📆 Asignar plantilla por rango</h3>
+          <button class="schedule-cell-editor-close" aria-label="Cerrar">&times;</button>
+        </header>
+        <div class="schedule-editor-body">
+          <div class="schedule-range-grid">
+            <div>
+              <label class="schedule-editor-label">Desde</label>
+              <input type="date" data-from value="${today}">
+            </div>
+            <div>
+              <label class="schedule-editor-label">Hasta</label>
+              <input type="date" data-to value="${today}">
+            </div>
+          </div>
+          <label class="schedule-editor-label" style="margin-top:14px;">Plantilla a aplicar</label>
+          <select class="schedule-editor-select" data-template>
+            <option value="">— Restaurar plantilla por defecto —</option>
+            ${local.length ? `<optgroup label="🗂️ Mis plantillas locales">${localOpts}</optgroup>` : ''}
+            ${detected.length ? `<optgroup label="🔍 Detectadas en empleados">${detectedOpts}</optgroup>` : ''}
+            ${sesame.length ? `<optgroup label="☁️ Plantillas de Sesame">${sesameOpts}</optgroup>` : ''}
+          </select>
+
+          <fieldset class="schedule-range-target">
+            <legend class="schedule-editor-label">Aplicar a</legend>
+            <label class="schedule-range-radio">
+              <input type="radio" name="range-target" value="employee" checked>
+              <span>Solo a <strong>${escapeHTML(empName)}</strong></span>
+            </label>
+            <label class="schedule-range-radio">
+              <input type="radio" name="range-target" value="selected">
+              <span>A <strong>empleados seleccionados</strong> (elegir abajo)</span>
+            </label>
+            <label class="schedule-range-radio">
+              <input type="radio" name="range-target" value="company">
+              <span>A <strong>todos los empleados de la empresa</strong> (${allEmpsCount})</span>
+            </label>
+          </fieldset>
+
+          <div class="schedule-range-emp-picker hidden" data-emp-picker>
+            <div class="schedule-emp-picker-toolbar">
+              <input type="text" class="schedule-emp-search" data-emp-search placeholder="🔍 Buscar empleado..." aria-label="Buscar empleado">
+              <button class="schedule-emp-chip" data-action="select-all" type="button">Todos</button>
+              <button class="schedule-emp-chip" data-action="select-none" type="button">Ninguno</button>
+              <span class="schedule-emp-counter" data-emp-counter>0 de ${allEmpsCount}</span>
+            </div>
+            <div class="schedule-emp-list" data-emp-list></div>
+          </div>
+
+          <label class="schedule-range-check">
+            <input type="checkbox" data-only-weekdays checked>
+            Aplicar solo a días laborables (Lun-Vie)
+          </label>
+          <p class="schedule-editor-hint" data-range-hint>Los cambios para este empleado quedan como pending hasta que pulses "Guardar cambios" en el modal principal.</p>
+          <div class="schedule-editor-actions">
+            <button class="btn-secondary" data-cancel type="button">Cancelar</button>
+            <button class="btn-primary" data-apply type="button">Aplicar al rango</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(popup);
+    const closePopup = () => popup.remove();
+    popup.querySelector('.schedule-cell-editor-close').onclick = closePopup;
+    popup.querySelector('[data-cancel]').onclick = closePopup;
+    popup.addEventListener('click', e => { if (e.target === popup) closePopup(); });
+
+    // Picker de empleados (lazy: solo se renderiza cuando se necesita)
+    const $picker = popup.querySelector('[data-emp-picker]');
+    const $empList = popup.querySelector('[data-emp-list]');
+    const $empCounter = popup.querySelector('[data-emp-counter]');
+    const $empSearch = popup.querySelector('[data-emp-search]');
+    const selectedIds = new Set();
+
+    // Construir la lista una sola vez
+    const allEmps = Array.from(STATE.allEmployees.entries()).map(([id, emp]) => ({
+      id: String(id),
+      name: `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || `ID ${id}`,
+      jobTitle: emp.jobTitle || emp.jobChargeName || '',
+      photo: emp.imageProfileURL || ''
+    })).sort((a, b) => a.name.localeCompare(b.name));
+
+    const updateCounter = () => {
+      $empCounter.textContent = `${selectedIds.size} de ${allEmps.length}`;
+    };
+    const renderEmps = (filter = '') => {
+      const q = filter.trim().toLowerCase();
+      const visible = q ? allEmps.filter(e =>
+        e.name.toLowerCase().includes(q) || (e.jobTitle || '').toLowerCase().includes(q)
+      ) : allEmps;
+      if (visible.length === 0) {
+        $empList.innerHTML = '<div class="schedule-emp-empty">Sin empleados que coincidan</div>';
+        return;
+      }
+      $empList.innerHTML = visible.map(e => {
+        const checked = selectedIds.has(e.id) ? 'checked' : '';
+        const safePhoto = safeHttpUrlAttr(e.photo);
+        const initials = escapeHTML(getInitials(e.name));
+        return `
+          <label class="schedule-emp-row">
+            <input type="checkbox" data-emp-id="${escapeHTML(e.id)}" ${checked}>
+            <div class="schedule-emp-avatar">
+              ${safePhoto ? `<img src="${safePhoto}" alt="" referrerpolicy="no-referrer">` : initials}
+            </div>
+            <div class="schedule-emp-meta">
+              <div class="schedule-emp-name">${escapeHTML(e.name)}</div>
+              ${e.jobTitle ? `<div class="schedule-emp-job">${escapeHTML(e.jobTitle)}</div>` : ''}
+            </div>
+          </label>
+        `;
+      }).join('');
+      $empList.querySelectorAll('input[type="checkbox"]').forEach(chk => {
+        chk.onchange = () => {
+          const id = chk.dataset.empId;
+          if (chk.checked) selectedIds.add(id);
+          else selectedIds.delete(id);
+          updateCounter();
+        };
+      });
+    };
+
+    popup.querySelector('[data-action="select-all"]').onclick = () => {
+      const q = $empSearch.value.trim().toLowerCase();
+      const visible = q ? allEmps.filter(e =>
+        e.name.toLowerCase().includes(q) || (e.jobTitle || '').toLowerCase().includes(q)
+      ) : allEmps;
+      visible.forEach(e => selectedIds.add(e.id));
+      updateCounter();
+      renderEmps($empSearch.value);
+    };
+    popup.querySelector('[data-action="select-none"]').onclick = () => {
+      selectedIds.clear();
+      updateCounter();
+      renderEmps($empSearch.value);
+    };
+    $empSearch.addEventListener('input', e => renderEmps(e.target.value));
+
+    // Mostrar / ocultar picker y ajustar hint según el target seleccionado
+    const $hint = popup.querySelector('[data-range-hint]');
+    popup.querySelectorAll('[name="range-target"]').forEach(r => {
+      r.addEventListener('change', () => {
+        const v = popup.querySelector('[name="range-target"]:checked').value;
+        if (v === 'selected') {
+          $picker.classList.remove('hidden');
+          if ($empList.innerHTML === '') {
+            // Por defecto preseleccionar al empleado actual para no perderlo
+            selectedIds.add(empIdStr);
+            updateCounter();
+            renderEmps('');
+          }
+          $hint.innerHTML = `⚠️ Se aplicará y <strong>guardará inmediatamente</strong> a los empleados que selecciones.`;
+        } else {
+          $picker.classList.add('hidden');
+          if (v === 'company') {
+            $hint.innerHTML = `⚠️ Se aplicará y <strong>guardará inmediatamente</strong> en todos los empleados de la empresa.`;
+          } else {
+            $hint.textContent = `Los cambios para este empleado quedan como pending hasta que pulses "Guardar cambios" en el modal principal.`;
+          }
+        }
+      });
+    });
+
+    popup.querySelector('[data-apply]').onclick = async () => {
+      const from = popup.querySelector('[data-from]').value;
+      const to   = popup.querySelector('[data-to]').value;
+      const chosen = popup.querySelector('[data-template]').value;
+      const onlyWeekdays = popup.querySelector('[data-only-weekdays]').checked;
+      const target = popup.querySelector('[name="range-target"]:checked').value;
+      if (!from || !to || from > to) {
+        alert('Rango inválido: revisa las fechas.');
+        return;
+      }
+
+      // Construir el mapa de overrides para el rango
+      const startD = new Date(from + 'T00:00:00');
+      const endD = new Date(to + 'T00:00:00');
+      const datesInRange = [];
+      for (let d = new Date(startD); d <= endD; d.setDate(d.getDate() + 1)) {
+        const dow = d.getDay();
+        if (onlyWeekdays && (dow === 0 || dow === 6)) continue;
+        datesInRange.push(fmtDate(d));
+      }
+      if (datesInRange.length === 0) {
+        alert('El rango no tiene días aplicables.');
+        return;
+      }
+
+      // ── Aplicar solo al empleado actual: comportamiento original ────────
+      if (target === 'employee') {
+        let count = 0;
+        datesInRange.forEach(k => {
+          const savedOverride = getScheduleOverrideForDate(empIdStr, k);
+          if (!chosen) {
+            if (savedOverride) { pending.set(k, null); count++; }
+          } else if (savedOverride !== chosen) {
+            pending.set(k, chosen);
+            count++;
+          }
+        });
+        updatePendingBadge();
+        closePopup();
+        renderMonth();
+        if (count === 0) alert('No se ha aplicado ningún cambio (puede que ya estuvieran asignados).');
+        return;
+      }
+
+      // ── Aplicar a TODA la empresa o a SELECCIONADOS: guardado directo ──
+      let empIds;
+      if (target === 'selected') {
+        empIds = Array.from(selectedIds);
+        if (empIds.length === 0) {
+          alert('No has seleccionado ningún empleado.');
+          return;
+        }
+      } else {
+        empIds = Array.from(STATE.allEmployees.keys()).map(String);
+      }
+      if (empIds.length === 0) {
+        alert('No hay empleados cargados.');
+        return;
+      }
+      const targetLabel = target === 'selected'
+        ? `${empIds.length} empleado${empIds.length === 1 ? '' : 's'} seleccionado${empIds.length === 1 ? '' : 's'}`
+        : `los ${empIds.length} empleados de la empresa`;
+      if (!confirm(`Se aplicará la plantilla a ${targetLabel} durante ${datesInRange.length} días (${from} a ${to}).\n\nLos cambios se guardarán inmediatamente. ¿Continuar?`)) return;
+
+      const applyBtn = popup.querySelector('[data-apply]');
+      applyBtn.disabled = true;
+      applyBtn.textContent = 'Aplicando...';
+
+      const overridesMap = {};
+      datesInRange.forEach(k => { overridesMap[k] = chosen || null; });
+
+      let okCount = 0;
+      let failCount = 0;
+      // Paralelización en chunks pequeños para no saturar
+      const chunkSize = 5;
+      for (let i = 0; i < empIds.length; i += chunkSize) {
+        const chunk = empIds.slice(i, i + chunkSize);
+        const results = await Promise.allSettled(
+          chunk.map(id => saveScheduleOverrides(id, overridesMap, false))
+        );
+        results.forEach(r => {
+          if (r.status === 'fulfilled') okCount++;
+          else failCount++;
+        });
+        applyBtn.textContent = `Aplicando... ${okCount + failCount}/${empIds.length}`;
+      }
+
+      // Refrescar la vista del empleado actual también
+      // (los cambios para él ya están guardados en server, no como pending)
+      pending.clear();
+      updatePendingBadge();
+      renderMonth();
+
+      closePopup();
+      if (failCount === 0) {
+        alert(`✅ Aplicado a ${okCount} empleados.`);
+      } else {
+        alert(`Aplicado a ${okCount} empleados.\n⚠️ ${failCount} empleados fallaron (revisa la consola).`);
+      }
+    };
+  };
+
+  overlay.querySelector('[data-nav="prev"]').onclick = () => {
+    viewMonth--;
+    if (viewMonth < 0) { viewMonth = 11; viewYear--; }
+    renderMonth();
+  };
+  overlay.querySelector('[data-nav="next"]').onclick = () => {
+    viewMonth++;
+    if (viewMonth > 11) { viewMonth = 0; viewYear++; }
+    renderMonth();
+  };
+  overlay.querySelector('[data-action="manage-templates"]').onclick = () => {
+    openTemplatesManager(() => renderMonth());
+  };
+  overlay.querySelector('[data-action="assign-range"]').onclick = openRangeAssigner;
+
+  $resetBtn.onclick = () => {
+    if (!confirm('¿Restaurar todos los días de este mes a la plantilla de Sesame? Los cambios serán pending hasta que guardes.')) return;
+    const firstDay = new Date(viewYear, viewMonth, 1);
+    const lastDay = new Date(viewYear, viewMonth + 1, 0);
+    for (let d = new Date(firstDay); d <= lastDay; d.setDate(d.getDate() + 1)) {
+      const k = fmtDate(d);
+      if (getScheduleOverrideForDate(empIdStr, k)) pending.set(k, null);
+      else pending.delete(k);
+    }
+    updatePendingBadge();
+    renderMonth();
+  };
+
+  $saveBtn.onclick = async () => {
+    if (pending.size === 0) return;
+    $saveBtn.disabled = true;
+    $saveBtn.textContent = 'Guardando...';
+    try {
+      const overridesMap = {};
+      pending.forEach((tid, date) => { overridesMap[date] = tid; });
+      await saveScheduleOverrides(empIdStr, overridesMap, false);
+      pending.clear();
+      updatePendingBadge();
+      $saveBtn.textContent = '✅ Guardado';
+      setTimeout(() => { $saveBtn.textContent = '💾 Guardar cambios'; }, 1400);
+      renderMonth();
+    } catch (e) {
+      alert('Error guardando: ' + (e?.message || e));
+      $saveBtn.disabled = false;
+      $saveBtn.textContent = '💾 Guardar cambios';
+    }
+  };
+
+  await renderMonth();
 }
 
 // ── Kick off ────────────────────────────────────────────────────────────────
