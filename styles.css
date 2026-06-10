@@ -3628,22 +3628,23 @@ body {
 }
 
 .balance-day-head {
+  /* Grid de 3 columnas con gaps separadores para evitar que el balance quede
+     pegado al botón "Detalles" cuando la fecha es corta. La 2.ª columna tiene
+     un min-width para que "+0h 4m" y "-1h 56m" se alineen entre sí. */
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(90px, auto) auto;
+  align-items: center;
+  column-gap: 32px;
   min-height: 58px;
   padding: 14px 16px;
   cursor: pointer;
   list-style: none;
   transition: background 0.16s ease;
 }
-/* Layout estable: el primer bloque crece (label + badge opcional), balance y
-   "Detalles" mantienen siempre el mismo ancho a la derecha. Esto evita que el
-   valor del balance "salte" cuando hay/no hay badge "📌 Permiso Retribuido". */
 .balance-day-head > div:first-child {
-  flex: 1 1 auto;
   min-width: 0;
 }
 .balance-day-head > b {
-  flex: 0 0 auto;
-  min-width: 90px;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
