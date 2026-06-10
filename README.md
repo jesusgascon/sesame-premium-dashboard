@@ -5,7 +5,7 @@
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Frontend](https://img.shields.io/badge/frontend-Vanilla%20JS%20(ES6+)-yellow.svg)
 ![Backend](https://img.shields.io/badge/backend-Python%20Proxy-green.svg)
-![Version](https://img.shields.io/badge/version-1.7.0-success.svg)
+![Version](https://img.shields.io/badge/version-1.7.6-success.svg)
 ![Status](https://img.shields.io/badge/status-Production%20Ready-success.svg)
 
 ---
@@ -235,6 +235,41 @@ Para una inmersión profunda en los algoritmos de cruce de datos, heurísticas d
 ---
 
 ## 📜 Changelog Detallado
+
+### [v1.7.6] — 2026-06-11 | *UX premium: toasts, confirmaciones, breadcrumbs & cache instantánea*
+- **Añadido**: Sistema de **toasts** no bloqueantes con cuatro variantes (success/error/warn/info), pause-on-hover, botón de cierre manual y auto-cierre adaptativo.
+- **Añadido**: **Diálogo de confirmación propio** (`ssmConfirm`) con la estética de la app, teclas Enter/Escape, botón rojo gradient para acciones destructivas y focus automático.
+- **Añadido**: **Cache local de empleados** (TTL 1h por empresa). Arranque percibido como instantáneo en sesiones consecutivas: hidrata `STATE.allEmployees` antes del fetch real.
+- **Añadido**: **Breadcrumbs entre modales encadenados** (Balance › Gestionar calendario › Ficha) con navegación a pasos anteriores con un click.
+- **Añadido**: Sistema de **tooltips contextuales** CSS-only con atributo `data-tip` y posición arriba/abajo.
+- **Añadido**: **Estados vacíos rediseñados** con tarjeta gradient, icono circular y mensaje, en Vacaciones › Empleados, Fichajes sin datos y Balances vacíos.
+- **Mejorado**: Cierre unificado de modales: `ESC` cierra siempre el modal más reciente; click fuera funciona en todos.
+- **Mejorado**: Secciones "Ajustes de jornada retribuidos" y "Jornadas y fichajes" del modal de balance ahora son **colapsables** con toggle rotativo y borde divisorio limpio.
+- **Mejorado**: Animaciones de carga unificadas (barra superior + warmup del balance) con gradiente teal→azul→violeta y efecto cometa.
+- **Mejorado**: El botón "📊 Ver balance" del gestor de calendario carga los datos en background si no estaban, con toast de progreso.
+- **Corregido**: 50+ `alert()` y `confirm()` nativos sustituidos por toasts y `ssmConfirm`.
+- **Corregido**: El primer card de "Jornadas y fichajes" ya no se solapa visualmente con el header de la sección.
+- **Corregido**: Tipografía del badge informativo de los headers nivelada con el título principal.
+
+### [v1.7.5] — 2026-06-11 | *Toasts, confirmaciones propias y mejoras de UX*
+- (Consolidada dentro de v1.7.6.)
+
+### [v1.7.4] — 2026-06-10 | *Gestor de calendario por empleado*
+- **Añadido**: **Gestor de calendario** por empleado accesible desde la ficha y desde el modal de balance. Calendario mensual editable con asignación de plantilla por día.
+- **Añadido**: **Gestor de plantillas locales** (`config.schedules.json`) con CRUD, auto-detección de plantillas reales de los empleados, importación masiva, limpieza de duplicados y reset completo.
+- **Añadido**: **Asignación por rango** con multi-select de empleados (búsqueda por nombre/cargo + chips Todos/Ninguno). Modo "Solo días laborables" y paralelización en chunks.
+- **Añadido**: **Exports contextuales**: CSV/JSON en Vacaciones (calendario filtrado), Fichajes (fichajes filtrados con metadata) y Balances (tabla por empleado, no fichajes raw).
+- **Añadido**: Endpoints en `server.py`: `GET /schedules`, `POST /save-schedules`, `POST /save-custom-template`, `POST /delete-custom-template`. Persistencia local sin tocar Sesame.
+- **Añadido**: Botones "📅 Gestionar calendario" en ficha y balance; "📊 Ver balance" desde el gestor; avatares clickables en Vacaciones › Empleados con foco a la ficha.
+- **Mejorado**: Detección automática de empresa zaragozana solo por nombre (Fibercom) para `HOLIDAYS_ZGZ`; el resto depende del calendario API.
+- **Mejorado**: Modo empleado detecta festivos de empresa en `/employees/{id}/calendars` y marca víspera reducida.
+- **Mejorado**: Plantilla vigente del empleado se resuelve **por fecha** (`scheduleTemplateAllViews` con `dateFrom`/`dateTo`), capturando reducciones individuales por paternidad, lactancia o jornada parcial.
+- **Corregido**: Cálculo de teórico cuadrado con Sesame en empleados con permisos retribuidos y vísperas.
+- **Corregido**: Diferencias sistemáticas de 1 minuto entre el cálculo local y Sesame (uso de `Math.floor` con signo, como hace Sesame).
+
+### [v1.7.3] — 2026-06-10 | *Balance fix: teórico correcto en permisos, plantillas y vísperas*
+- **Corregido**: Bug crítico de cálculo del balance horario documentado en `BUG_BALANCE_SESAME.md`. Días con Permiso Retribuido parcial ya no muestran `Teórico: 0h 0m`; Gestión Privada deja de inflar la compensación.
+- **Mejorado**: Resolución jerárquica de retribución basada en el API oficial (`remuneratedType: "remunerated" | "not_remunerated"`).
 
 ### [v1.7.0] — 2026-06-09 | *Carga Híbrida de Horarios & Plantillas Pactadas*
 - **Añadido**: Integración de la jornada pactada de contrato de cada empleado (`scheduleTemplateName` de Sesame) en fichajes y balances.

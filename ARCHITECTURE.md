@@ -309,3 +309,88 @@ Para reducir ambigüedad, cada chip de día se formatea con `formatAbsenceDateMe
 - Detalle completo en tooltip: `05 de Junio - Viernes`.
 
 En ausencias parciales, la fecha compacta se muestra junto a la franja horaria (`Vie 05 Jun · 12:00-14:00`). En ausencias completas, los días aparecen como chips separados debajo del tipo. Esto evita cadenas largas como `01 08:00-16:00, 02 08:00-16:00` donde era fácil perder qué horario pertenecía a cada día.
+
+---
+
+## 10. Gestor de Plantillas Locales y Overrides por Día (v1.7.4)
+
+Sesame solo permite asignar plantillas de jornada por rango (con histórico oficial). Para soportar **periodos especiales** (jornada de verano, paternidad, etc.) sin contaminar Sesame, el dashboard introduce una capa **local** de overrides almacenada en `config.schedules.json` (gitignored).
+
+### 10.1. Estructura del fichero
+
+```json
+{
+  "<companyId>": {
+    "customTemplates": [
+      {
+        "id": "local-xxxx",
+        "name": "Jornada 35h flexible",
+        "mondayMinutes": 420,
+        "tuesdayMinutes": 420,
+        "wednesdayMinutes": 420,
+        "thursdayMinutes": 420,
+        "fridayMinutes": 420,
+        "saturdayMinutes": 0,
+        "sundayMinutes": 0,
+        "isLocal": true
+      }
+    ],
+    "overrides": {
+      "<employeeId>": {
+        "<YYYY-MM-DD>": "<templateId>"
+      }
+    }
+  }
+}
+```
+
+### 10.2. Endpoints del proxy local
+
+| Método | Ruta | Propósito |
+|---|---|---|
+| `GET`  | `/schedules` | Devuelve plantillas + overrides de todas las empresas. |
+| `POST` | `/save-schedules` | Persiste overrides para un empleado (clave: empresa+empleado+fecha). |
+| `POST` | `/save-custom-template` | Crea o actualiza una plantilla custom (deduplica por nombre case-insensitive). |
+| `POST` | `/delete-custom-template` | Borra una plantilla y todos los overrides que la usaban. |
+
+Todas las rutas protegidas por sesión maestra cuando hay contraseña configurada.
+
+### 10.3. Jerarquía del teórico diario
+
+`resolveEmployeeScheduleForDate(employee, dateKey)` consulta por prioridad:
+
+1. **Override local** (`STATE.scheduleOverrides[companyId][empId][dateKey]`) → manda sobre todo.
+2. **Sesame BI Engine** (`schedule_context_daily_computed.theoretic_seconds`).
+3. **`dayOverride.workdayOverride`** (festivo de empresa o ausencia full-day).
+4. **Plantilla vigente** del empleado por fecha (`scheduleTemplateAllViews` con `dateFrom`/`dateTo`).
+5. **8h por defecto**.
+
+Encima se aplican: víspera de festivo (si la empresa la sigue) y compensación por permisos retribuidos.
+
+### 10.4. Auto-descubrimiento de plantillas
+
+`discoverCompanyTemplates()` recorre `STATE.allEmployees` y agrupa por (nombre + minutos por día) las plantillas reales que Sesame asigna a cada empleado. Cachea sus minutos en `STATE.scheduleTemplateMinutes` para que el cálculo del teórico pueda resolverlas cuando se usen como override. El usuario puede importarlas como locales con un click desde el gestor de plantillas.
+
+---
+
+## 11. Capa de UX Premium (v1.7.5 / v1.7.6)
+
+### 11.1. Sistema de toasts (`ssmToast`)
+
+Sustituye `window.alert()` en todo el código. Cuatro variantes con icono y color, esquina inferior derecha, auto-cierre adaptativo (3s success/info, 6s error), pause-on-hover y botón de cierre manual. API: `ssmToast(msg, opts)` + helpers `toastOk` / `toastErr` / `toastWarn` / `toastInfo`.
+
+### 11.2. Diálogo de confirmación propio (`ssmConfirm`)
+
+Sustituye `window.confirm()`. Devuelve `Promise<boolean>`. Soporta Enter/Escape, focus automático, modo `danger:true` con botón rojo gradient para acciones destructivas.
+
+### 11.3. Cache local de empleados
+
+`STATE.allEmployees` se persiste en `localStorage` (`ssm_emp_cache_<companyId>`) con TTL de 1h. `loadInitialData` hidrata desde cache antes de hacer el fetch real; el fetch sigue corriendo en background y refresca la cache. Sensación de arranque instantáneo en sesiones consecutivas.
+
+### 11.4. Breadcrumbs entre modales (`MODAL_STACK`)
+
+Pila global de modales encadenados. Cuando se abre un modal secundario desde otro (ej. Balance → Gestionar calendario), aparece un breadcrumb sutil en el header con click para volver. Útil para no perder el flujo cuando se navega entre Balance, Gestor, Ficha y Plantillas.
+
+### 11.5. Cierre unificado
+
+Todos los modales registran su propio handler de `ESC` que cierra **solo el modal más reciente** (consulta el DOM para no cerrar uno oculto por `visibility: hidden`). Click fuera y botón `×` funcionan de forma uniforme.
