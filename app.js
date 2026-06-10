@@ -10997,7 +10997,22 @@ async function openEmployeeScheduleManager(employeeId, options = {}) {
 
       <div class="schedule-manager-toolbar">
         <button class="schedule-nav-btn" data-nav="prev" aria-label="Mes anterior">‹</button>
-        <div class="schedule-current-month" data-month-label></div>
+        <button class="schedule-current-month" data-month-label data-action="open-month-picker" type="button" title="Saltar a otro mes/año"></button>
+        <div class="schedule-month-picker hidden" data-month-picker>
+          <header class="schedule-month-picker-head">
+            <button class="schedule-month-picker-nav" data-picker-year-prev type="button" aria-label="Año anterior">‹</button>
+            <span class="schedule-month-picker-year" data-picker-year-label></span>
+            <button class="schedule-month-picker-nav" data-picker-year-next type="button" aria-label="Año siguiente">›</button>
+          </header>
+          <div class="schedule-month-picker-grid" data-picker-months>
+            ${['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
+              .map((m, i) => `<button type="button" class="schedule-month-cell" data-month-index="${i}">${m}</button>`)
+              .join('')}
+          </div>
+          <footer class="schedule-month-picker-foot">
+            <button class="btn-secondary schedule-month-picker-today" data-picker-today type="button">Hoy</button>
+          </footer>
+        </div>
         <button class="schedule-nav-btn" data-nav="next" aria-label="Mes siguiente">›</button>
         <div class="schedule-toolbar-spacer"></div>
         <span class="schedule-pending-badge hidden" data-pending-badge>0 cambios sin guardar</span>
@@ -11748,6 +11763,66 @@ async function openEmployeeScheduleManager(employeeId, options = {}) {
     if (viewMonth > 11) { viewMonth = 0; viewYear++; }
     renderMonth();
   };
+
+  // ── Selector rápido de año/mes ─────────────────────────────────────────
+  const $picker = overlay.querySelector('[data-month-picker]');
+  const $pickerYearLabel = overlay.querySelector('[data-picker-year-label]');
+  let pickerYear = viewYear;
+  const renderPicker = () => {
+    $pickerYearLabel.textContent = pickerYear;
+    overlay.querySelectorAll('[data-month-index]').forEach(btn => {
+      const m = Number(btn.dataset.monthIndex);
+      btn.classList.toggle('current', m === viewMonth && pickerYear === viewYear);
+      btn.classList.toggle('today',
+        m === new Date().getMonth() && pickerYear === new Date().getFullYear());
+    });
+  };
+  const openPicker = () => {
+    pickerYear = viewYear;
+    renderPicker();
+    $picker.classList.remove('hidden');
+    // Cerrar al hacer click fuera del picker
+    setTimeout(() => {
+      const onDocClick = (e) => {
+        if (!$picker.contains(e.target) && !overlay.querySelector('[data-action="open-month-picker"]').contains(e.target)) {
+          $picker.classList.add('hidden');
+          document.removeEventListener('click', onDocClick);
+        }
+      };
+      document.addEventListener('click', onDocClick);
+    }, 0);
+  };
+  overlay.querySelector('[data-action="open-month-picker"]').onclick = (e) => {
+    e.stopPropagation();
+    if ($picker.classList.contains('hidden')) openPicker();
+    else $picker.classList.add('hidden');
+  };
+  overlay.querySelector('[data-picker-year-prev]').onclick = (e) => {
+    e.stopPropagation();
+    pickerYear--; renderPicker();
+  };
+  overlay.querySelector('[data-picker-year-next]').onclick = (e) => {
+    e.stopPropagation();
+    pickerYear++; renderPicker();
+  };
+  overlay.querySelectorAll('[data-month-index]').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      viewMonth = Number(btn.dataset.monthIndex);
+      viewYear = pickerYear;
+      $picker.classList.add('hidden');
+      renderMonth();
+    };
+  });
+  overlay.querySelector('[data-picker-today]').onclick = (e) => {
+    e.stopPropagation();
+    const now = new Date();
+    viewMonth = now.getMonth();
+    viewYear = now.getFullYear();
+    $picker.classList.add('hidden');
+    renderMonth();
+  };
+
   overlay.querySelector('[data-action="manage-templates"]').onclick = () => {
     openTemplatesManager(() => renderMonth());
   };
