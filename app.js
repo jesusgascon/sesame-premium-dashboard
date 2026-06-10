@@ -5,6 +5,8 @@
 
 'use strict';
 
+const APP_VERSION = '1.7.0';
+
 // ─── Debug Mode ───────────────────────────────────────────────────────────────
 // false en producción (silencia console.log/info/warn).
 // Cambiar a true para depurar. console.error siempre activo.
@@ -1710,7 +1712,7 @@ function startAutoRefresh() {
       return;
     }
 
-    await loadData();
+    await loadData(true);
   }, 5 * 60 * 1000);
 }
 
@@ -1729,6 +1731,12 @@ function stopAutoRefresh() {
 async function init() {
   if (APP_BOOTSTRAPPED) return;
   APP_BOOTSTRAPPED = true;
+
+  const versionEl = document.getElementById('app-version-display');
+  if (versionEl) versionEl.textContent = 'Sesame HR Premium Dashboard v' + APP_VERSION;
+
+  const loadingVersionEl = document.getElementById('loading-version-badge');
+  if (loadingVersionEl) loadingVersionEl.textContent = 'v' + APP_VERSION;
 
   // --- Master Password Protection ---
   await loadSavedConfig();
@@ -2462,15 +2470,15 @@ async function loadInitialData() {
   }
 }
 
-async function loadData() {
+async function loadData(isSilent = false) {
   if (STATE.isLoading) return;
   STATE.isLoading = true;
-  showLoading(true);
+  if (!isSilent) showLoading(true);
   try {
     await loadDataInternal();
   } finally {
     STATE.isLoading = false;
-    showLoading(false);
+    if (!isSilent) showLoading(false);
   }
 }
 
@@ -5721,7 +5729,7 @@ const FichajesModule = {
     if (this.currentView === 'day' && isToday) {
       this.refreshInterval = setInterval(() => {
         if (STATE.currentModule === 'fichajes') {
-          this.loadData();
+          this.loadData(true, { silent: true });
         }
       }, 120000); // 2 minutos
     }
@@ -6627,8 +6635,10 @@ const FichajesModule = {
     // Normalizar datos de entrada (Soporte para múltiples formatos de Sesame 2026)
     const normalizedData = biData.map(c => {
       // Manejo de checkIn/Out como objetos o strings
-      const inStr = (c.checkIn && typeof c.checkIn === 'object') ? c.checkIn.date : c.checkIn;
-      const outStr = (c.checkOut && typeof c.checkOut === 'object') ? c.checkOut.date : c.checkOut;
+      const inObj = c.checkIn || c.workEntryIn;
+      const outObj = c.checkOut || c.workEntryOut;
+      const inStr = (inObj && typeof inObj === 'object') ? inObj.date : inObj;
+      const outStr = (outObj && typeof outObj === 'object') ? outObj.date : outObj;
 
       // Helper para extraer coordenadas de forma robusta
       const extractCoord = (obj, field) => {
@@ -6764,12 +6774,16 @@ const FichajesModule = {
       let inTime = "--:--";
       if (record.checkIn) {
         const inD = new Date(record.checkIn);
-        inTime = `${String(inD.getHours()).padStart(2,'0')}:${String(inD.getMinutes()).padStart(2,'0')}`;
+        if (!isNaN(inD.getTime())) {
+          inTime = `${String(inD.getHours()).padStart(2,'0')}:${String(inD.getMinutes()).padStart(2,'0')}`;
+        }
       }
       let outTime = "--:--";
       if (record.checkOut) {
         const outD = new Date(record.checkOut);
-        outTime = `${String(outD.getHours()).padStart(2,'0')}:${String(outD.getMinutes()).padStart(2,'0')}`;
+        if (!isNaN(outD.getTime()) && outD.getFullYear() > 2000) {
+          outTime = `${String(outD.getHours()).padStart(2,'0')}:${String(outD.getMinutes()).padStart(2,'0')}`;
+        }
       }
 
       // CRUCE INTELIGENTE: Si el fichaje solapa con una ausencia programada, usar ese tipo
@@ -6804,12 +6818,22 @@ const FichajesModule = {
       }
 
        let durationSeconds = 0;
-       if (record.checkIn && record.checkOut) {
-         durationSeconds = (new Date(record.checkOut) - new Date(record.checkIn)) / 1000;
+       let isLiveOngoing = false;
+       let validOutDate = null;
+       if (record.checkOut) {
+         const d = new Date(record.checkOut);
+         if (!isNaN(d.getTime()) && d.getFullYear() > 2000) validOutDate = d;
+       }
+       if (record.checkIn && validOutDate) {
+         durationSeconds = (validOutDate - new Date(record.checkIn)) / 1000;
+       } else if (record.checkIn) {
+         durationSeconds = (new Date() - new Date(record.checkIn)) / 1000;
+         if (durationSeconds < 0) durationSeconds = 0;
+         isLiveOngoing = true;
        }
        const durH = Math.floor(durationSeconds / 3600);
        const durM = Math.round((durationSeconds % 3600) / 60);
-       const durationLabel = durationSeconds > 0 ? `${durH}h ${durM}m` : '--';
+       const durationLabel = durationSeconds > 0 ? `${durH}h ${durM}m${isLiveOngoing ? ' (en curso)' : ''}` : '--';
 
        grouped[key].entries.push({
          inOriginal: record.checkIn,
@@ -6845,7 +6869,11 @@ const FichajesModule = {
        });
 
        if (record.type === 'work') {
-         grouped[key].totalWorkedSeconds += (record.secondsWorked || 0);
+         let actualWorked = record.secondsWorked || 0;
+         if (isLiveOngoing && durationSeconds > actualWorked) {
+           actualWorked = durationSeconds;
+         }
+         grouped[key].totalWorkedSeconds += actualWorked;
        }
     }
 
@@ -8231,9 +8259,11 @@ const FichajesModule = {
     };
     const dayRowsHtml = summary.rows.length ? summary.rows.map((row, index) => {
       const entriesHtml = (row.entries || []).map(entry => {
-        const type = entry.type === 'pause' ? 'Pausa' : (entry.typeLabel || 'Trabajo');
+        const isPause = entry.type === 'pause';
+        const typeClass = isPause ? 'type-pause' : 'type-work';
+        const type = isPause ? 'Pausa' : (entry.typeLabel || 'Trabajo');
         return `
-          <div class="balance-day-entry">
+          <div class="balance-day-entry ${typeClass}">
             <span>${escapeHTML(entry.in || '--:--')} - ${escapeHTML(entry.out || '--:--')}</span>
             <strong>${escapeHTML(entry.duration || '--')}</strong>
             <em>${escapeHTML(type)}</em>
@@ -8385,9 +8415,10 @@ const FichajesModule = {
     overlay.addEventListener('click', event => {
       if (event.target === overlay) close();
     });
+    let isInitializing = true;
     overlay.querySelectorAll('.balance-day-card').forEach(card => {
       card.addEventListener('toggle', () => {
-        if (!card.open) return;
+        if (isInitializing || !card.open) return;
         window.setTimeout(() => {
           card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         }, 80);
@@ -8404,7 +8435,10 @@ const FichajesModule = {
     };
     pinModalTop();
     requestAnimationFrame(pinModalTop);
-    window.setTimeout(pinModalTop, 80);
+    window.setTimeout(() => {
+      pinModalTop();
+      isInitializing = false;
+    }, 120);
     overlay.querySelector('.balance-employee-close')?.focus({ preventScroll: true });
     pinModalTop();
   },
