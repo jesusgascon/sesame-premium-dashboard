@@ -3487,7 +3487,17 @@ body {
   outline-offset: 2px;
 }
 .balance-modal-section-collapsible[open] > summary {
-  margin-bottom: 10px;
+  margin-bottom: 14px;
+  /* Borde inferior sutil para marcar el límite del header cuando está open */
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.10);
+  border-radius: 10px 10px 0 0;
+}
+/* Garantizar que el contenido tras el summary tenga su propio espacio
+   y no quede visualmente "metido" en el header. */
+.balance-modal-section-collapsible[open] > .balance-compensated-list,
+.balance-modal-section-collapsible[open] > .balance-days-list {
+  margin-top: 4px;
 }
 /* El strong es el título principal, que NO debe encogerse ni crecer */
 .balance-modal-section-collapsible > summary > strong {

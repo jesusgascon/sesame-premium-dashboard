@@ -11053,14 +11053,43 @@ async function openEmployeeScheduleManager(employeeId, options = {}) {
   overlay.querySelector('.schedule-manager-close').onclick = close;
 
   // Botón "Ver balance" → cierra este modal y abre el balance del ejercicio
-  overlay.querySelector('[data-action="view-balance"]')?.addEventListener('click', () => {
-    close();
+  overlay.querySelector('[data-action="view-balance"]')?.addEventListener('click', async () => {
+    if (typeof FichajesModule === 'undefined' || !FichajesModule.openBalanceEmployeeModal) {
+      toastWarn('Esta opción solo está disponible si has cargado el módulo Fichajes.');
+      return;
+    }
     try {
-      if (typeof FichajesModule !== 'undefined' && FichajesModule.openBalanceEmployeeModal) {
+      // Si el módulo Fichajes no tiene datos del periodo (caso típico cuando
+      // el usuario entró directamente al gestor sin pasar por Balance), forzar
+      // una carga en vista 'balance' para tener todas las filas del ejercicio.
+      const needsLoad = !FichajesModule.data || FichajesModule.data.length === 0;
+      if (needsLoad) {
+        // Cerrar este modal y mostrar feedback de carga
+        close();
+        const toastRef = toastInfo('Cargando balance del empleado…', { duration: 0 });
+        // Asegurar vista 'balance' y rango 'ejercicio'
+        const prevView = FichajesModule.currentView;
+        const prevScope = FichajesModule.balanceScope;
+        if (FichajesModule.currentView !== 'balance') FichajesModule.currentView = 'balance';
+        FichajesModule.balanceScope = 'year';
+        try {
+          await FichajesModule.loadData(true, { silent: true });
+        } catch (loadErr) {
+          console.warn('Carga de balance falló:', loadErr);
+        }
+        toastRef.close();
         FichajesModule.openBalanceEmployeeModal(empIdStr);
-      } else {
-        toastWarn('Esta opción solo está disponible si has cargado el módulo Fichajes.');
+        // Restaurar la vista previa solo si era distinta (no queremos forzar
+        // al usuario a quedarse en Balance si no estaba ahí).
+        if (prevView !== 'balance' && prevView != null) {
+          FichajesModule.currentView = prevView;
+        }
+        if (prevScope != null) FichajesModule.balanceScope = prevScope;
+        return;
       }
+      // Datos ya cargados: comportamiento normal con back-stack
+      close();
+      FichajesModule.openBalanceEmployeeModal(empIdStr);
     } catch (e) {
       console.error('No se pudo abrir el balance:', e);
       toastErr('No se pudo abrir el balance: ' + (e?.message || e));
