@@ -3597,25 +3597,30 @@ body {
 
 .balance-day-card {
   padding: 0;
-  border-radius: 16px;
-  background: rgba(255,255,255,0.035);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.025);
   border: 1px solid var(--border);
+  border-left: 3px solid transparent;  /* Espacio reservado para el indicador */
   overflow: hidden;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
 }
 
+/* Estado abierto: borde azul + sombra sutil, sin cambio de fondo agresivo */
 .balance-day-card[open] {
-  border-color: rgba(96, 165, 250, 0.24);
-  background: rgba(96, 165, 250, 0.055);
+  border-color: rgba(96, 165, 250, 0.30);
+  box-shadow: 0 4px 16px rgba(96, 165, 250, 0.07);
 }
 
+/* Días con ausencia: solo un borde lateral verde como indicador visual,
+   sin inundar la celda de color. Mantiene la coherencia visual de la lista. */
 .balance-day-card.has-absence {
-  border-color: rgba(16, 185, 129, 0.2);
-  background: rgba(16, 185, 129, 0.03);
+  border-left-color: rgba(74, 222, 128, 0.55);
 }
 
 .balance-day-card.has-absence[open] {
-  border-color: rgba(16, 185, 129, 0.35);
-  background: rgba(16, 185, 129, 0.08);
+  border-color: rgba(74, 222, 128, 0.35);
+  border-left-color: rgba(74, 222, 128, 0.85);
+  box-shadow: 0 4px 16px rgba(74, 222, 128, 0.08);
 }
 
 .balance-day-head,
