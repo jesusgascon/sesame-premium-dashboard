@@ -683,23 +683,32 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(data)
         except urllib.error.HTTPError as e:
             data = e.read()
-            self.send_response(e.code)
-            self.send_header('Content-Type', 'application/json')
-            self._cors_headers()
-            self.end_headers()
-            self.wfile.write(data)
+            try:
+                self.send_response(e.code)
+                self.send_header('Content-Type', 'application/json')
+                self._cors_headers()
+                self.end_headers()
+                self.wfile.write(data)
+            except (BrokenPipeError, ConnectionResetError, ssl.SSLError):
+                pass # El cliente cortó la conexión antes de recibir el error
             print(f'  ❌  API Error {e.code}: {api_path}')
             try:
                 error_body = json.loads(data.decode())
                 print(f'      Motivo: {error_body}')
             except:
                 print(f'      Motivo: {data.decode()[:200]}')
+        except (BrokenPipeError, ConnectionResetError, ssl.SSLError):
+            # El navegador abortó la petición (ej. al darle a F5 o cerrar la pestaña)
+            pass
         except Exception as ex:
-            self.send_response(502)
-            self.send_header('Content-Type', 'application/json')
-            self._cors_headers()
-            self.end_headers()
-            self.wfile.write(json.dumps({'error': str(ex)}).encode())
+            try:
+                self.send_response(502)
+                self.send_header('Content-Type', 'application/json')
+                self._cors_headers()
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': str(ex)}).encode())
+            except (BrokenPipeError, ConnectionResetError, ssl.SSLError):
+                pass
 
     # ── Helpers ───────────────────────────────────────────────────────────
     def _cors_headers(self):
