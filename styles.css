@@ -3161,7 +3161,7 @@ body {
 
 .balance-employee-cell {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) auto;
+  grid-template-columns: 34px minmax(0, 1fr);
   align-items: center;
   gap: 10px;
   min-width: 0;
@@ -3171,6 +3171,23 @@ body {
   display: grid;
   gap: 4px;
   min-width: 0;
+}
+
+/* Nueva fila superior dentro de main: nombre + pill de días en la misma línea,
+   alineados horizontalmente. Antes el pill estaba a la altura del centro de
+   la celda (entre nombre y badge) y se veía descolocado. */
+.balance-employee-name-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+.balance-employee-name-row > .balance-employee-name-line {
+  flex: 1 1 auto;
+}
+.balance-employee-name-row > .balance-days-pill {
+  flex: 0 0 auto;
 }
 
 .balance-employee-name-line {

@@ -10375,10 +10375,12 @@ const FichajesModule = {
                 ${renderLocalAvatar(stat.name, stat.photo, 'balance-avatar', 'width:32px; height:32px; border-radius:50%; object-fit:cover; border: 1px solid var(--border);')}
               </button>
               <div class="balance-employee-main">
-                <span class="balance-employee-name-line" title="${escapeHTML(stat.name)}">${escapeHTML(stat.name)}</span>
+                <div class="balance-employee-name-row">
+                  <span class="balance-employee-name-line" title="${escapeHTML(stat.name)}">${escapeHTML(stat.name)}</span>
+                  <span class="balance-days-pill" title="${escapeHTML(daysTitle)}">${escapeHTML(String(daysLabel))}</span>
+                </div>
                 <span class="balance-row-processing">${escapeHTML(rowPhaseLabel)}</span>
               </div>
-              <span class="balance-days-pill" title="${escapeHTML(daysTitle)}">${escapeHTML(String(daysLabel))}</span>
             </div>
           </td>
           <td class="text-center">
