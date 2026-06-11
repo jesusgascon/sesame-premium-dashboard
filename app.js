@@ -5,7 +5,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.7.9';
+const APP_VERSION = '1.7.10';
 
 // ─── Debug Mode ───────────────────────────────────────────────────────────────
 // false en producción (silencia console.log/info/warn).
@@ -9488,11 +9488,9 @@ const FichajesModule = {
       liveDays: 0
     });
 
-    // Proyectar teórico del día vivo y días futuros del MES EN CURSO siempre,
-    // independientemente de la vista (mes, anual, etc.).
-    // Imita Sesame: teórico del mes en curso = mes completo.
-    // Se acota al fin del mes en curso, no al fin del rango completo.
-    {
+    // Proyectar teórico del día vivo y días futuros solo en vista mensual.
+    // En vista anual se usan solo días cerrados para no inflar el teórico anual.
+    if (this.currentView === 'month' || this.isBalanceMonthScope()) {
       const _todayKey = getLocalDateKey();
       const _todayDate = new Date(_todayKey + 'T00:00:00');
       const _monthLastDay = new Date(_todayDate.getFullYear(), _todayDate.getMonth() + 1, 0);
@@ -10145,9 +10143,8 @@ const FichajesModule = {
       stat.days += 1;
     });
 
-    // Teórico proyectado del mes en curso (día vivo + días futuros): imita Sesame.
-    // Siempre se aplica, acotado al fin del mes en curso.
-    {
+    // Teórico proyectado solo en vista mensual (no en anual: evita inflar el total).
+    if (this.currentView === 'month' || this.isBalanceMonthScope()) {
       const _btToday = getLocalDateKey();
       const _btTodayDate = new Date(_btToday + 'T00:00:00');
       const _btMonthLastDay = new Date(_btTodayDate.getFullYear(), _btTodayDate.getMonth() + 1, 0);
