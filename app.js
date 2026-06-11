@@ -5066,6 +5066,27 @@ const FichajesModule = {
   },
 
   setupEventListeners() {
+    // Toggle global de las 4 tarjetas de insights (colapsado por defecto).
+    // El estado se guarda en localStorage para recordarlo entre sesiones.
+    const insightsBtn = document.getElementById('insights-toggle-btn');
+    const insightsSection = document.getElementById('fichajes-insights');
+    if (insightsBtn && insightsSection) {
+      const persisted = localStorage.getItem('ssm_insights_open');
+      if (persisted === '1') insightsSection.classList.remove('is-collapsed');
+      const updateLabel = () => {
+        const open = !insightsSection.classList.contains('is-collapsed');
+        insightsBtn.querySelector('.insights-toggle-label').textContent =
+          open ? 'Ocultar resúmenes' : 'Mostrar resúmenes';
+      };
+      updateLabel();
+      insightsBtn.addEventListener('click', () => {
+        insightsSection.classList.toggle('is-collapsed');
+        const open = !insightsSection.classList.contains('is-collapsed');
+        localStorage.setItem('ssm_insights_open', open ? '1' : '0');
+        updateLabel();
+      });
+    }
+
     // Navegación Temporal
     document.getElementById('prev-month-signings')?.addEventListener('click', () => {
       if (this.currentView === 'day') this.currentDate.setDate(this.currentDate.getDate() - 1);
@@ -9219,6 +9240,12 @@ const FichajesModule = {
     setBadge('insight-validaciones-count', validations.length);
     setBadge('insight-anomalias-count', anomalies.length);
     setBadge('insight-solicitudes-count', upcoming.length);
+
+    // Resumen del toggle (visible cuando las secciones están colapsadas)
+    const sumEl = document.getElementById('insights-toggle-sum');
+    if (sumEl) {
+      sumEl.textContent = `${incidents.length} incidencias · ${validations.length} validaciones · ${anomalies.length} anomalías · ${upcoming.length} solicitudes`;
+    }
 
     // --- CÁLCULO DE PATRONES REACTIVOS (Hora Media / Jornada Larga) ---
     const targetPatternId = isSingleUser ? selectedId : String(STATE.currentUser?.id || '');

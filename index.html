@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=1.7.6-mpicker2" />
+  <link rel="stylesheet" href="styles.css?v=1.7.6-insights" />
   <script>
     // Apply theme as early as possible to avoid dark flash
     const savedTheme = localStorage.getItem('theme') || 'dark';
@@ -526,37 +526,44 @@
           <div id="signings-progress-bar" class="signings-progress-bar"></div>
         </div>
 
-        <section id="fichajes-insights" class="fichajes-insights">
-          <div class="insight-card">
-            <div class="insight-card-header">
-              <h3>Incidencias</h3>
-              <span id="insight-incidencias-count" class="insight-badge">0</span>
+        <section id="fichajes-insights" class="fichajes-insights is-collapsed">
+          <button class="insights-toggle" type="button" id="insights-toggle-btn" title="Expandir o colapsar todas las secciones">
+            <span class="insights-toggle-icon" aria-hidden="true">▾</span>
+            <span class="insights-toggle-label">Mostrar resúmenes</span>
+            <span class="insights-toggle-sum" id="insights-toggle-sum">0 incidencias · 0 validaciones · 0 anomalías · 0 solicitudes</span>
+          </button>
+          <div class="fichajes-insights-grid">
+            <div class="insight-card">
+              <div class="insight-card-header">
+                <h3>Incidencias</h3>
+                <span id="insight-incidencias-count" class="insight-badge">0</span>
+              </div>
+              <div id="insight-incidencias-body" class="insight-card-body"></div>
             </div>
-            <div id="insight-incidencias-body" class="insight-card-body"></div>
-          </div>
 
-          <div class="insight-card">
-            <div class="insight-card-header">
-              <h3>Validaciones</h3>
-              <span id="insight-validaciones-count" class="insight-badge">0</span>
+            <div class="insight-card">
+              <div class="insight-card-header">
+                <h3>Validaciones</h3>
+                <span id="insight-validaciones-count" class="insight-badge">0</span>
+              </div>
+              <div id="insight-validaciones-body" class="insight-card-body"></div>
             </div>
-            <div id="insight-validaciones-body" class="insight-card-body"></div>
-          </div>
 
-          <div class="insight-card">
-            <div class="insight-card-header">
-              <h3>Radar de anomalías</h3>
-              <span id="insight-anomalias-count" class="insight-badge">0</span>
+            <div class="insight-card">
+              <div class="insight-card-header">
+                <h3>Radar de anomalías</h3>
+                <span id="insight-anomalias-count" class="insight-badge">0</span>
+              </div>
+              <div id="insight-anomalias-body" class="insight-card-body"></div>
             </div>
-            <div id="insight-anomalias-body" class="insight-card-body"></div>
-          </div>
 
-          <div class="insight-card">
-            <div class="insight-card-header">
-              <h3>Solicitudes y ausencias</h3>
-              <span id="insight-solicitudes-count" class="insight-badge">0</span>
+            <div class="insight-card">
+              <div class="insight-card-header">
+                <h3>Solicitudes y ausencias</h3>
+                <span id="insight-solicitudes-count" class="insight-badge">0</span>
+              </div>
+              <div id="insight-solicitudes-body" class="insight-card-body"></div>
             </div>
-            <div id="insight-solicitudes-body" class="insight-card-body"></div>
           </div>
         </section>
 
@@ -673,6 +680,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=1.7.6-mpicker4"></script>
+  <script src="app.js?v=1.7.6-insights"></script>
 </body>
 </html>
