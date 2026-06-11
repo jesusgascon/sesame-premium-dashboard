@@ -5,7 +5,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.7.10';
+const APP_VERSION = '1.7.11';
 
 // ─── Debug Mode ───────────────────────────────────────────────────────────────
 // false en producción (silencia console.log/info/warn).
@@ -9432,22 +9432,18 @@ const FichajesModule = {
         .filter(Boolean);
       if (!absenceLabels.length && row.absenceLabel) absenceLabels.push(row.absenceLabel);
 
-      // Día vivo: excluido de los totales de trabajado/teórico/balance
-      // (imita Sesame: la cabecera mensual solo suma días cerrados).
-      if (!row.isLive) {
-        acc.worked += worked;
-        acc.compensated += compensated;
-        acc.compensatedApplied += Number(row.compensatedAppliedToTheoretic || 0);
-        acc.equivalent += equivalent;
-        acc.theoretic += theoretic;
-        acc.balance += Number(row.balanceSec || 0);
-        if (worked > 0) acc.workedDays += 1;
-        if (theoretic > 0) acc.theoreticDays += 1;
-      }
+      acc.worked += worked;
+      acc.compensated += compensated;
+      acc.compensatedApplied += Number(row.compensatedAppliedToTheoretic || 0);
+      acc.equivalent += equivalent;
+      acc.theoretic += theoretic;
+      acc.balance += Number(row.balanceSec || 0);
       acc.pause += Number(row.totalPauseSec || 0);
       acc.workSegments += Number(row.workSegments || 0);
       acc.pauseSegments += Number(row.pauseSegments || 0);
       acc.entries += entries.length;
+      if (worked > 0) acc.workedDays += 1;
+      if (theoretic > 0) acc.theoreticDays += 1;
       if (firstWorkIn !== null) {
         acc.entryMinutes += firstWorkIn;
         acc.entryCount += 1;
@@ -9500,12 +9496,6 @@ const FichajesModule = {
       if (_projEnd > _todayKey) {
         const _coveredDates = new Set(rows.map(r => r.date));
         const _empObj = STATE.allEmployees.get(id);
-        // Día vivo: fue excluido del reduce, recuperar su teórico aquí
-        const _liveRow = rows.find(r => r.isLive);
-        if (_liveRow) {
-          totals.theoretic += Number(_liveRow.theoreticSeconds || 28800);
-          totals.theoreticDays += 1;
-        }
         // Días futuros laborables sin fichaje
         let _cursor = addLocalDays(_todayKey, 1);
         while (_cursor <= _projEnd) {
@@ -10131,15 +10121,12 @@ const FichajesModule = {
         });
       }
       const stat = stats.get(rowId);
-      // Día vivo excluido del balance/trabajado (imita Sesame: solo días cerrados)
-      if (!row.isLive) {
-        stat.periodBalance += row.balanceSec;
-        stat.localPeriodBalance += row.balanceSec;
-        stat.localBaseBalance = (stat.localBaseBalance || 0) + row.balanceSec;
-        stat.localEquivalentSeconds += Number(row.totalEquivalentSeconds || row.workedSeconds || 0);
-        stat.localTheoreticSeconds += Number(row.theoreticSeconds || 0);
-        stat.sources.add(row.theoreticSource || 'Estimado');
-      }
+      stat.periodBalance += row.balanceSec;
+      stat.localPeriodBalance += row.balanceSec;
+      stat.localBaseBalance = (stat.localBaseBalance || 0) + row.balanceSec;
+      stat.localEquivalentSeconds += Number(row.totalEquivalentSeconds || row.workedSeconds || 0);
+      stat.localTheoreticSeconds += Number(row.theoreticSeconds || 0);
+      stat.sources.add(row.theoreticSource || 'Estimado');
       stat.days += 1;
     });
 
@@ -10156,9 +10143,6 @@ const FichajesModule = {
           if (stat.hasOfficialBalance) return;
           const _btEmp = STATE.allEmployees.get(empId);
           const _btCovered = new Set(balanceRows.filter(r => String(r.employeeId) === empId).map(r => r.date));
-          // Día vivo
-          const _btLive = balanceRows.find(r => String(r.employeeId) === empId && r.isLive);
-          if (_btLive) stat.localTheoreticSeconds += Number(_btLive.theoreticSeconds || 28800);
           // Días futuros laborables sin fichaje
           let _btCursor = addLocalDays(_btToday, 1);
           while (_btCursor <= _btEnd) {
