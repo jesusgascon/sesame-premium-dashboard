@@ -98,6 +98,9 @@ const STATE = {
   presenceMap: new Map(), // employeeId -> status ('work', 'pause', 'out')
   presenceList: [],
   presenceSummaryContext: null,
+  // Timestamps de última actualización por módulo (para "Actualizado hace X min")
+  lastUpdateVacaciones: null,
+  lastUpdateFichajes: null,
   // Plantillas de jornada disponibles en la empresa (id, name, minutes por día).
   scheduleTemplates: [],
   // Plantillas custom locales creadas por el usuario en el dashboard
@@ -112,6 +115,39 @@ let REFRESH_TIMER = null;
 let APP_BOOTSTRAPPED = false;
 let APP_LISTENERS_WIRED = false;
 let SETUP_EDITING_COMPANY_ID = null;
+
+// ─── Sistema de "Actualizado hace X min" ──────────────────────────────────
+function formatRelativeTime(ts) {
+  if (!ts) return '';
+  const diff = Date.now() - ts;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'ahora mismo';
+  if (mins === 1) return 'hace 1 min';
+  if (mins < 60) return `hace ${mins} min`;
+  const hours = Math.floor(mins / 60);
+  if (hours === 1) return 'hace 1 h';
+  if (hours < 24) return `hace ${hours} h`;
+  const days = Math.floor(hours / 24);
+  return days === 1 ? 'hace 1 día' : `hace ${days} días`;
+}
+function refreshLastUpdateLabels() {
+  const vacEl = document.getElementById('last-update-vacaciones');
+  const fichEl = document.getElementById('last-update-fichajes');
+  if (vacEl) {
+    const ts = STATE.lastUpdateVacaciones;
+    vacEl.textContent = ts ? `Actualizado ${formatRelativeTime(ts)}` : '';
+    vacEl.classList.toggle('is-stale', ts && (Date.now() - ts) > 5 * 60 * 1000);
+    vacEl.classList.toggle('is-very-stale', ts && (Date.now() - ts) > 15 * 60 * 1000);
+  }
+  if (fichEl) {
+    const ts = STATE.lastUpdateFichajes;
+    fichEl.textContent = ts ? `Actualizado ${formatRelativeTime(ts)}` : '';
+    fichEl.classList.toggle('is-stale', ts && (Date.now() - ts) > 5 * 60 * 1000);
+    fichEl.classList.toggle('is-very-stale', ts && (Date.now() - ts) > 15 * 60 * 1000);
+  }
+}
+// Tick cada 30s para actualizar el texto relativo
+setInterval(refreshLastUpdateLabels, 30000);
 
 // ─── Sistema de TOASTS (notificaciones no bloqueantes) ─────────────────────
 // Reemplaza alert() y window.alert() en todo el código. Cuatro variantes:
@@ -3753,6 +3789,8 @@ function refreshAllViews() {
   renderCalendar();
   renderEmployeeList();
   renderStats();
+  STATE.lastUpdateVacaciones = Date.now();
+  refreshLastUpdateLabels();
 
   // Sincronizar Fichajes si el módulo está cargado
   if (typeof FichajesModule !== 'undefined' && FichajesModule.initialized) {
@@ -6748,6 +6786,8 @@ const FichajesModule = {
         this.finishSigningsTopProgress();
       }
       this.isLoading = false;
+      STATE.lastUpdateFichajes = Date.now();
+      refreshLastUpdateLabels();
     }
   },
 

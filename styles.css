@@ -7764,3 +7764,60 @@ body {
   color: #10b981;
 }
 .sesame-portal-btn:active { transform: translateY(0); }
+
+/* ════════════════════════════════════════════════════════════════════
+   "Actualizado hace X min" en las barras superiores
+   ════════════════════════════════════════════════════════════════════ */
+.ssm-last-update {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  padding: 0 8px;
+  white-space: nowrap;
+  letter-spacing: 0.1px;
+  transition: color 0.2s ease;
+}
+.ssm-last-update:empty { display: none; }
+.ssm-last-update::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #4ade80;
+  box-shadow: 0 0 6px rgba(74, 222, 128, 0.55);
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+.ssm-last-update.is-stale { color: #f59e0b; }
+.ssm-last-update.is-stale::before {
+  background: #f59e0b;
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.55);
+}
+.ssm-last-update.is-very-stale { color: #f87171; }
+.ssm-last-update.is-very-stale::before {
+  background: #f87171;
+  box-shadow: 0 0 6px rgba(248, 113, 113, 0.65);
+  animation: pulse-warn 1.6s ease-in-out infinite;
+}
+@keyframes pulse-warn {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   SEPARADORES VERTICALES entre grupos de iconos
+   ════════════════════════════════════════════════════════════════════ */
+.btn-group-sep {
+  display: inline-block;
+  width: 1px;
+  height: 22px;
+  background: rgba(255, 255, 255, 0.10);
+  margin: 0 6px;
+  vertical-align: middle;
+}
+[data-theme="light"] .btn-group-sep {
+  background: rgba(0, 0, 0, 0.10);
+}

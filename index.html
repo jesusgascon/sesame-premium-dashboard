@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=1.7.7-sesame" />
+  <link rel="stylesheet" href="styles.css?v=1.7.7-topbar" />
   <script>
     // Apply theme as early as possible to avoid dark flash
     const savedTheme = localStorage.getItem('theme') || 'dark';
@@ -396,7 +396,9 @@
               <line x1="10" y1="14" x2="21" y2="3"></line>
             </svg>
           </a>
+          <span class="btn-group-sep" aria-hidden="true"></span>
           <button id="theme-btn" class="theme-toggle btn-icon-round" title="Cambiar tema" aria-label="Cambiar tema">🌙</button>
+          <span class="btn-group-sep" aria-hidden="true"></span>
           <button id="subscribe-btn" class="btn-icon-round" title="Sincronizar con Google Calendar" aria-label="Sincronizar con Google Calendar">🔗</button>
           <button id="export-btn" class="btn-icon-round" title="Exportar calendario (.ics)" aria-label="Exportar calendario en formato ICS">📅</button>
           <button id="export-vacaciones-csv" class="btn-icon-round" title="Exportar CSV de ausencias visibles" aria-label="Exportar CSV de ausencias visibles">
@@ -405,6 +407,8 @@
           <button id="export-vacaciones-json" class="btn-icon-round" title="Exportar JSON de ausencias visibles" aria-label="Exportar JSON de ausencias visibles">
             <span class="json-icon-label">{ }</span>
           </button>
+          <span class="btn-group-sep" aria-hidden="true"></span>
+          <span id="last-update-vacaciones" class="ssm-last-update" aria-live="polite"></span>
           <button id="refresh-btn" class="btn-icon-round" title="Actualizar" aria-label="Actualizar calendario">🔄</button>
         </div>
       </header>
@@ -511,15 +515,18 @@
                   <line x1="10" y1="14" x2="21" y2="3"></line>
                 </svg>
               </a>
+              <span class="btn-group-sep" aria-hidden="true"></span>
               <button id="kiosko-mode-btn" class="btn-icon-round" title="Modo Kiosko (Vista de oficina)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
               </button>
+              <span class="btn-group-sep" aria-hidden="true"></span>
               <button id="export-signings-csv" class="btn-icon-round" title="Exportar CSV (Solo visibles)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
               </button>
               <button id="export-signings-json" class="btn-icon-round" title="Exportar JSON (Solo visibles)" aria-label="Exportar fichajes visibles en JSON">
                 <span class="json-icon-label">{ }</span>
               </button>
+              <span class="btn-group-sep" aria-hidden="true"></span>
               <button id="theme-btn-signings" class="theme-toggle btn-icon-round" title="Cambiar tema" aria-label="Cambiar tema">🌙</button>
               <button id="birthdays-btn" class="btn-icon-round birthdays-action-btn" title="Cumpleaños del equipo" aria-label="Abrir cumpleaños del equipo">
                 🎂
@@ -530,6 +537,8 @@
                   <polyline points="7 9 12 4 17 9"></polyline>
                 </svg>
               </button>
+              <span class="btn-group-sep" aria-hidden="true"></span>
+              <span id="last-update-fichajes" class="ssm-last-update" aria-live="polite"></span>
               <button id="refresh-signings-btn" class="btn-icon-round" title="Actualizar" aria-label="Actualizar fichajes">🔄</button>
             </div>
           </div>
@@ -694,6 +703,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=1.7.7"></script>
+  <script src="app.js?v=1.7.7-topbar"></script>
 </body>
 </html>
