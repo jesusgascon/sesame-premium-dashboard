@@ -236,6 +236,14 @@ Para una inmersión profunda en los algoritmos de cruce de datos, heurísticas d
 
 ## 📜 Changelog Detallado
 
+### [v1.7.23] — 2026-06-11 | *Panel lateral, protección multi-empresa y aviso de token caducado*
+- **Añadido**: Banner de **token caducado** con detección en vivo: un 401 de Sesame muestra un aviso flotante con el nombre de la empresa y acciones directas (Renovar credenciales, Abrir Sesame). Se retira solo con la primera respuesta correcta; estado independiente por empresa.
+- **Añadido**: **Guarda anti-carrera** al cambiar de empresa: las cargas en vuelo de la empresa anterior se descartan sin pintar ni cachear, y se relanza la carga correcta.
+- **Añadido**: **Caché de fichajes sellada por empresa** (companyId en el payload, validado al leer) con purga automática de entradas envenenadas.
+- **Añadido**: **Validación de plantilla**: si el BI Engine devuelve empleados de otra empresa (token multi-empresa), se descartan y se usa el fallback REST. Nunca se pintan datos cruzados.
+- **Mejorado**: Panel lateral — contador y chips Todos/Ninguno en "Tipos de Ausencia", empty states en filtros y buscador, buscador con botón de limpiar, cabeceras plegables accesibles por teclado, widget Patrones con clases CSS y botones de empresa compactos en una fila.
+- **Mejorado**: switchCompany limpia también los mapas de balance y cancela cargas oficiales en vuelo.
+
 ### [v1.7.19] — 2026-06-11 | *Pulido del panel de detalle de fichaje*
 - **Corregido**: Errata en el título de la columna 3 del detalle: "AUTORÍA Y CONTROL" → "AUDITORÍA Y CONTROL".
 - **Corregido**: Badge de jornada en curso con clase propia `.detail-audit-live` y punto pulsante (antes reutilizaba la clase verde de "registro original" con fondo rojo inline).
