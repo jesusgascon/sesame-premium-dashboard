@@ -5,7 +5,7 @@
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Frontend](https://img.shields.io/badge/frontend-Vanilla%20JS%20(ES6+)-yellow.svg)
 ![Backend](https://img.shields.io/badge/backend-Python%20Proxy-green.svg)
-![Version](https://img.shields.io/badge/version-1.7.6-success.svg)
+![Version](https://img.shields.io/badge/version-1.7.7-success.svg)
 ![Status](https://img.shields.io/badge/status-Production%20Ready-success.svg)
 
 ---
@@ -235,6 +235,17 @@ Para una inmersión profunda en los algoritmos de cruce de datos, heurísticas d
 ---
 
 ## 📜 Changelog Detallado
+
+### [v1.7.7] — 2026-06-11 | *Pulido visual: insights colapsables, selector año/mes y tooltips contextuales*
+- **Añadido**: **Insights de Fichajes colapsables**. Las 4 tarjetas (Incidencias, Validaciones, Radar de anomalías, Solicitudes y ausencias) ahora vienen **colapsadas por defecto** con un toggle único que las expande/colapsa todas a la vez. El estado se persiste en `localStorage`. Cuando están cerradas, el toggle muestra un resumen en una línea con los contadores.
+- **Añadido**: **Selector año/mes** en el gestor de calendario. Modal centrado con navegación `‹ 2026 ›` y grid 3×4 de meses. Mes actual en violeta gradient, mes de HOY con borde azul, botones "Hoy" y "Cancelar". Acceso desde click en el título "Junio de 2026".
+- **Añadido**: **Tooltips contextuales** en la tabla de Balance del ejercicio. Pasando el ratón sobre el balance del periodo se ve `Trabajado / Teórico / Diferencia / Fuente` en multilínea; sobre la barra de visualización `Cumplimiento % + Trabajado + Teórico`; sobre el badge de estado una explicación clara ("El empleado debe horas para este ejercicio"). Sistema `[data-tip]` con soporte multilínea (white-space:pre-line) y posiciones top/bottom/left/right.
+- **Mejorado**: **Pill de días** en la tabla de Balances ahora vive en la misma fila del nombre del empleado, no en el centro vertical de la celda. Alineación horizontal limpia.
+- **Mejorado**: Modal Balance del ejercicio: secciones colapsables "Ajustes de jornada retribuidos" y "Jornadas y fichajes" tienen ahora **header como pill independiente** (sin caja envolvente que metiera el primer card "dentro" del header).
+- **Mejorado**: **Colores de fondo unificados** en las jornadas del balance. Los días con ausencia se marcan con un **borde lateral verde** de 3px en lugar de inundar la celda de color, evitando el choque cromático cuando se abren varias jornadas seguidas con y sin ausencia.
+- **Mejorado**: Layout del valor del balance diario migrado de flex a **grid de 3 columnas estables** `[Fecha (1fr)] 32px [Balance (min 90px)] 32px [Detalles]`. El balance ya no se desplaza al lado del botón "Detalles" cuando la fecha es corta, sino que mantiene una posición estable y respiración a ambos lados.
+- **Corregido**: El selector año/mes anterior basado en popover no recibía clicks por interferencias con el modal del gestor. Rediseñado como modal centrado robusto que siempre funciona.
+- **Corregido**: Solapamiento visual del primer card "Miércoles, 10 de junio" con el header "Jornadas y fichajes" en el modal Balance.
 
 ### [v1.7.6] — 2026-06-11 | *UX premium: toasts, confirmaciones, breadcrumbs & cache instantánea*
 - **Añadido**: Sistema de **toasts** no bloqueantes con cuatro variantes (success/error/warn/info), pause-on-hover, botón de cierre manual y auto-cierre adaptativo.
