@@ -2619,14 +2619,18 @@ function initMonthPickers() {
     document.querySelectorAll('.month-selector-title.active').forEach(t => t.classList.remove('active'));
   };
 
+  // Lista de IDs que este handler global puede manejar. Otros pickers
+  // (ej. el del gestor de calendario) tienen su propio sistema de listeners.
+  const KNOWN_GLOBAL_PICKER_IDS = ['vacaciones-month-picker', 'fichajes-month-picker'];
+
   // ── Un único listener por delegación en document ─────────────────────────
   document.addEventListener('click', (e) => {
     // Navegación de año (‹ ›)
     const yearBtn = e.target.closest('.mp-year-btn');
     if (yearBtn) {
-      e.stopPropagation();
       const picker = yearBtn.closest('.month-picker-popover');
-      if (!picker) return;
+      if (!picker || !KNOWN_GLOBAL_PICKER_IDS.includes(picker.id)) return; // picker ajeno
+      e.stopPropagation();
       const cur = parseInt(picker.querySelector('.mp-year-display').textContent, 10);
       const newY = yearBtn.classList.contains('prev-year') ? cur - 1 : cur + 1;
       _renderPicker(picker, newY, picker.id === 'fichajes-month-picker');
@@ -2636,9 +2640,9 @@ function initMonthPickers() {
     // Selección de mes
     const monthBtn = e.target.closest('.mp-month-btn');
     if (monthBtn) {
-      e.stopPropagation();
       const picker = monthBtn.closest('.month-picker-popover');
-      if (!picker) return;
+      if (!picker || !KNOWN_GLOBAL_PICKER_IDS.includes(picker.id)) return; // picker ajeno
+      e.stopPropagation();
       const month = parseInt(monthBtn.dataset.month, 10);
       const year  = parseInt(monthBtn.dataset.year,  10);
       const isSignings = picker.id === 'fichajes-month-picker';
@@ -11810,11 +11814,12 @@ async function openEmployeeScheduleManager(employeeId, options = {}) {
       document.addEventListener('click', onDocClick);
     }, 0);
   };
-  $monthTrigger.onclick = (e) => {
+  $monthTrigger.addEventListener('click', (e) => {
     e.stopPropagation();
+    e.preventDefault();
     if ($picker.classList.contains('active')) closePicker();
     else openPicker();
-  };
+  });
   $picker.querySelector('[data-picker-year-prev]').onclick = (e) => {
     e.stopPropagation();
     pickerYear--; renderPicker();
