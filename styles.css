@@ -3454,6 +3454,17 @@ body {
   min-height: 0;
 }
 
+/* Las secciones colapsables (Ajustes / Jornadas) NO usan caja envolvente:
+   el rectángulo del padre encerraba tanto al header como a los cards de
+   jornadas, creando la sensación de que el primer card estaba "dentro"
+   del header. Ahora son listas planas donde cada card es su propia tarjeta. */
+.balance-modal-section.balance-modal-section-collapsible {
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+}
+
 .balance-modal-section-head {
   display: flex;
   align-items: center;
@@ -3485,11 +3496,13 @@ body {
   cursor: pointer;
   list-style: none;
   user-select: none;
-  padding: 8px 12px;
-  margin: -4px -8px 0;  /* expandir el área clicable más allá del padding base */
-  border-radius: 10px;
+  padding: 14px 16px;
+  margin: 0;
+  border-radius: 14px;
   outline: none;
-  transition: background 0.15s ease;
+  background: rgba(255, 255, 255, 0.028);
+  border: 1px solid var(--border);
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
 .balance-modal-section-collapsible > summary::-webkit-details-marker,
 .balance-modal-section-collapsible > summary::marker {
