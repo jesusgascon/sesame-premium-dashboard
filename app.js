@@ -5,7 +5,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.7.12';
+const APP_VERSION = '1.7.13';
 
 // ─── Debug Mode ───────────────────────────────────────────────────────────────
 // false en producción (silencia console.log/info/warn).
@@ -9019,9 +9019,10 @@ const FichajesModule = {
     empIds.forEach(empId => {
       try {
         const s = this.buildBalanceEmployeeSummary(empId);
-        const usedBalance = s.officialBalance ?? s.localAdjustedBalance;
-        const usedWorked  = s.officialWorked  ?? s.worked;
-        const usedTheo    = s.officialTheoretic ?? s.theoretic;
+        const _csvUseOfficial = this.balanceLiveMode !== 'closed';
+        const usedBalance = (_csvUseOfficial && s.officialBalance != null) ? s.officialBalance : s.localAdjustedBalance;
+        const usedWorked  = (_csvUseOfficial && s.officialWorked != null) ? s.officialWorked : s.worked;
+        const usedTheo    = (_csvUseOfficial && s.officialTheoretic != null) ? s.officialTheoretic : s.theoretic;
         const fmtClock = m => {
           if (m === null || m === undefined) return '';
           const n = Math.max(0, Math.floor(Number(m) || 0));
@@ -9505,21 +9506,33 @@ const FichajesModule = {
       const _monthEndKey = getLocalDateKey(_monthLastDay);
       const { end: _rangeEnd } = this.getCurrentRangeKeys();
       const _projEnd = _monthEndKey < _rangeEnd ? _monthEndKey : _rangeEnd;
-      if (_projEnd > _todayKey) {
+      if (_projEnd >= _todayKey) {
         const _coveredDates = new Set(rows.map(r => r.date));
         const _empObj = STATE.allEmployees.get(id);
-        // Días futuros laborables sin fichaje
-        let _cursor = addLocalDays(_todayKey, 1);
+        const _todayRow = rows.find(r => r.date === _todayKey);
+        // En modo "Sin hoy" la fila live queda fuera del reduce, pero su teórico
+        // sí cuenta para el teórico del mes completo (criterio Sesame).
+        const _todayExcludedLive = this.balanceLiveMode === 'closed' && !!(_todayRow && _todayRow.isLive);
+        // Día de hoy (si no tiene fila o su fila live quedó excluida) + futuros laborables
+        let _cursor = _todayKey;
         while (_cursor <= _projEnd) {
-          if (isWeekdayDateKey(_cursor) && !_coveredDates.has(_cursor)) {
-            const _ovKey = `${id}_${_cursor}`;
-            const _ov = this.dayOverrides?.get(_ovKey);
+          const _isToday = _cursor === _todayKey;
+          const _needsTheoretic = _isToday
+            ? (!_coveredDates.has(_cursor) || _todayExcludedLive)
+            : !_coveredDates.has(_cursor);
+          if (isWeekdayDateKey(_cursor) && _needsTheoretic) {
             let _dayTh;
-            if (_ov && _ov.workdayOverride !== null) {
-              _dayTh = Number(_ov.workdayOverride || 0);
+            if (_isToday && _todayExcludedLive && Number(_todayRow.theoreticSeconds || 0) > 0) {
+              _dayTh = Number(_todayRow.theoreticSeconds || 0);
             } else {
-              const _res = _empObj ? resolveEmployeeScheduleForDate(_empObj, _cursor) : null;
-              _dayTh = _res?.secondsForDay ?? 28800;
+              const _ovKey = `${id}_${_cursor}`;
+              const _ov = this.dayOverrides?.get(_ovKey);
+              if (_ov && _ov.workdayOverride !== null) {
+                _dayTh = Number(_ov.workdayOverride || 0);
+              } else {
+                const _res = _empObj ? resolveEmployeeScheduleForDate(_empObj, _cursor) : null;
+                _dayTh = _res?.secondsForDay ?? 28800;
+              }
             }
             if (_dayTh > 0) {
               totals.theoretic += _dayTh;
@@ -9559,7 +9572,7 @@ const FichajesModule = {
       officialBalance,
       officialWorked: official?.secondsWorked ?? official?.workedSeconds ?? null,
       officialTheoretic: official?.secondsToWork ?? official?.theoreticSeconds ?? null,
-      source: officialBalance !== null ? 'Sesame Statistics' : (bagAdjustment ? 'Local + bolsa' : 'Calculado local'),
+      source: (officialBalance !== null && this.balanceLiveMode !== 'closed') ? 'Sesame Statistics' : (bagAdjustment ? 'Local + bolsa' : 'Calculado local'),
       pause: totals.pause,
       workSegments: totals.workSegments,
       pauseSegments: totals.pauseSegments,
@@ -9740,6 +9753,8 @@ const FichajesModule = {
         localBaseBalance: summary.localBaseBalance,
         localBaseBalanceFormatted: fmtSigned(summary.localBaseBalance),
         bagAdjustment: summary.bagAdjustment,
+        balanceLiveMode: this.balanceLiveMode,
+        balanceLiveModeLabel: this.balanceLiveMode === 'closed' ? 'Solo días cerrados (sin hoy)' : 'Incluye día actual (live)',
         localAdjustedBalance: summary.localAdjustedBalance,
         localAdjustedBalanceFormatted: fmtSigned(summary.localAdjustedBalance),
         officialBalance: summary.officialBalance,
@@ -9791,9 +9806,10 @@ const FichajesModule = {
       return `${value >= 0 ? '+' : '-'}${h}h ${m}m`;
     };
     const formatDuration = seconds => this.formatDurationCompact(Number(seconds || 0));
-    const balanceUsed = summary.officialBalance ?? summary.localAdjustedBalance;
-    const workedUsed = summary.officialWorked ?? summary.worked;
-    const theoreticUsed = summary.officialTheoretic ?? summary.theoretic;
+    const _useOfficial = this.balanceLiveMode !== 'closed';
+    const balanceUsed = (_useOfficial && summary.officialBalance != null) ? summary.officialBalance : summary.localAdjustedBalance;
+    const workedUsed = (_useOfficial && summary.officialWorked != null) ? summary.officialWorked : summary.worked;
+    const theoreticUsed = (_useOfficial && summary.officialTheoretic != null) ? summary.officialTheoretic : summary.theoretic;
     const balanceTone = balanceUsed > 0 ? 'positive' : balanceUsed < 0 ? 'negative' : 'neutral';
     const safeName = escapeHTML(summary.name);
     const safePhoto = safeHttpUrlAttr(summary.photo);
@@ -10151,22 +10167,33 @@ const FichajesModule = {
       const _btMonthEndKey = getLocalDateKey(_btMonthLastDay);
       const { end: _btRangeEnd } = this.getCurrentRangeKeys();
       const _btEnd = _btMonthEndKey < _btRangeEnd ? _btMonthEndKey : _btRangeEnd;
-      if (_btEnd > _btToday) {
+      if (_btEnd >= _btToday) {
         stats.forEach((stat, empId) => {
           if (stat.hasOfficialBalance) return;
           const _btEmp = STATE.allEmployees.get(empId);
-          const _btCovered = new Set(balanceRows.filter(r => String(r.employeeId) === empId).map(r => r.date));
-          // Días futuros laborables sin fichaje
-          let _btCursor = addLocalDays(_btToday, 1);
+          const _btEmpRows = balanceRows.filter(r => String(r.employeeId) === empId);
+          const _btCovered = new Set(_btEmpRows.map(r => r.date));
+          const _btTodayRow = _btEmpRows.find(r => r.date === _btToday);
+          const _btTodayExcluded = this.balanceLiveMode === 'closed' && !!(_btTodayRow && _btTodayRow.isLive);
+          // Día de hoy (sin fila o con fila live excluida) + futuros laborables
+          let _btCursor = _btToday;
           while (_btCursor <= _btEnd) {
-            if (isWeekdayDateKey(_btCursor) && !_btCovered.has(_btCursor)) {
-              const _btOv = this.dayOverrides?.get(`${empId}_${_btCursor}`);
+            const _btIsToday = _btCursor === _btToday;
+            const _btNeeds = _btIsToday
+              ? (!_btCovered.has(_btCursor) || _btTodayExcluded)
+              : !_btCovered.has(_btCursor);
+            if (isWeekdayDateKey(_btCursor) && _btNeeds) {
               let _btTh;
-              if (_btOv && _btOv.workdayOverride !== null) {
-                _btTh = Number(_btOv.workdayOverride || 0);
+              if (_btIsToday && _btTodayExcluded && Number(_btTodayRow.theoreticSeconds || 0) > 0) {
+                _btTh = Number(_btTodayRow.theoreticSeconds || 0);
               } else {
-                const _btRes = _btEmp ? resolveEmployeeScheduleForDate(_btEmp, _btCursor) : null;
-                _btTh = _btRes?.secondsForDay ?? 28800;
+                const _btOv = this.dayOverrides?.get(`${empId}_${_btCursor}`);
+                if (_btOv && _btOv.workdayOverride !== null) {
+                  _btTh = Number(_btOv.workdayOverride || 0);
+                } else {
+                  const _btRes = _btEmp ? resolveEmployeeScheduleForDate(_btEmp, _btCursor) : null;
+                  _btTh = _btRes?.secondsForDay ?? 28800;
+                }
               }
               if (_btTh > 0) stat.localTheoreticSeconds += _btTh;
             }
@@ -10257,7 +10284,8 @@ const FichajesModule = {
 
         const stat = stats.get(id);
         const officialBalance = official.secondsBalance ?? official.periodBalance;
-        if (typeof officialBalance === 'number') {
+        // En modo "Sin hoy" el dato oficial de Sesame no sirve: incluye el dia en curso.
+        if (typeof officialBalance === 'number' && this.balanceLiveMode !== 'closed') {
           stat.periodBalance = officialBalance;
           stat.hasOfficialBalance = true;
           stat.officialWorkedSeconds = official.secondsWorked ?? official.workedSeconds ?? null;
@@ -10460,6 +10488,7 @@ const FichajesModule = {
               ${errorCount} error/sin datos
             </span>
             ${officialSkipped ? '<span style="color:#f59e0b;">Modo local manual</span>' : ''}
+            ${this.balanceLiveMode === 'closed' ? '<span style="color:#2dd4bf;" title="El balance oficial de Sesame incluye el día en curso, por eso en este modo se usa el cálculo local de días cerrados.">Sin hoy: cálculo local</span>' : ''}
             ${lastError && !officialSkipped ? `<span title="${escapeHTML(lastError)}" style="color:#f59e0b;">Ultimo error resumido</span>` : ''}
             <span class="balance-source-actions">
               ${balanceScopeActionHtml}
