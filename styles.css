@@ -1487,6 +1487,11 @@ body {
   user-select: none;
 }
 .section-header:hover .section-title { color: var(--text-primary); }
+.section-header:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
 
 .section-title {
   font-size: 0.72rem; font-weight: 700; color: var(--text-muted);
@@ -1578,28 +1583,31 @@ body {
 
 .company-actions-row {
   display: flex;
-  gap: 6px;
+  gap: 4px;
   width: 100%;
 }
 
 .btn-action-wide {
   flex: 1;
-  height: 36px;
+  min-width: 0;
+  height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 4px;
+  padding: 0 4px;
   background: rgba(255,255,255,0.04);
   border: 1px solid var(--border);
   border-radius: 8px;
   color: var(--text-secondary);
-  font-size: 0.68rem;
+  font-size: 0.6rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
   cursor: pointer;
   transition: all 0.2s ease;
   white-space: nowrap;
+  overflow: hidden;
 }
 
 .full-width-action {
@@ -1632,7 +1640,7 @@ body {
   background: rgba(255, 107, 138, 0.1);
 }
 
-.btn-icon-sm { font-size: 0.85rem; }
+.btn-icon-sm { font-size: 0.7rem; }
 
 /* Chip Toggles */
 .chip-group {
@@ -1709,6 +1717,144 @@ body {
   border-color: var(--accent-glow);
 }
 
+/* ── Banner de token caducado (detección en vivo por 401) ── */
+.token-expired-banner {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: min(680px, calc(100vw - 32px));
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: rgba(30, 14, 18, 0.92);
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(239, 68, 68, 0.12);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  animation: tokenBannerIn 0.35s cubic-bezier(0.34, 1.3, 0.64, 1) both;
+}
+
+@keyframes tokenBannerIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(-16px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+[data-theme="light"] .token-expired-banner {
+  background: rgba(255, 245, 245, 0.96);
+  border-color: rgba(220, 38, 38, 0.4);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+}
+
+.token-expired-icon {
+  font-size: 1.4rem;
+  flex-shrink: 0;
+}
+
+.token-expired-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.token-expired-text strong {
+  font-size: 0.85rem;
+  color: #f87171;
+}
+
+[data-theme="light"] .token-expired-text strong {
+  color: #dc2626;
+}
+
+.token-expired-text span {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.token-expired-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.token-expired-btn {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.18s ease;
+}
+
+.token-expired-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+.token-expired-btn.primary {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #f87171;
+}
+
+.token-expired-btn.primary:hover {
+  background: rgba(239, 68, 68, 0.26);
+}
+
+[data-theme="light"] .token-expired-btn.primary {
+  color: #dc2626;
+}
+
+.token-expired-close {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.token-expired-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+@media (max-width: 640px) {
+  .token-expired-banner {
+    flex-wrap: wrap;
+    top: 8px;
+  }
+  .token-expired-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
+.filter-empty-hint {
+  padding: 10px 12px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  opacity: 0.65;
+  font-style: italic;
+  text-align: center;
+}
+
 .skeleton-filter {
   height: 32px; border-radius: var(--radius-sm);
   background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%);
@@ -1762,6 +1908,16 @@ body {
   box-sizing: border-box;
   transition: border-color 0.2s;
 }
+.emp-search-input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  background: var(--text-muted);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round'%3E%3Cline x1='6' y1='6' x2='18' y2='18'/%3E%3Cline x1='18' y1='6' x2='6' y2='18'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round'%3E%3Cline x1='6' y1='6' x2='18' y2='18'/%3E%3Cline x1='18' y1='6' x2='6' y2='18'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
 .emp-search-input:focus {
   outline: none;
   border-color: var(--accent);
@@ -5746,6 +5902,38 @@ body.kiosko-mode-active #current-month-signings {
 .animate-pop { animation: pop 0.3s cubic-bezier(0.17, 0.67, 0.83, 0.67); }
 
 /* --- Perfil Widgets --- */
+.pattern-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+  font-size: 0.8rem;
+}
+
+.pattern-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pattern-stat-label {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.pattern-stat-val {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
+.pattern-stat-val.alt {
+  font-weight: 500;
+  font-size: 0.8rem;
+}
+
 .profile-widget {
   padding: 12px;
   border-radius: var(--radius-md);

@@ -5,7 +5,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.7.19';
+const APP_VERSION = '1.7.23';
 
 // ─── Debug Mode ───────────────────────────────────────────────────────────────
 // false en producción (silencia console.log/info/warn).
@@ -711,6 +711,71 @@ function saveTokenTimestamp(companyId) {
   }
 }
 
+// ── Banner de token caducado (detección en vivo por 401) ───────────────────
+// A diferencia de renderTokenStatus (edad del token), esto reacciona a
+// rechazos reales de Sesame: aparece en cuanto una petición devuelve 401.
+function markTokenExpired() {
+  const cid = STATE.companyId;
+  if (!cid) return;
+  if (!STATE.expiredTokenCompanies) STATE.expiredTokenCompanies = new Set();
+  STATE.expiredTokenCompanies.add(cid);
+  renderTokenExpiredBanner();
+}
+
+function clearTokenExpired() {
+  const cid = STATE.companyId;
+  if (!cid || !STATE.expiredTokenCompanies) return;
+  if (STATE.expiredTokenCompanies.delete(cid)) renderTokenExpiredBanner();
+}
+
+function renderTokenExpiredBanner() {
+  const cid = STATE.companyId;
+  const isExpired = !!(cid && STATE.expiredTokenCompanies?.has(cid));
+  const isDismissed = !!(cid && STATE.expiredTokenBannerDismissed?.has(cid));
+  let banner = document.getElementById('token-expired-banner');
+
+  if (!isExpired || isDismissed) {
+    banner?.remove();
+    return;
+  }
+
+  const company = STATE.companies.find(c => c.companyId === cid);
+  const safeName = escapeHTML(company?.name || 'la empresa activa');
+
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'token-expired-banner';
+    banner.className = 'token-expired-banner';
+    document.body.appendChild(banner);
+  }
+
+  banner.innerHTML = `
+    <span class="token-expired-icon" aria-hidden="true">🔑</span>
+    <div class="token-expired-text">
+      <strong>Token de ${safeName} caducado</strong>
+      <span>Sesame está rechazando las peticiones (401). Renueva el token para volver a ver datos reales.</span>
+    </div>
+    <div class="token-expired-actions">
+      <button type="button" class="token-expired-btn primary" data-action="renew">✏️ Renovar credenciales</button>
+      <button type="button" class="token-expired-btn" data-action="sesame">🌐 Abrir Sesame</button>
+      <button type="button" class="token-expired-close" data-action="dismiss" aria-label="Ocultar aviso">✕</button>
+    </div>
+  `;
+
+  banner.querySelector('[data-action="renew"]')?.addEventListener('click', () => {
+    const target = STATE.companies.find(c => c.companyId === STATE.companyId);
+    if (typeof showSetup === 'function') showSetup(target);
+  });
+  banner.querySelector('[data-action="sesame"]')?.addEventListener('click', () => {
+    window.open('https://app.sesametime.com', '_blank', 'noopener');
+  });
+  banner.querySelector('[data-action="dismiss"]')?.addEventListener('click', () => {
+    if (!STATE.expiredTokenBannerDismissed) STATE.expiredTokenBannerDismissed = new Set();
+    STATE.expiredTokenBannerDismissed.add(STATE.companyId);
+    renderTokenExpiredBanner();
+  });
+}
+
 function renderTokenStatus() {
   const bar = document.getElementById('token-status-bar');
   if (!bar || !STATE.companyId) return;
@@ -887,6 +952,12 @@ async function apiFetch(path, params = {}, isRetry = false) {
 
   try {
     const res = await fetch(finalUrl.toString(), fetchOptions);
+
+    // Detección de token caducado en vivo: un 401 marca la empresa activa
+    // como caducada (banner visible); cualquier respuesta correcta la
+    // desmarca automáticamente (token renovado o válido de nuevo).
+    if (res.status === 401) markTokenExpired();
+    else if (res.ok) clearTokenExpired();
 
     // Rastrear estados para Auditoría
     if (path.includes('/me')) AUDIT.lastMeStatus = res.status;
@@ -2381,6 +2452,12 @@ function switchCompany(cid) {
   // Apply branding immediately for better UX
   applyCompanyBranding(next);
 
+  // El banner de token caducado es por empresa: al cambiar, mostrar/ocultar
+  // según el estado de la nueva. Editar credenciales también lo re-evalúa
+  // (el primer 200 de la nueva sesión lo limpia automáticamente).
+  if (STATE.expiredTokenBannerDismissed) STATE.expiredTokenBannerDismissed.delete(next.companyId);
+  renderTokenExpiredBanner();
+
   // Persist choice to server
   if (isLocalProxy()) {
     fetch('/save-config', {
@@ -2399,8 +2476,21 @@ function switchCompany(cid) {
   // Limpiamos datos del módulo de fichajes si existe
   if (typeof FichajesModule !== 'undefined') {
     FichajesModule.data = [];
+    FichajesModule.realSignings = [];
     if (FichajesModule.failedIds) FichajesModule.failedIds.clear();
     FichajesModule.biSchemaFields = null;
+    FichajesModule.biTheoreticMap = new Map();
+    FichajesModule.dayOverrides = new Map();
+    FichajesModule.balanceCalendarSummaryMap = new Map();
+    FichajesModule.absenceTimesMap = new Map();
+    // Cancelar cargas de balance en vuelo y vaciar los mapas oficiales de la
+    // empresa anterior (officialHoursBagMap, hoursBagRuleHistoryMap, etc.)
+    if (typeof FichajesModule.resetOfficialWorkedHoursState === 'function') {
+      FichajesModule.resetOfficialWorkedHoursState({ cancel: true });
+    }
+    if (typeof FichajesModule.cancelBalanceWarmup === 'function') {
+      FichajesModule.cancelBalanceWarmup();
+    }
   }
 
   // Limpiar caché de rutas y modo de empresa (cada empresa puede tener permisos distintos)
@@ -2847,6 +2937,32 @@ async function startApp() {
     e.preventDefault();
     STATE.allEmployees.forEach((emp, id) => STATE.hiddenEmployeeIds.add(String(id)));
     refreshAllViews();
+  });
+
+  const absSelAll = $('abs-sel-all');
+  if (absSelAll) absSelAll.addEventListener('click', (e) => {
+    e.preventDefault();
+    STATE.absenceTypes.forEach(type => STATE.activeFilters.add(type.id));
+    refreshAllViews();
+  });
+
+  const absSelNone = $('abs-sel-none');
+  if (absSelNone) absSelNone.addEventListener('click', (e) => {
+    e.preventDefault();
+    STATE.activeFilters.clear();
+    refreshAllViews();
+  });
+
+  // Cabeceras de sección plegables accesibles por teclado (Enter/Espacio)
+  document.querySelectorAll('.sidebar-section .section-header').forEach(header => {
+    header.setAttribute('tabindex', '0');
+    header.setAttribute('role', 'button');
+    header.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        header.click();
+      }
+    });
   });
 
   const exportBtn = $('export-btn');
@@ -3404,9 +3520,13 @@ function renderFilters() {
     });
   });
 
+  let visibleTypes = 0;
+  let activeTypes = 0;
   STATE.absenceTypes.forEach(type => {
     const count = counts[type.id] || 0;
     if (count === 0) return; // Ocultar si el conteo es 0
+    visibleTypes += 1;
+    if (STATE.activeFilters.has(type.id)) activeTypes += 1;
 
     const color = resolveColor(type.color);
     const chip = document.createElement('button');
@@ -3419,6 +3539,17 @@ function renderFilters() {
     chip.addEventListener('click', () => toggleFilter(type.id, chip));
     container.appendChild(chip);
   });
+
+  if (visibleTypes === 0) {
+    container.innerHTML = '<div class="filter-empty-hint">Sin ausencias en este periodo</div>';
+  }
+
+  const absTitle = $('absence-filter-title');
+  if (absTitle) {
+    absTitle.innerHTML = visibleTypes > 0
+      ? `Tipos de Ausencia <span class="emp-filter-count">(${activeTypes}/${visibleTypes})</span>`
+      : 'Tipos de Ausencia';
+  }
 }
 
 function toggleFilter(typeId, chip) {
@@ -3495,6 +3626,12 @@ function renderEmployeeFilterList() {
 
     container.appendChild(label);
   });
+
+  if (!container.children.length) {
+    container.innerHTML = search
+      ? `<div class="filter-empty-hint">Sin resultados para «${escapeHTML(search)}»</div>`
+      : '<div class="filter-empty-hint">Sin empleados cargados</div>';
+  }
 
   // Update counter in title
   if (title) {
@@ -5014,6 +5151,27 @@ const FichajesModule = {
     return this.currentView === 'balance' && this.balanceScope === 'month';
   },
 
+  /**
+   * Detecta si un conjunto de filas pertenece a OTRA empresa: con tokens
+   * multi-empresa, el BI Engine puede ignorar la cabecera x-company-id y
+   * devolver los fichajes de la empresa del token. Si menos del 20% de los
+   * empleados de las filas están en la plantilla activa, es de otra empresa.
+   */
+  rowsBelongToAnotherCompany(rows) {
+    if (!Array.isArray(rows) || rows.length === 0) return false;
+    if (!STATE.allEmployees || STATE.allEmployees.size === 0) return false;
+    const ids = new Set();
+    for (const row of rows) {
+      const id = row.employeeId ?? row.employee_id ?? row.employee?.id;
+      if (id !== null && id !== undefined && id !== '') ids.add(String(id));
+      if (ids.size >= 60) break;
+    }
+    if (ids.size === 0) return false;
+    let known = 0;
+    ids.forEach(id => { if (STATE.allEmployees.has(id)) known += 1; });
+    return (known / ids.size) < 0.2;
+  },
+
   syncViewButtons() {
     document.querySelectorAll('#fichajes-view-toggle .vt-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.fichajeView === this.currentView);
@@ -5951,6 +6109,11 @@ const FichajesModule = {
     if (this.isLoading) return;
     this.isLoading = true;
 
+    // Empresa para la que se lanza esta carga. Si el usuario cambia de empresa
+    // mientras la petición está en vuelo, los resultados se descartan al final
+    // (guarda anti-carrera: evita pintar/cachear datos de la empresa anterior).
+    const loadCompanyId = STATE.companyId;
+
     const isSilent = !!options.silent;
     const isBalanceLoad = this.currentView === 'balance';
     if (!isSilent && isBalanceLoad) {
@@ -6009,15 +6172,21 @@ const FichajesModule = {
       if (cached && !ignoreCache && !isSilent) {
         try {
           const parsed = JSON.parse(cached);
-          this.data = parsed.data || [];
-          this.realSignings = parsed.realSignings || [];
-          // Map no se serializa a JSON: hay que reconstruirlo
-          if (parsed.biTheoreticMap) {
-            this.biTheoreticMap = new Map(Object.entries(parsed.biTheoreticMap));
+          // Validar el sello de empresa: entradas sin sello (formato antiguo) o
+          // de otra empresa se descartan para evitar mostrar datos cruzados.
+          if (parsed.companyId !== STATE.companyId) {
+            sessionStorage.removeItem(cacheKey);
+          } else {
+            this.data = parsed.data || [];
+            this.realSignings = parsed.realSignings || [];
+            // Map no se serializa a JSON: hay que reconstruirlo
+            if (parsed.biTheoreticMap) {
+              this.biTheoreticMap = new Map(Object.entries(parsed.biTheoreticMap));
+            }
+            this.populateEmployeeSelect();
+            this.renderTable();
+            console.info(`Fichajes: Cache hits for ${start}/${end} (${this.data.length} registros).`);
           }
-          this.populateEmployeeSelect();
-          this.renderTable();
-          console.info(`Fichajes: Cache hits for ${start}/${end} (${this.data.length} registros).`);
         } catch (e) {
           console.warn("Fichajes cache parse error:", e);
         }
@@ -6728,6 +6897,16 @@ const FichajesModule = {
         if (p.employee) upsertEmployee(p.employee);
       });
 
+      // VALIDACIÓN DE PLANTILLA: si el BI ha devuelto empleados de otra empresa
+      // (token multi-empresa: bi-engine escopa por token, no por cabecera),
+      // se descartan esos datos para que el fallback REST cargue los correctos.
+      if (this.rowsBelongToAnotherCompany(biData)) {
+        console.warn(`BI Engine [${String(STATE.companyId || '').substring(0, 8)}]: las filas devueltas pertenecen a otra empresa (${biData.length}). Descartando BI y usando fallback REST.`);
+        biData = [];
+        biTheoreticMap = new Map();
+        this.biTheoreticMap = new Map();
+      }
+
       this.data = this.parseRealSignings(biData, localAbsences);
 
       // SUPER FALLBACK: Si no hay datos en BI, pedimos los fichajes emp a emp
@@ -6916,6 +7095,29 @@ const FichajesModule = {
         });
       }
 
+      // RED DE SEGURIDAD: si tras todos los fallbacks los datos siguen siendo
+      // de otra empresa, no se pintan (mejor sin datos que datos cruzados).
+      if (this.rowsBelongToAnotherCompany(this.data)) {
+        console.warn('Fichajes: los datos recibidos no pertenecen a la plantilla de la empresa activa. Se descartan. Revisa que el token configurado sea de esta empresa.');
+        this.data = [];
+        this.realSignings = [];
+        this.biTheoreticMap = new Map();
+      }
+
+      // GUARDA ANTI-CARRERA: si la empresa activa cambió mientras esta carga
+      // estaba en vuelo, los datos pertenecen a la empresa anterior. Se
+      // descartan sin pintar ni cachear, y se relanza la carga correcta.
+      if (STATE.companyId !== loadCompanyId) {
+        console.warn('Fichajes: resultados descartados, la empresa cambió durante la carga.');
+        this.data = [];
+        this.realSignings = [];
+        if (isSilent) { restoreSilentState(); return; }
+        if (STATE.currentModule === 'fichajes' || STATE.currentModule === 'balances') {
+          window.setTimeout(() => this.loadData(true), 60);
+        }
+        return;
+      }
+
       if (this.currentView === 'balance' && !isSilent) {
         // En refresh automático no relanzamos warmup ni pulses (anima sin pedirlo)
         this.prepareOfficialWorkedHoursLoad(start, end);
@@ -6967,6 +7169,7 @@ const FichajesModule = {
       if (this.currentView !== 'balance') {
         try {
           sessionStorage.setItem(cacheKey, JSON.stringify({
+            companyId: loadCompanyId,
             data: this.data,
             realSignings: this.realSignings,
             biTheoreticMap: Object.fromEntries(this.biTheoreticMap || new Map())

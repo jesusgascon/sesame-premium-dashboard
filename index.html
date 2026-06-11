@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=1.7.19" />
+  <link rel="stylesheet" href="styles.css?v=1.7.23" />
   <script>
     // Apply theme as early as possible to avoid dark flash
     const savedTheme = localStorage.getItem('theme') || 'dark';
@@ -53,7 +53,7 @@
       </div>
 
       <div class="setup-footer-info">
-        <span id="app-version-display">Sesame HR Premium Dashboard v1.7.19</span>
+        <span id="app-version-display">Sesame HR Premium Dashboard v1.7.23</span>
       </div>
     </div>
   </div>
@@ -174,10 +174,10 @@
             <button id="edit-company-btn" class="btn-action-wide edit" title="Editar empresa activa">
               <span class="btn-icon-sm">📝</span> Editar
             </button>
+            <button id="delete-company-btn" class="btn-action-wide delete" title="Eliminar empresa activa">
+              <span class="btn-icon-sm">🗑️</span> Borrar
+            </button>
           </div>
-          <button id="delete-company-btn" class="btn-action-wide delete full-width-action" title="Eliminar empresa activa">
-            <span class="btn-icon-sm">🗑️</span> Borrar Empresa Activa
-          </button>
         </div>
       </div>
 
@@ -220,12 +220,16 @@
       <!-- Filters -->
       <div id="absence-section" class="sidebar-section">
         <div class="section-header" onclick="toggleSection('absence-section')">
-          <h3 class="section-title">Tipos de Ausencia</h3>
+          <h3 class="section-title" id="absence-filter-title">Tipos de Ausencia</h3>
           <div class="section-toggle">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
           </div>
         </div>
         <div class="section-content">
+          <div class="chip-group" style="margin-bottom: 10px;">
+            <button id="abs-sel-all" class="chip-btn">Todos</button>
+            <button id="abs-sel-none" class="chip-btn">Ninguno</button>
+          </div>
           <div id="absence-type-filters" class="filter-list">
             <div class="skeleton-filter"></div>
             <div class="skeleton-filter"></div>
@@ -249,7 +253,7 @@
             <button id="emp-sel-all" class="chip-btn">Todos</button>
             <button id="emp-sel-none" class="chip-btn">Ninguno</button>
           </div>
-          <input type="text" id="employee-search" placeholder="🔍 Buscar empleado..." class="emp-search-input" aria-label="Buscar empleado">
+          <input type="search" id="employee-search" placeholder="🔍 Buscar empleado..." class="emp-search-input" aria-label="Buscar empleado">
           <div class="employee-filters" id="employee-filters">
             <!-- Populated by JS -->
           </div>
@@ -286,14 +290,14 @@
             <div class="widget-header">
               <span class="widget-title">Mis Patrones (Semana)</span>
             </div>
-            <div style="font-size: 0.8rem; margin-top: 12px; display: flex; flex-direction: column; gap: 10px;">
-              <div style="display: flex; flex-direction: column; gap: 2px;">
-                <span style="color: var(--text-muted); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px;">Hora Media Entrada</span>
-                <span id="pattern-avg-in" style="font-weight: 600; font-size: 0.9rem; color: var(--text-main);">--:--</span>
+            <div class="pattern-stats">
+              <div class="pattern-stat">
+                <span class="pattern-stat-label">Hora Media Entrada</span>
+                <span id="pattern-avg-in" class="pattern-stat-val">--:--</span>
               </div>
-              <div style="display: flex; flex-direction: column; gap: 2px;">
-                <span style="color: var(--text-muted); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px;">Jornada más larga</span>
-                <span id="pattern-max-day" style="font-weight: 500; color: var(--text-main);">--</span>
+              <div class="pattern-stat">
+                <span class="pattern-stat-label">Jornada más larga</span>
+                <span id="pattern-max-day" class="pattern-stat-val alt">--</span>
               </div>
             </div>
           </div>
@@ -699,10 +703,10 @@
       </div>
       <h2>Conectando a Sesame</h2>
       <p>Sincronizando y normalizando la inteligencia operativa...</p>
-      <div class="loading-version-badge" id="loading-version-badge">v1.7.19</div>
+      <div class="loading-version-badge" id="loading-version-badge">v1.7.23</div>
     </div>
   </div>
 
-  <script src="app.js?v=1.7.19"></script>
+  <script src="app.js?v=1.7.23"></script>
 </body>
 </html>
