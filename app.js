@@ -5,7 +5,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.7.15';
+const APP_VERSION = '1.7.16';
 
 // ─── Debug Mode ───────────────────────────────────────────────────────────────
 // false en producción (silencia console.log/info/warn).
@@ -3630,6 +3630,12 @@ function renderCalendar() {
   const grid = $('calendar-grid');
   grid.innerHTML = '';
 
+  // Clase de vista para escalar celdas/contenido por CSS y cabecera coherente
+  grid.classList.remove('cal-view-month', 'cal-view-week', 'cal-view-day');
+  grid.classList.add(`cal-view-${STATE.calView}`);
+  const headerDays = document.querySelector('.calendar-header-days');
+  if (headerDays) headerDays.style.display = STATE.calView === 'day' ? 'none' : 'grid';
+
   const y = STATE.currentDate.getFullYear();
   const m = STATE.currentDate.getMonth();
 
@@ -3740,22 +3746,27 @@ function buildDayCell(date, otherMonth) {
     eventsContainer.appendChild(pill);
   });
 
-  // Avatars
+  // Avatars: en semana/día hay más espacio, así que se muestran más y más grandes
+  const _maxAvatars = STATE.calView === 'day' ? 40 : STATE.calView === 'week' ? 12 : 6;
+  const _avatarSize = STATE.calView === 'day' ? 28 : STATE.calView === 'week' ? 24 : 18;
   if (filteredEvents.length > 0) {
     const avatarRow = document.createElement('div');
     avatarRow.className = 'day-avatars';
     const allEmployees = filteredEvents.flatMap(e => e.employees);
-    const shown = allEmployees.slice(0, 6);
+    const shown = allEmployees.slice(0, _maxAvatars);
     shown.forEach(emp => {
-      avatarRow.appendChild(buildAvatar(emp, 18));
+      avatarRow.appendChild(buildAvatar(emp, _avatarSize));
     });
-    if (allEmployees.length > 6) {
+    if (allEmployees.length > _maxAvatars) {
       const more = document.createElement('div');
       more.className = 'day-more-badge';
-      more.textContent = `+${allEmployees.length - 6}`;
+      more.textContent = `+${allEmployees.length - _maxAvatars}`;
       avatarRow.appendChild(more);
     }
     cell.appendChild(avatarRow);
+  } else if (!otherMonth && STATE.calView !== 'month') {
+    // En semana/día una celda vacía sin nada parece rota: indicarlo con sutileza
+    eventsContainer.innerHTML = '<div class="day-empty-hint">Sin ausencias</div>';
   }
 
   if (!otherMonth && filteredEvents.length > 0) {
@@ -4258,11 +4269,19 @@ function renderStats() {
   });
 }
 // ── Modal ──────────────────────────────────────────────────────────────────
+const _dayModalEscHandler = e => { if (e.key === 'Escape') closeModal(); };
+
 function openModal(dateStr, events) {
   const [y, m, d] = dateStr.split('-').map(Number);
   const dateObj = new Date(y, m-1, d);
   const opts    = { weekday:'long', day:'numeric', month:'long', year:'numeric' };
-  $('modal-date-title').textContent = dateObj.toLocaleDateString('es-ES', opts);
+  const totalPeople = events.reduce((sum, evt) => sum + evt.employees.length, 0);
+  const subParts = [
+    `${totalPeople} persona${totalPeople === 1 ? '' : 's'}`,
+    `${events.length} tipo${events.length === 1 ? '' : 's'} de ausencia`
+  ];
+  $('modal-date-title').innerHTML = `${escapeHTML(dateObj.toLocaleDateString('es-ES', opts))}<small class="modal-date-sub">${subParts.join(' · ')}</small>`;
+  document.addEventListener('keydown', _dayModalEscHandler);
 
   const body = $('modal-body');
   body.innerHTML = '';
@@ -4323,6 +4342,7 @@ function openModal(dateStr, events) {
 }
 
 function closeModal() {
+  document.removeEventListener('keydown', _dayModalEscHandler);
   $('day-modal').classList.add('hidden');
 }
 
