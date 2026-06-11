@@ -3504,17 +3504,16 @@ body {
   outline-offset: 2px;
 }
 .balance-modal-section-collapsible[open] > summary {
-  margin-bottom: 14px;
-  /* Borde inferior sutil para marcar el límite del header cuando está open */
-  padding-bottom: 12px;
-  border-bottom: 1px solid rgba(99, 102, 241, 0.10);
-  border-radius: 10px 10px 0 0;
+  margin-bottom: 18px;
+  /* Mantener el border-radius completo (no recortar la parte inferior):
+     el summary es una pill independiente, no se "pega" al contenido siguiente. */
 }
-/* Garantizar que el contenido tras el summary tenga su propio espacio
-   y no quede visualmente "metido" en el header. */
+/* Separación clara entre header y contenido. Margin-top extra evita la
+   sensación de solapamiento con el primer card de la lista, que viene con
+   su propio fondo + bordes redondeados. */
 .balance-modal-section-collapsible[open] > .balance-compensated-list,
 .balance-modal-section-collapsible[open] > .balance-days-list {
-  margin-top: 4px;
+  margin-top: 8px;
 }
 /* El strong es el título principal, que NO debe encogerse ni crecer */
 .balance-modal-section-collapsible > summary > strong {
