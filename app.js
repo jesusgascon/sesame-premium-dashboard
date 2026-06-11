@@ -11056,19 +11056,7 @@ async function openEmployeeScheduleManager(employeeId, options = {}) {
 
       <div class="schedule-manager-toolbar">
         <button class="schedule-nav-btn" data-nav="prev" aria-label="Mes anterior">‹</button>
-        <button class="schedule-current-month month-selector-title" data-month-label data-action="open-month-picker" type="button" title="Saltar a otro mes/año"></button>
-        <div class="month-picker-popover schedule-month-picker-popover" data-month-picker>
-          <div class="month-picker-header">
-            <button class="mp-year-btn prev-year" data-picker-year-prev type="button">‹</button>
-            <span class="mp-year-display" data-picker-year-label></span>
-            <button class="mp-year-btn next-year" data-picker-year-next type="button">›</button>
-          </div>
-          <div class="month-picker-grid">
-            ${['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
-              .map((m, i) => `<button type="button" class="mp-month-btn" data-month-index="${i}">${m}</button>`)
-              .join('')}
-          </div>
-        </div>
+        <button class="schedule-current-month" data-month-label data-action="open-month-picker" type="button" title="Saltar a otro mes/año"></button>
         <button class="schedule-nav-btn" data-nav="next" aria-label="Mes siguiente">›</button>
         <div class="schedule-toolbar-spacer"></div>
         <span class="schedule-pending-badge hidden" data-pending-badge>0 cambios sin guardar</span>
@@ -11112,8 +11100,8 @@ async function openEmployeeScheduleManager(employeeId, options = {}) {
   const close = () => {
     overlay.remove();
     // Limpiar el popover del selector mes/año que vive fuera del modal (en body)
-    const orphanPicker = document.querySelector('.schedule-month-picker-popover');
-    if (orphanPicker) orphanPicker.remove();
+    // Cerrar también el chooser de mes/año si quedó abierto
+    document.querySelectorAll('.schedule-mp-modal-overlay').forEach(el => el.remove());
     document.removeEventListener('keydown', onKey);
     if (typeof options.onClose === 'function') {
       try { options.onClose(); } catch {}
@@ -11823,95 +11811,87 @@ async function openEmployeeScheduleManager(employeeId, options = {}) {
     renderMonth();
   };
 
-  // ── Selector rápido de año/mes (reutiliza estilos .month-picker-popover) ──
-  const $picker = overlay.querySelector('[data-month-picker]');
-  const $pickerYearLabel = $picker.querySelector('[data-picker-year-label]');
-  const $monthTrigger = overlay.querySelector('[data-action="open-month-picker"]');
-  let pickerYear = viewYear;
-
-  // El modal tiene backdrop-filter + overflow:hidden, lo que crea un nuevo
-  // containing block para `position: fixed` y recorta el popover. Lo movemos
-  // al <body> para que se renderice fuera del modal y se vea correctamente.
-  document.body.appendChild($picker);
-
-  const renderPicker = () => {
-    $pickerYearLabel.textContent = pickerYear;
-    $picker.querySelectorAll('[data-month-index]').forEach(btn => {
-      const m = Number(btn.dataset.monthIndex);
-      btn.classList.toggle('selected', m === viewMonth && pickerYear === viewYear);
-    });
-  };
-  const closePicker = () => {
-    $picker.classList.remove('active');
-    $monthTrigger.classList.remove('active');
-  };
-  const openPicker = () => {
-    pickerYear = viewYear;
-    renderPicker();
-    const rect = $monthTrigger.getBoundingClientRect();
-    const popoverW = 220;
-    let leftPos = rect.left + rect.width / 2 - popoverW / 2;
-    if (leftPos + popoverW > window.innerWidth - 8) leftPos = window.innerWidth - popoverW - 8;
-    if (leftPos < 8) leftPos = 8;
-    // Forzar estilos inline con !important para que ganen sobre cualquier
-    // estilo heredado o del CSS que pudiera ocultarlo (display:none, etc).
-    $picker.setAttribute('style', [
-      `position: fixed !important`,
-      `top: ${rect.bottom + 8}px !important`,
-      `left: ${leftPos}px !important`,
-      `z-index: 10500 !important`,
-      `opacity: 1 !important`,
-      `visibility: visible !important`,
-      `pointer-events: auto !important`,
-      `display: block !important`
-    ].join('; '));
-    $picker.classList.add('active');
-    $monthTrigger.classList.add('active');
-    console.info('[picker]', 'opened', {
-      pickerInBody: document.body.contains($picker),
-      pickerClasses: $picker.className,
-      pickerStyle: $picker.getAttribute('style')?.substring(0, 100),
-      rect: { top: rect.top, bottom: rect.bottom, left: rect.left, width: rect.width },
-      viewport: { w: window.innerWidth, h: window.innerHeight }
-    });
-    setTimeout(() => {
-      const onDocClick = (e) => {
-        if (!$picker.contains(e.target) && !$monthTrigger.contains(e.target)) {
-          closePicker();
-          document.removeEventListener('click', onDocClick);
-        }
-      };
-      document.addEventListener('click', onDocClick);
-    }, 0);
-  };
-  $monthTrigger.addEventListener('click', (e) => {
-    console.info('[picker] click on month trigger', { active: $picker.classList.contains('active') });
-    e.stopPropagation();
-    e.preventDefault();
-    if ($picker.classList.contains('active')) closePicker();
-    else openPicker();
-  });
-  // También en capture phase como fallback por si el global come el evento
-  $monthTrigger.addEventListener('click', (e) => {
-    console.info('[picker] click on month trigger (capture)');
-  }, true);
-  $picker.querySelector('[data-picker-year-prev]').onclick = (e) => {
-    e.stopPropagation();
-    pickerYear--; renderPicker();
-  };
-  $picker.querySelector('[data-picker-year-next]').onclick = (e) => {
-    e.stopPropagation();
-    pickerYear++; renderPicker();
-  };
-  $picker.querySelectorAll('[data-month-index]').forEach(btn => {
-    btn.onclick = (e) => {
-      e.stopPropagation();
-      viewMonth = Number(btn.dataset.monthIndex);
-      viewYear = pickerYear;
-      closePicker();
-      renderMonth();
+  // ── Selector rápido de año/mes (modal centrado, robusto) ────────────────
+  // Antes era un popover pegado al botón que fallaba por z-index/clipping.
+  // Ahora abre un modal centrado igual que ssmConfirm: garantiza visibilidad.
+  const openMonthYearChooser = () => {
+    const months = ['Enero','Febrero','Marzo','Abril','Mayo','Junio',
+                    'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    const shortMonths = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+    let chosenYear = viewYear;
+    const overlayEl = document.createElement('div');
+    overlayEl.className = 'ssm-confirm-overlay schedule-mp-modal-overlay';
+    const renderInner = () => {
+      const todayMonth = new Date().getMonth();
+      const todayYear = new Date().getFullYear();
+      overlayEl.innerHTML = `
+        <div class="ssm-confirm-dialog schedule-mp-modal animate-pop" role="dialog" aria-modal="true">
+          <header class="schedule-mp-modal-head">
+            <button class="schedule-mp-modal-nav" data-act="year-prev" type="button" aria-label="Año anterior">‹</button>
+            <h3 class="schedule-mp-modal-year">${chosenYear}</h3>
+            <button class="schedule-mp-modal-nav" data-act="year-next" type="button" aria-label="Año siguiente">›</button>
+          </header>
+          <div class="schedule-mp-modal-grid">
+            ${shortMonths.map((m, i) => {
+              const isSelected = (i === viewMonth && chosenYear === viewYear);
+              const isToday = (i === todayMonth && chosenYear === todayYear);
+              return `<button class="schedule-mp-modal-cell ${isSelected ? 'selected' : ''} ${isToday ? 'today' : ''}" data-act="pick" data-month="${i}" type="button">${m}</button>`;
+            }).join('')}
+          </div>
+          <footer class="schedule-mp-modal-foot">
+            <button class="btn-secondary" data-act="today" type="button">Hoy</button>
+            <button class="btn-secondary" data-act="cancel" type="button">Cancelar</button>
+          </footer>
+        </div>
+      `;
     };
+    renderInner();
+    document.body.appendChild(overlayEl);
+    const close = () => {
+      document.removeEventListener('keydown', onKey);
+      overlayEl.remove();
+    };
+    overlayEl.addEventListener('click', (e) => {
+      if (e.target === overlayEl) return close();
+      const btn = e.target.closest('[data-act]');
+      if (!btn) return;
+      const act = btn.dataset.act;
+      if (act === 'cancel') return close();
+      if (act === 'year-prev') { chosenYear--; renderInner(); return; }
+      if (act === 'year-next') { chosenYear++; renderInner(); return; }
+      if (act === 'today') {
+        const now = new Date();
+        viewYear = now.getFullYear();
+        viewMonth = now.getMonth();
+        close();
+        renderMonth();
+        return;
+      }
+      if (act === 'pick') {
+        viewYear = chosenYear;
+        viewMonth = Number(btn.dataset.month);
+        close();
+        renderMonth();
+        return;
+      }
+    });
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); close(); }
+    };
+    document.addEventListener('keydown', onKey);
+  };
+
+  // Event delegation desde el modal (no en el botón directamente) — garantiza
+  // que el click llegue incluso si algún handler global intentara robarlo.
+  overlay.addEventListener('click', (e) => {
+    if (e.target.closest('[data-action="open-month-picker"]')) {
+      e.preventDefault();
+      e.stopPropagation();
+      openMonthYearChooser();
+    }
   });
+
+  // (lógica del antiguo popover eliminada; ahora todo va por openMonthYearChooser)
 
   overlay.querySelector('[data-action="manage-templates"]').onclick = () => {
     openTemplatesManager(() => renderMonth());

@@ -7631,22 +7631,116 @@ body {
   border-radius: 999px;
 }
 
-/* Selector de mes/año del gestor de calendario — reutiliza .month-picker-popover
-   y .month-selector-title del módulo Fichajes/Vacaciones para consistencia
-   visual completa con el resto de la app. La lógica JS posiciona el popover
-   con position:fixed, así que no necesitamos wrapper relativo. */
-.schedule-current-month.month-selector-title {
+/* Botón "Mes de 2026" del gestor de calendario */
+.schedule-current-month {
   font-weight: 700;
   font-size: 1rem;
   color: var(--text-main);
   background: transparent;
-  border: none;
+  border: 1px solid transparent;
   cursor: pointer;
   padding: 4px 12px;
-  border-radius: 6px;
-  transition: background 0.15s ease;
+  border-radius: 8px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: inherit;
 }
-.schedule-current-month.month-selector-title:hover,
-.schedule-current-month.month-selector-title.active {
+.schedule-current-month::after {
+  content: "▾";
+  font-size: 0.65rem;
+  opacity: 0.55;
+}
+.schedule-current-month:hover {
   background: rgba(99, 102, 241, 0.10);
+  border-color: rgba(99, 102, 241, 0.30);
+}
+
+/* Modal centrado de selección de año/mes (sustituye al popover anterior) */
+.schedule-mp-modal-overlay {
+  /* Hereda de .ssm-confirm-overlay para fondo + centrado */
+}
+.schedule-mp-modal {
+  width: min(380px, 92vw);
+  padding: 20px;
+}
+.schedule-mp-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  gap: 10px;
+}
+.schedule-mp-modal-nav {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: rgba(99, 102, 241, 0.10);
+  border: 1px solid rgba(99, 102, 241, 0.30);
+  color: var(--text-main);
+  font-size: 1.2rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.schedule-mp-modal-nav:hover {
+  background: rgba(99, 102, 241, 0.20);
+  border-color: rgba(99, 102, 241, 0.55);
+}
+.schedule-mp-modal-year {
+  margin: 0;
+  flex: 1 1 auto;
+  text-align: center;
+  font-weight: 800;
+  font-size: 1.2rem;
+}
+.schedule-mp-modal-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.schedule-mp-modal-cell {
+  padding: 14px 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-main);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, transform 0.08s ease;
+}
+[data-theme="light"] .schedule-mp-modal-cell {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+.schedule-mp-modal-cell:hover {
+  background: rgba(99, 102, 241, 0.18);
+  border-color: rgba(99, 102, 241, 0.55);
+}
+.schedule-mp-modal-cell:active { transform: scale(0.96); }
+.schedule-mp-modal-cell.today {
+  border-color: rgba(96, 165, 250, 0.65);
+  color: #60a5fa;
+}
+.schedule-mp-modal-cell.selected {
+  background: linear-gradient(135deg, #6c63ff, #a78bfa);
+  border-color: rgba(167, 139, 250, 0.55);
+  color: #fff;
+}
+.schedule-mp-modal-cell.selected:hover {
+  background: linear-gradient(135deg, #7c73ff, #b8a4ff);
+}
+
+.schedule-mp-modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+.schedule-mp-modal-foot button {
+  font-size: 0.82rem;
+  padding: 7px 16px;
 }
