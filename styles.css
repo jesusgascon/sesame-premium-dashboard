@@ -1743,6 +1743,8 @@ body {
   padding: 16px 28px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  gap: 14px;
+  flex-wrap: wrap;  /* Si no caben los grupos, salta a una segunda línea */
 }
 
 .top-bar-left {
@@ -1765,7 +1767,14 @@ body {
   border-color: var(--accent);
 }
 
-.header-actions { display: flex; align-items: center; gap: 10px; }
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: 8px;
+}
 
 .btn-secondary {
   background: transparent; border: 1px solid var(--border-light);
@@ -4410,6 +4419,8 @@ body {
   margin-left: 10px;
   padding-left: 10px;
   border-left: 1px solid var(--border);
+  flex-wrap: wrap;
+  row-gap: 6px;
 }
 
 .btn-compact {
@@ -7820,4 +7831,53 @@ body {
 }
 [data-theme="light"] .btn-group-sep {
   background: rgba(0, 0, 0, 0.10);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   RESPONSIVO de barras superiores — evita que iconos se salgan
+   ════════════════════════════════════════════════════════════════════ */
+@media (max-width: 1400px) {
+  .top-bar {
+    padding: 14px 20px;
+    gap: 10px;
+  }
+  .icon-actions-group {
+    margin-left: 6px;
+    padding-left: 8px;
+    gap: 2px;
+  }
+  .btn-group-sep {
+    margin: 0 3px;
+  }
+}
+
+@media (max-width: 1100px) {
+  /* En pantallas medias ocultamos el "Actualizado hace X min" para no saturar */
+  .ssm-last-update {
+    display: none !important;
+  }
+  /* Reducimos un poco el padding del top-bar */
+  .top-bar {
+    padding: 12px 16px;
+  }
+  /* Botones de iconos más compactos */
+  .btn-icon-round {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+@media (max-width: 900px) {
+  /* En móvil/tablet vertical: top-bar a varias filas, contenido a ancho completo */
+  .top-bar-left,
+  .header-actions {
+    width: 100%;
+  }
+  .header-actions {
+    justify-content: flex-start;
+  }
+  /* Algunos separadores ya no aportan en columnas estrechas */
+  .btn-group-sep {
+    display: none;
+  }
 }
