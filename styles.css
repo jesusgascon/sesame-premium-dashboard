@@ -385,6 +385,14 @@ body {
 
 .details-tech-table tbody tr:last-child td { border-bottom: none; }
 
+.details-tech-table tbody tr:nth-child(even) td {
+  background: rgba(255, 255, 255, 0.015);
+}
+
+[data-theme="light"] .details-tech-table tbody tr:nth-child(even) td {
+  background: rgba(0, 0, 0, 0.015);
+}
+
 .details-tech-table tbody tr:hover td {
   background: rgba(108, 99, 255, 0.06);
 }
@@ -508,6 +516,83 @@ body {
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.6rem;
   letter-spacing: -0.02em;
+}
+
+.detail-chip-empty {
+  opacity: 0.45;
+  font-style: italic;
+}
+
+/* Filas de eventos de auditoría (col. Seguridad e historial) —
+   antes eran estilos inline repetidos en 6 plantillas distintas */
+.audit-event-row {
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.audit-event-row .detail-meta-label {
+  margin: 0;
+  font-size: 0.6rem;
+}
+
+.audit-event-row .detail-meta-val {
+  font-size: 0.6rem;
+  font-weight: 600;
+}
+
+.audit-event-row.warn {
+  border-color: rgba(251, 191, 36, 0.3);
+}
+
+.audit-event-row.warn .detail-meta-val {
+  color: var(--warn);
+}
+
+[data-theme="light"] .audit-event-row {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] .audit-event-row.warn {
+  border-color: rgba(217, 119, 6, 0.35);
+}
+
+.audit-loading-hint {
+  font-style: italic;
+  opacity: 0.7;
+}
+
+/* Jornada en curso (antes reutilizaba la clase verde con fondo rojo inline) */
+.detail-audit-live {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.72rem;
+  color: #f87171;
+  font-weight: 600;
+  padding: 5px 8px;
+  background: rgba(248, 113, 113, 0.08);
+  border-radius: 6px;
+  border: 1px solid rgba(248, 113, 113, 0.2);
+}
+
+/* Título de la tabla inferior de fichajes del detalle */
+.details-table-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 8px;
 }
 
 /* Audit status badges */

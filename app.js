@@ -5,7 +5,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.7.18';
+const APP_VERSION = '1.7.19';
 
 // ─── Debug Mode ───────────────────────────────────────────────────────────────
 // false en producción (silencia console.log/info/warn).
@@ -8769,7 +8769,7 @@ const FichajesModule = {
 
                    <!-- COL 3: AUDITORÍA -->
                    <div class="stats-bento-section">
-                     <div class="info-title">🔍 AUTORÍA Y CONTROL</div>
+                     <div class="info-title">🔍 AUDITORÍA Y CONTROL</div>
                      ${row.thirdPartyEdits.length > 0
                        ? `<div class="detail-audit-alert">
                            <span class="detail-audit-icon">✏️</span>
@@ -8784,22 +8784,24 @@ const FichajesModule = {
                      <div class="detail-divider"></div>
                      <div class="info-title" style="font-size:0.6rem; opacity:0.6">CANALES UTILIZADOS</div>
                      <div class="detail-chips">
-                       ${row.originsUsed.map(o => {
+                       ${row.originsUsed.length ? row.originsUsed.map(o => {
                          const ol = o.toLowerCase();
                          const icon = ol.includes('web') ? '🌐' : (ol.includes('app') ? '📱' : (ol.includes('tablet') ? '📟' : '📍'));
                          return '<span class="detail-chip">' + icon + ' ' + escapeHTML(ol.includes('web')?'Web':ol.includes('app')?'App':ol.includes('tablet')?'Tablet':o) + '</span>';
-                       }).join('')}
+                       }).join('') : '<span class="detail-chip detail-chip-empty">Sin datos</span>'}
                      </div>
 
                      <div class="detail-divider"></div>
                      <div class="info-title" style="font-size:0.6rem; opacity:0.6">DETALLES TÉCNICOS</div>
                      <div class="detail-chips">
-                       ${row.devicesUsed.map(d => '<span class="detail-chip">💻 ' + escapeHTML(d) + '</span>').join('')}
-                       ${row.officesUsed.map(o => '<span class="detail-chip">🏢 ' + escapeHTML(o) + '</span>').join('')}
+                       ${(row.devicesUsed.length || row.officesUsed.length)
+                         ? row.devicesUsed.map(d => '<span class="detail-chip">💻 ' + escapeHTML(d) + '</span>').join('')
+                           + row.officesUsed.map(o => '<span class="detail-chip">🏢 ' + escapeHTML(o) + '</span>').join('')
+                         : '<span class="detail-chip detail-chip-empty">Sin datos</span>'}
                      </div>
                    </div>
                    <!-- COL 4: SEGURIDAD E HISTORIAL -->
-                   <div class="stats-bento-section" style="border-left: 1px solid var(--accent2)">
+                   <div class="stats-bento-section">
                      <div class="info-title">🛡️ SEGURIDAD E HISTORIAL</div>
                      <div class="detail-meta-grid" style="grid-template-columns: 1fr; gap: 4px;" id="audit-level-3-${safeClassToken(empId, 'emp')}-${safeClassToken(row.date, 'date')}">
                         ${(() => {
@@ -8811,37 +8813,37 @@ const FichajesModule = {
                              const isEditedOut = e.performedByNameOut && String(e.performedByIdOut) !== String(row.employeeId);
 
                              if (isEditedIn && !seenEditors.has('in_'+e.performedByNameIn)) {
-                                 preAuditHTML += `<div class="detail-meta-item" style="flex-direction:row; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.03); padding:4px 8px; border-radius:4px; border:1px solid rgba(251,191,36,0.3)">
-                                    <span class="detail-meta-label" style="margin:0; font-size:0.6rem;">✏️ Edición In</span>
-                                    <span class="detail-meta-val" style="font-size:0.6rem; font-weight:600; color:var(--warn)">${escapeHTML(e.performedByNameIn)}</span>
+                                 preAuditHTML += `<div class="detail-meta-item audit-event-row warn">
+                                    <span class="detail-meta-label">✏️ Edición In</span>
+                                    <span class="detail-meta-val">${escapeHTML(e.performedByNameIn)}</span>
                                  </div>`;
                                  seenEditors.add('in_'+e.performedByNameIn);
                               }
                               if (isEditedOut && !seenEditors.has('out_'+e.performedByNameOut)) {
-                                 preAuditHTML += `<div class="detail-meta-item" style="flex-direction:row; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.03); padding:4px 8px; border-radius:4px; border:1px solid rgba(251,191,36,0.3)">
-                                    <span class="detail-meta-label" style="margin:0; font-size:0.6rem;">✏️ Edición Out</span>
-                                    <span class="detail-meta-val" style="font-size:0.6rem; font-weight:600; color:var(--warn)">${escapeHTML(e.performedByNameOut)}</span>
+                                 preAuditHTML += `<div class="detail-meta-item audit-event-row warn">
+                                    <span class="detail-meta-label">✏️ Edición Out</span>
+                                    <span class="detail-meta-val">${escapeHTML(e.performedByNameOut)}</span>
                                  </div>`;
                                  seenEditors.add('out_'+e.performedByNameOut);
                               }
 
                               if (e.originIn === 'request' && !seenEditors.has('req_in')) {
-                                 preAuditHTML += `<div class="detail-meta-item" style="flex-direction:row; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.03); padding:4px 8px; border-radius:4px; border:1px solid rgba(251,191,36,0.3)">
-                                    <span class="detail-meta-label" style="margin:0; font-size:0.6rem;">📝 Origen Entrada</span>
-                                    <span class="detail-meta-val" style="font-size:0.6rem; font-weight:600; color:var(--warn)">Por Solicitud (Aprobada)</span>
+                                 preAuditHTML += `<div class="detail-meta-item audit-event-row warn">
+                                    <span class="detail-meta-label">📝 Origen Entrada</span>
+                                    <span class="detail-meta-val">Por Solicitud (Aprobada)</span>
                                  </div>`;
                                  seenEditors.add('req_in');
                               }
                               if (e.originOut === 'request' && !seenEditors.has('req_out')) {
-                                 preAuditHTML += `<div class="detail-meta-item" style="flex-direction:row; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.03); padding:4px 8px; border-radius:4px; border:1px solid rgba(251,191,36,0.3)">
-                                    <span class="detail-meta-label" style="margin:0; font-size:0.6rem;">📝 Origen Salida</span>
-                                    <span class="detail-meta-val" style="font-size:0.6rem; font-weight:600; color:var(--warn)">Por Solicitud (Aprobada)</span>
+                                 preAuditHTML += `<div class="detail-meta-item audit-event-row warn">
+                                    <span class="detail-meta-label">📝 Origen Salida</span>
+                                    <span class="detail-meta-val">Por Solicitud (Aprobada)</span>
                                  </div>`;
                                  seenEditors.add('req_out');
                               }
                            });
 
-                           return preAuditHTML || '<div class="stat-subtext" style="font-style:italic">Cargando incidencias...</div>';
+                           return preAuditHTML || '<div class="stat-subtext audit-loading-hint">⏳ Cargando auditoría…</div>';
                         })()}
                      </div>
 
@@ -8853,13 +8855,14 @@ const FichajesModule = {
 
                      ${row.isLive ? `
                      <div class="detail-divider"></div>
-                     <div class="detail-audit-ok" style="background:rgba(248, 113, 113, 0.1)"><span>🔴</span> <span>Jornada Activa</span></div>
+                     <div class="detail-audit-live"><span class="pulse-dot green" style="margin-left:0;"></span> <span>Jornada en curso</span></div>
                      ` : ''}
                    </div>
                 </div>
 
                 <!-- 2. Detailed Table (Bottom) -->
                 <div class="signings-table-wrapper">
+                  <div class="details-table-title">🧾 DETALLE DE FICHAJES <span class="detail-stat-badge">${(row.entries || []).length} tramo${(row.entries || []).length === 1 ? '' : 's'}</span></div>
                   <table class="details-tech-table">
                     <thead><tr><th>HORARIO</th><th>DURACIÓN</th><th>TIPO</th><th>ORIGEN</th><th>UBICACIÓN</th></tr></thead>
                     <tbody>
@@ -9088,17 +9091,17 @@ const FichajesModule = {
       const seen = new Set();
       const unique = auditItems.filter(a => { const k = a.label + a.value; if (seen.has(k)) return false; seen.add(k); return true; });
 
-      // Remove the "Cargando incidencias..." placeholder if it exists
-      if (container.innerHTML.includes('Cargando incidencias...')) {
+      // Quitar el placeholder de carga si sigue presente
+      if (container.innerHTML.includes('Cargando auditoría')) {
          container.innerHTML = '';
       }
 
       if (unique.length > 0) {
         let html = '';
         unique.forEach(a => {
-          html += `<div class="detail-meta-item" style="flex-direction:row; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.03); padding:4px 8px; border-radius:4px; border:1px solid rgba(255,255,255,0.05)">
-            <span class="detail-meta-label" style="margin:0; font-size:0.6rem;">${a.icon} ${escapeHTML(a.label)}</span>
-            <span class="detail-meta-val" style="font-size:0.6rem; font-weight:600">${escapeHTML(a.value)}</span>
+          html += `<div class="detail-meta-item audit-event-row">
+            <span class="detail-meta-label">${a.icon} ${escapeHTML(a.label)}</span>
+            <span class="detail-meta-val">${escapeHTML(a.value)}</span>
           </div>`;
         });
         container.insertAdjacentHTML('beforeend', html);
@@ -9107,7 +9110,7 @@ const FichajesModule = {
       }
     } catch (err) {
       console.error("Error Level 3:", err);
-      if (container.innerHTML.includes('Cargando incidencias...')) {
+      if (container.innerHTML.includes('Cargando auditoría')) {
          container.innerHTML = '<div class="stat-subtext" style="color:var(--danger)">Error al cargar metadatos.</div>';
       }
     }
