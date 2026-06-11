@@ -2639,20 +2639,95 @@ body {
 .stats-chart-container h3 { margin-bottom: 20px; font-size: 1.1rem; color: var(--text-primary); }
 .stats-chart-container canvas { flex: 1; min-height: 0; }
 
+/* Leyenda HTML bajo el título de un gráfico (qué significa cada color) */
+.stats-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: -12px 0 14px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.stats-chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stats-chart-legend i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.stats-chart-legend .stats-legend-dash {
+  width: 16px;
+  height: 0;
+  border-radius: 0;
+  border-top: 2px dashed rgba(255, 181, 71, 0.9);
+}
+
+[data-theme="light"] .stats-chart-legend .stats-legend-dash {
+  border-top-color: rgba(217, 119, 6, 0.9);
+}
+
 .stats-summary-row {
   grid-column: 1 / -1;
   display: flex;
   gap: 15px;
   margin-bottom: 10px;
+  flex-wrap: wrap;
 }
 
 .stats-summary-card {
   flex: 1;
+  min-width: 150px;
   padding: 15px;
 }
 
 .stats-summary-value {
   font-size: 1.5rem;
+}
+
+.stats-summary-sub {
+  margin-top: 3px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/* Badge de variación vs mes anterior: más ausencias = rojo, menos = verde */
+.stats-delta {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 0.6rem;
+  font-weight: 800;
+  vertical-align: middle;
+  letter-spacing: 0.3px;
+}
+
+.stats-delta.up {
+  background: rgba(248, 113, 113, 0.14);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  color: #f87171;
+}
+
+.stats-delta.down {
+  background: rgba(74, 222, 128, 0.14);
+  border: 1px solid rgba(74, 222, 128, 0.3);
+  color: #4ade80;
+}
+
+.stats-delta.neutral {
+  background: rgba(148, 163, 184, 0.14);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  color: #94a3b8;
 }
 
 .stats-chart-container-wide {

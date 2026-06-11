@@ -5,7 +5,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.7.16';
+const APP_VERSION = '1.7.18';
 
 // ─── Debug Mode ───────────────────────────────────────────────────────────────
 // false en producción (silencia console.log/info/warn).
@@ -4070,6 +4070,43 @@ function renderStats() {
   const totalEmployees = Object.keys(employeeTotals).length;
   const avgDays = totalEmployees > 0 ? (totalAbsences / totalEmployees).toFixed(1) : 0;
 
+  // Comparativa con el mes anterior (solo si hay datos cargados de ese rango)
+  const _prevRange = getMonthRange(new Date(STATE.currentDate.getFullYear(), STATE.currentDate.getMonth() - 1, 1));
+  let prevTotalAbsences = 0;
+  Object.entries(STATE.calendarData).forEach(([date, entries]) => {
+    if (date < _prevRange.from || date > _prevRange.to) return;
+    entries.forEach(evt => {
+      if (!STATE.activeFilters.has(evt.type.id)) return;
+      prevTotalAbsences += evt.employees.filter(e => !STATE.hiddenEmployeeIds.has(String(e.id))).length;
+    });
+  });
+  const deltaPct = prevTotalAbsences > 0
+    ? Math.round(((totalAbsences - prevTotalAbsences) / prevTotalAbsences) * 100)
+    : null;
+
+  // Día pico del periodo
+  let peakDate = null, peakCount = 0;
+  Object.entries(dailyData).forEach(([date, count]) => {
+    if (count > peakCount) { peakCount = count; peakDate = date; }
+  });
+  const peakLabel = peakDate
+    ? new Date(peakDate + 'T00:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
+    : '--';
+
+  // Reparto por día de la semana (Lun..Dom)
+  const weekdayTotals = [0, 0, 0, 0, 0, 0, 0]; // indice 0 = lunes
+  Object.entries(dailyData).forEach(([date, count]) => {
+    const dow = new Date(date + 'T00:00:00').getDay(); // 0=domingo
+    weekdayTotals[(dow + 6) % 7] += count;
+  });
+
+  // % de plantilla visible afectada
+  const visibleWorkforce = Array.from(STATE.allEmployees.keys())
+    .filter(id => !STATE.hiddenEmployeeIds.has(String(id))).length;
+  const workforcePct = visibleWorkforce > 0
+    ? Math.round((totalEmployees / visibleWorkforce) * 100)
+    : null;
+
   if (totalAbsences === 0) {
     container.innerHTML = `
       <div class="empty-state-card">
@@ -4084,19 +4121,39 @@ function renderStats() {
   const topEmps = Object.entries(employeeTotals).sort((a,b) => b[1] - a[1]).slice(0, 10);
   const chartColors = ['#6C63FF', '#00D4AA', '#FF6B8A', '#FFB547', '#4ADE80', '#60A5FA', '#A78BFA', '#FB923C', '#2DD4BF', '#F87171'];
 
+  const deltaBadge = deltaPct === null
+    ? ''
+    : deltaPct === 0
+      ? '<span class="stats-delta neutral" title="Sin cambio respecto al mes anterior">=</span>'
+      : deltaPct > 0
+        ? `<span class="stats-delta up" title="${prevTotalAbsences} ausencias el mes anterior">▲ ${deltaPct}%</span>`
+        : `<span class="stats-delta down" title="${prevTotalAbsences} ausencias el mes anterior">▼ ${Math.abs(deltaPct)}%</span>`;
   const summaryHtml = `
     <div class="stats-summary-row">
       <div class="stat-card stats-summary-card">
         <div class="stat-label">Total Ausencias</div>
-        <div class="stat-value stats-summary-value">${totalAbsences}</div>
+        <div class="stat-value stats-summary-value">${totalAbsences} ${deltaBadge}</div>
+        <div class="stats-summary-sub">${deltaPct === null ? 'sin datos del mes anterior' : 'vs mes anterior'}</div>
       </div>
       <div class="stat-card stats-summary-card">
         <div class="stat-label">Personas</div>
         <div class="stat-value stats-summary-value">${totalEmployees}</div>
+        <div class="stats-summary-sub">${workforcePct !== null ? `${workforcePct}% de la plantilla (${visibleWorkforce})` : '&nbsp;'}</div>
       </div>
       <div class="stat-card stats-summary-card">
         <div class="stat-label">Promedio/Emp</div>
         <div class="stat-value stats-summary-value">${avgDays} d</div>
+        <div class="stats-summary-sub">días por persona afectada</div>
+      </div>
+      <div class="stat-card stats-summary-card">
+        <div class="stat-label">Día pico</div>
+        <div class="stat-value stats-summary-value">${escapeHTML(peakLabel)}</div>
+        <div class="stats-summary-sub">${peakCount ? `${peakCount} persona${peakCount === 1 ? '' : 's'} ausente${peakCount === 1 ? '' : 's'}` : '&nbsp;'}</div>
+      </div>
+      <div class="stat-card stats-summary-card">
+        <div class="stat-label">Días afectados</div>
+        <div class="stat-value stats-summary-value">${Object.keys(dailyData).length}</div>
+        <div class="stats-summary-sub">días con alguna ausencia</div>
       </div>
     </div>`;
 
@@ -4169,7 +4226,17 @@ function renderStats() {
       <canvas id="typeChart"></canvas>
     </div>
     <div class="stats-chart-container glass">
+      <h3>Ausencias por Día de la Semana</h3>
+      <canvas id="weekdayChart"></canvas>
+    </div>
+    <div class="stats-chart-container stats-chart-container-wide glass">
       <h3>Carga Diaria (Ausencias/Día)</h3>
+      <div class="stats-chart-legend">
+        <span><i style="background:#6C63FF"></i> Día laborable</span>
+        <span><i style="background:#FF6B8A"></i> Fin de semana</span>
+        <span><i style="background:#6C63FF; box-shadow:0 0 0 2.5px #FFB547"></i> Día pico</span>
+        <span><i class="stats-legend-dash"></i> Media diaria</span>
+      </div>
       <canvas id="dailyChart"></canvas>
     </div>
     <div class="stats-chart-container stats-chart-container-wide glass">
@@ -4188,7 +4255,26 @@ function renderStats() {
     border: isDark ? '#131621' : '#ffffff'
   };
 
-  // Chart 1: Types (Donut)
+  // Chart 1: Types (Donut) con total en el centro y % en tooltip
+  const centerTextPlugin = {
+    id: 'centerText',
+    afterDraw(chart) {
+      const meta = chart.getDatasetMeta(0);
+      if (!meta?.data?.length) return;
+      const { x, y } = meta.data[0];
+      const { ctx } = chart;
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = '800 28px Inter, system-ui, sans-serif';
+      ctx.fillStyle = theme.text;
+      ctx.fillText(String(totalAbsences), x, y - 10);
+      ctx.font = '600 11px Inter, system-ui, sans-serif';
+      ctx.fillStyle = theme.secondary;
+      ctx.fillText('ausencias', x, y + 12);
+      ctx.restore();
+    }
+  };
   new Chart($('typeChart'), {
     type: 'doughnut',
     data: {
@@ -4200,11 +4286,20 @@ function renderStats() {
         borderColor: theme.border
       }]
     },
+    plugins: [centerTextPlugin],
     options: {
       plugins: {
         legend: {
           position: 'right',
           labels: { color: theme.text, font: { size: 12, weight: '800' }, padding: 15, usePointStyle: true }
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const pct = totalAbsences > 0 ? Math.round((ctx.parsed / totalAbsences) * 100) : 0;
+              return ` ${ctx.label}: ${ctx.parsed} (${pct}%)`;
+            }
+          }
         }
       },
       responsive: true, maintainAspectRatio: false,
@@ -4213,17 +4308,20 @@ function renderStats() {
     }
   });
 
-  // Chart 2: Daily Load (Line/Area)
-  new Chart($('dailyChart'), {
-    type: 'line',
+  // Chart 1b: Reparto por día de la semana (los findes en rosa)
+  new Chart($('weekdayChart'), {
+    type: 'bar',
     data: {
-      labels: sortedDates.map(d => d.split('-')[2]),
+      labels: ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'],
       datasets: [{
         label: 'Ausencias',
-        data: sortedDates.map(d => dailyData[d]),
-        borderColor: '#6C63FF',
-        backgroundColor: isDark ? 'rgba(108, 99, 255, 0.25)' : 'rgba(108, 99, 255, 0.15)',
-        fill: true, tension: 0.4, pointRadius: 5, pointBackgroundColor: '#6C63FF'
+        data: weekdayTotals,
+        backgroundColor: weekdayTotals.map((_, i) => i >= 5
+          ? (isDark ? 'rgba(255, 107, 138, 0.45)' : 'rgba(255, 107, 138, 0.6)')
+          : (isDark ? 'rgba(108, 99, 255, 0.5)' : 'rgba(108, 99, 255, 0.65)')),
+        borderColor: weekdayTotals.map((_, i) => i >= 5 ? '#FF6B8A' : '#6C63FF'),
+        borderWidth: 1.5,
+        borderRadius: 6
       }]
     },
     options: {
@@ -4232,9 +4330,106 @@ function renderStats() {
           beginAtZero: true, grid: { color: theme.grid },
           ticks: { color: theme.secondary, precision: 0, font: { weight: '800' } }
         },
-        x: { grid: { display: false }, ticks: { color: theme.secondary, font: { weight: '800' } } }
+        x: { grid: { display: false }, ticks: { color: theme.text, font: { weight: '800' } } }
       },
-      plugins: { legend: { display: false } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const pct = totalAbsences > 0 ? Math.round((ctx.parsed.y / totalAbsences) * 100) : 0;
+              return ` ${ctx.parsed.y} ausencia${ctx.parsed.y === 1 ? '' : 's'} (${pct}% del mes)`;
+            }
+          }
+        }
+      },
+      responsive: true, maintainAspectRatio: false
+    }
+  });
+
+  // Chart 2: Daily Load (Line/Area) — mes completo con ceros para no deformar
+  // la curva, finde en rosa, día pico resaltado y línea de media diaria.
+  const _isWeekendDate = d => {
+    const dow = new Date(d + 'T00:00:00').getDay();
+    return dow === 0 || dow === 6;
+  };
+  const allMonthDates = [];
+  {
+    let _c = range.from;
+    while (_c <= range.to) {
+      allMonthDates.push(_c);
+      const _n = new Date(_c + 'T00:00:00');
+      _n.setDate(_n.getDate() + 1);
+      _c = fmtDate(_n);
+    }
+  }
+  const dailySeries = allMonthDates.map(d => dailyData[d] || 0);
+  const dailyAvg = allMonthDates.length
+    ? Math.round((dailySeries.reduce((a, b) => a + b, 0) / allMonthDates.length) * 10) / 10
+    : 0;
+  new Chart($('dailyChart'), {
+    type: 'line',
+    data: {
+      labels: allMonthDates.map(d => d.split('-')[2]),
+      datasets: [{
+        label: 'Ausencias',
+        data: dailySeries,
+        borderColor: '#6C63FF',
+        backgroundColor: isDark ? 'rgba(108, 99, 255, 0.25)' : 'rgba(108, 99, 255, 0.15)',
+        fill: true, tension: 0.35,
+        pointRadius: allMonthDates.map(d => d === peakDate ? 7 : (dailyData[d] ? 4 : 2)),
+        pointBackgroundColor: allMonthDates.map(d => _isWeekendDate(d) ? '#FF6B8A' : '#6C63FF'),
+        pointBorderColor: allMonthDates.map(d => d === peakDate ? '#FFB547' : 'transparent'),
+        pointBorderWidth: allMonthDates.map(d => d === peakDate ? 3 : 0),
+        order: 1
+      }, {
+        label: `Media diaria (${dailyAvg})`,
+        data: allMonthDates.map(() => dailyAvg),
+        borderColor: isDark ? 'rgba(255, 181, 71, 0.8)' : 'rgba(217, 119, 6, 0.8)',
+        borderWidth: 2,
+        borderDash: [6, 5],
+        pointRadius: 0,
+        pointHitRadius: 0,
+        fill: false,
+        order: 0
+      }]
+    },
+    options: {
+      scales: {
+        y: {
+          beginAtZero: true, grid: { color: theme.grid },
+          ticks: { color: theme.secondary, precision: 0, font: { weight: '800' } },
+          title: { display: true, text: 'Personas ausentes', color: theme.secondary, font: { size: 11, weight: '700' } }
+        },
+        x: {
+          grid: { display: false },
+          ticks: { color: theme.secondary, font: { weight: '800' }, autoSkip: true, maxTicksLimit: 31 },
+          title: { display: true, text: 'Día del mes', color: theme.secondary, font: { size: 11, weight: '700' } }
+        }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          filter: item => item.datasetIndex === 0,
+          callbacks: {
+            title: items => {
+              if (!items.length) return '';
+              const d = allMonthDates[items[0].dataIndex];
+              return new Date(d + 'T00:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
+            },
+            label: ctx => {
+              const d = allMonthDates[ctx.dataIndex];
+              const extras = [];
+              if (d === peakDate) extras.push('día pico');
+              if (_isWeekendDate(d)) extras.push('fin de semana');
+              const suffix = extras.length ? ` · ${extras.join(' · ')}` : '';
+              return ` ${ctx.parsed.y} ausencia${ctx.parsed.y === 1 ? '' : 's'}${suffix}`;
+            },
+            afterLabel: ctx => `Media del mes: ${dailyAvg}`
+          }
+        }
+      },
+      interaction: { mode: 'nearest', axis: 'x', intersect: false },
       responsive: true, maintainAspectRatio: false
     }
   });
@@ -4256,14 +4451,22 @@ function renderStats() {
       scales: {
         x: {
           beginAtZero: true, grid: { color: theme.grid },
-          ticks: { color: theme.secondary, stepSize: 1, font: { weight: '800' } }
+          ticks: { color: theme.secondary, stepSize: 1, font: { weight: '800' } },
+          title: { display: true, text: 'Días de ausencia en el mes', color: theme.secondary, font: { size: 11, weight: '700' } }
         },
         y: {
           grid: { display: false },
           ticks: { color: theme.text, font: { size: 12, weight: '800' } }
         }
       },
-      plugins: { legend: { display: false } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.parsed.x} día${ctx.parsed.x === 1 ? '' : 's'} de ausencia`
+          }
+        }
+      },
       responsive: true, maintainAspectRatio: false
     }
   });
