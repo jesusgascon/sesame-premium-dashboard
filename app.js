@@ -5,7 +5,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.7.11';
+const APP_VERSION = '1.7.12';
 
 // ─── Debug Mode ───────────────────────────────────────────────────────────────
 // false en producción (silencia console.log/info/warn).
@@ -4739,6 +4739,10 @@ const FichajesModule = {
     const saved = sessionStorage.getItem('ssm_signings_balance_scope');
     return ['exercise', 'month'].includes(saved) ? saved : 'exercise';
   })(),
+  balanceLiveMode: (() => {
+    const saved = sessionStorage.getItem('ssm_balance_live_mode');
+    return ['live', 'closed'].includes(saved) ? saved : 'live';
+  })(),
   data: [],
   selectedEmployee: 'all',
   searchQuery: '',
@@ -5080,6 +5084,13 @@ const FichajesModule = {
     this.syncViewButtons();
     this.updateMonthLabel();
     this.scheduleBalanceLoadAfterWarmup(ignoreCache);
+  },
+
+  setBalanceLiveMode(mode) {
+    if (!['live', 'closed'].includes(mode)) return;
+    this.balanceLiveMode = mode;
+    sessionStorage.setItem('ssm_balance_live_mode', mode);
+    this.renderBalanceTable();
   },
 
   requestBalanceTopPin() {
@@ -9412,6 +9423,7 @@ const FichajesModule = {
     const isVacationLabel = label => /vacaciones|vacation/i.test(String(label || ''));
 
     const totals = rows.reduce((acc, row) => {
+      if (this.balanceLiveMode === 'closed' && row.isLive) return acc;
       const worked = Number(row.workedSeconds || 0);
       const compensated = Number(row.compensatedSeconds || 0);
       const equivalent = Number(row.totalEquivalentSeconds ?? (worked + compensated));
@@ -10103,6 +10115,7 @@ const FichajesModule = {
     }
 
     balanceRows.forEach(row => {
+      if (this.balanceLiveMode === 'closed' && row.isLive) return;
       const rowId = String(row.employeeId);
       if (!stats.has(rowId)) {
         const empInfo = this.getBalanceEmployeeInfo(rowId);
@@ -10368,6 +10381,7 @@ const FichajesModule = {
     const exerciseButtonLabel = isCurrentExercise
       ? 'Recargar ejercicio actual'
       : `Ver ejercicio actual ${currentExerciseYear}`;
+    const _isLiveMode = this.balanceLiveMode !== 'closed';
     const balanceScopeActionHtml = `
       <button
         type="button"
@@ -10377,6 +10391,10 @@ const FichajesModule = {
       >
         ${exerciseButtonLabel}
       </button>
+      <span style="display:inline-flex; gap:0; border-radius:6px; overflow:hidden; border:1px solid rgba(148,163,184,0.25); margin-left:4px;">
+        <button type="button" onclick="FichajesModule.setBalanceLiveMode('live')" style="padding:4px 9px; font-size:0.65rem; border:none; cursor:pointer; background:${_isLiveMode ? 'rgba(45,212,191,0.18)' : 'transparent'}; color:${_isLiveMode ? '#2dd4bf' : 'var(--text-muted)'}; font-weight:${_isLiveMode ? '600' : '400'};" title="Incluir día actual (sesión abierta)">Con hoy</button>
+        <button type="button" onclick="FichajesModule.setBalanceLiveMode('closed')" style="padding:4px 9px; font-size:0.65rem; border:none; cursor:pointer; background:${!_isLiveMode ? 'rgba(45,212,191,0.18)' : 'transparent'}; color:${!_isLiveMode ? '#2dd4bf' : 'var(--text-muted)'}; font-weight:${!_isLiveMode ? '600' : '400'};" title="Solo días cerrados (sin sesión de hoy)">Sin hoy</button>
+      </span>
     `;
     const sourceActionsHtml = officialSkipped
       ? '<button type="button" class="btn-secondary" onclick="FichajesModule.retryOfficialWorkedHours()" style="font-size:0.65rem; padding:4px 8px;">Probar Sesame Statistics</button>'
