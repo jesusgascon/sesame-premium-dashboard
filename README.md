@@ -236,6 +236,51 @@ Para una inmersión profunda en los algoritmos de cruce de datos, heurísticas d
 
 ## 📜 Changelog Detallado
 
+### [v1.7.19] — 2026-06-11 | *Pulido del panel de detalle de fichaje*
+- **Corregido**: Errata en el título de la columna 3 del detalle: "AUTORÍA Y CONTROL" → "AUDITORÍA Y CONTROL".
+- **Corregido**: Badge de jornada en curso con clase propia `.detail-audit-live` y punto pulsante (antes reutilizaba la clase verde de "registro original" con fondo rojo inline).
+- **Mejorado**: Eventos de auditoría unificados en `.audit-event-row` (6 copias de estilos inline eliminadas), con soporte de tema claro.
+- **Mejorado**: Título de sección "DETALLE DE FICHAJES · N tramos" y zebra sutil en la tabla inferior de fichajes.
+- **Mejorado**: Chips "Sin datos" en Canales utilizados / Detalles técnicos cuando no hay información; placeholder "⏳ Cargando auditoría…".
+
+### [v1.7.18] — 2026-06-11 | *Estadísticas de vacaciones renovadas (incluye v1.7.17)*
+- **Añadido**: 5 KPIs con subtítulos: Total Ausencias (con ▲/▼ vs mes anterior), Personas (% de plantilla), Promedio/Emp, **Día pico** y **Días afectados**.
+- **Añadido**: Gráfico **Ausencias por Día de la Semana** (Lun–Dom, findes en rosa) para detectar patrones de lunes/viernes.
+- **Corregido**: La Carga Diaria solo pintaba los días con ausencias, uniendo días no consecutivos y deformando la curva del mes. Ahora se pinta el mes completo con ceros.
+- **Mejorado**: Carga Diaria con leyenda explicativa, línea de media diaria discontinua, día pico resaltado con anillo ámbar, títulos de eje, tooltip con fecha completa y hover por eje X. Pasa a ocupar todo el ancho.
+- **Mejorado**: Donut por tipo con total en el centro y porcentajes en tooltip; ranking Top 10 con título de eje y unidad en tooltip.
+
+### [v1.7.16] — 2026-06-11 | *Vistas semana/día del calendario a escala + modal del día*
+- **Mejorado**: Vista **Semana** con celdas de 220px, pills y tipografía mayores, avatares de 24px y hasta 12 visibles.
+- **Mejorado**: Vista **Día** como tarjeta centrada (máx. 760px), número de día grande, pills tipo botón, avatares de 28px y hasta 40 visibles.
+- **Corregido**: La cabecera Lun..Dom aparecía en 7 columnas sobre la única celda de la vista Día; ahora se oculta en esa vista.
+- **Mejorado**: Celdas sin ausencias en semana/día muestran "Sin ausencias" sutil; fin de semana con fondo diferenciado.
+- **Mejorado**: Modal del día con subtítulo resumen ("4 personas · 2 tipos de ausencia"), cierre con Escape y hover en filas de empleados.
+
+### [v1.7.15] — 2026-06-11 | *Mejoras visuales en balance + barra de fuente compacta*
+- **Mejorado**: Toggle "Con hoy / Sin hoy" con clases CSS propias (hover, transición, `aria-pressed`).
+- **Añadido**: Chip de modo **CON HOY / SIN HOY** en la cabecera del modal de detalle de balance.
+- **Añadido**: Badge "En curso" con punto pulsante en la jornada live del modal; en modo Sin hoy indica "· fuera del balance".
+- **Mejorado**: Barra "Fuente del balance" compacta: mitad de altura, leyenda con textos cortos (detalle en tooltip) y botones abreviados.
+- **Corregido**: El contador "En vivo" del modal mostraba 0 en modo Sin hoy; el chip de modo se estiraba a todo el ancho del modal.
+
+### [v1.7.13] — 2026-06-11 | *El modo "Sin hoy" aplica a datos oficiales y al teórico de hoy*
+- **Corregido**: El toggle "Sin hoy" no afectaba a empleados con balance oficial de Sesame Statistics (el dato oficial incluye el día en curso). Ahora en ese modo se usa el cálculo local de días cerrados en tabla, modal y export CSV.
+- **Corregido**: En vista mensual el teórico de hoy desaparecía al excluir la jornada en curso (168h en vez de 176h).
+- **Corregido**: Bug pre-existente: empleados sin fichaje hoy perdían el teórico del día en la proyección mensual.
+- **Añadido**: El export JSON incluye `balanceLiveMode` para dejar constancia del criterio usado.
+
+### [v1.7.12] — 2026-06-11 | *Toggle Con hoy / Sin hoy en vista balance*
+- **Añadido**: Selector de dos botones en la barra de balance para incluir o excluir el día actual (sesión abierta) del cálculo. "Con hoy" = saldo en tiempo real estilo Sesame Estadísticas; "Sin hoy" = solo días cerrados. Preferencia persistida en `sessionStorage`.
+
+### [v1.7.11] — 2026-06-11 | *Balance en tiempo real igual que Sesame*
+- **Cambiado**: El balance incluye el día vivo (sesión abierta) en todos los cálculos, igualando la página de Estadísticas de Sesame.
+
+### [v1.7.9 / v1.7.10] — 2026-06-11 | *Cálculo del día vivo y teórico mensual completo*
+- **Corregido**: Teórico mensual = mes completo (176h en junio) proyectando los días laborables futuros; trabajado = días cerrados.
+- **Corregido**: La proyección teórica solo aplica en vista mensual; la anual usa días reales para no inflar el total (+112h).
+- **Corregido**: La víspera solo aplica a festivos impuestos por la empresa (Fibercom), no a vacaciones pedidas por el empleado.
+
 ### [v1.7.7] — 2026-06-11 | *Pulido visual: insights colapsables, selector año/mes y tooltips contextuales*
 - **Añadido**: **Insights de Fichajes colapsables**. Las 4 tarjetas (Incidencias, Validaciones, Radar de anomalías, Solicitudes y ausencias) ahora vienen **colapsadas por defecto** con un toggle único que las expande/colapsa todas a la vez. El estado se persiste en `localStorage`. Cuando están cerradas, el toggle muestra un resumen en una línea con los contadores.
 - **Añadido**: **Selector año/mes** en el gestor de calendario. Modal centrado con navegación `‹ 2026 ›` y grid 3×4 de meses. Mes actual en violeta gradient, mes de HOY con borde azul, botones "Hoy" y "Cancelar". Acceso desde click en el título "Junio de 2026".
