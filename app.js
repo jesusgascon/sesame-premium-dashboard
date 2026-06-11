@@ -131,20 +131,31 @@ function formatRelativeTime(ts) {
   return days === 1 ? 'hace 1 día' : `hace ${days} días`;
 }
 function refreshLastUpdateLabels() {
-  const vacEl = document.getElementById('last-update-vacaciones');
-  const fichEl = document.getElementById('last-update-fichajes');
-  if (vacEl) {
-    const ts = STATE.lastUpdateVacaciones;
-    vacEl.textContent = ts ? `Actualizado ${formatRelativeTime(ts)}` : '';
-    vacEl.classList.toggle('is-stale', ts && (Date.now() - ts) > 5 * 60 * 1000);
-    vacEl.classList.toggle('is-very-stale', ts && (Date.now() - ts) > 15 * 60 * 1000);
-  }
-  if (fichEl) {
-    const ts = STATE.lastUpdateFichajes;
-    fichEl.textContent = ts ? `Actualizado ${formatRelativeTime(ts)}` : '';
-    fichEl.classList.toggle('is-stale', ts && (Date.now() - ts) > 5 * 60 * 1000);
-    fichEl.classList.toggle('is-very-stale', ts && (Date.now() - ts) > 15 * 60 * 1000);
-  }
+  // Versiones cortas:
+  // - "ahora" en vez de "ahora mismo"
+  // - "hace 2 min" en vez de "Actualizado hace 2 min" → ocupa la mitad
+  // - El title del span sigue contando la historia completa
+  const fmtShort = (ts) => {
+    if (!ts) return '';
+    const diff = Date.now() - ts;
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'ahora';
+    if (mins < 60) return `${mins} min`;
+    const h = Math.floor(mins / 60);
+    if (h < 24) return `${h} h`;
+    const d = Math.floor(h / 24);
+    return `${d} d`;
+  };
+  const apply = (el, ts) => {
+    if (!el) return;
+    if (!ts) { el.textContent = ''; el.removeAttribute('title'); return; }
+    el.textContent = fmtShort(ts);
+    el.title = `Última actualización ${formatRelativeTime(ts)}`;
+    el.classList.toggle('is-stale', (Date.now() - ts) > 5 * 60 * 1000);
+    el.classList.toggle('is-very-stale', (Date.now() - ts) > 15 * 60 * 1000);
+  };
+  apply(document.getElementById('last-update-vacaciones'), STATE.lastUpdateVacaciones);
+  apply(document.getElementById('last-update-fichajes'), STATE.lastUpdateFichajes);
 }
 // Tick cada 30s para actualizar el texto relativo
 setInterval(refreshLastUpdateLabels, 30000);
@@ -4788,7 +4799,7 @@ const FichajesModule = {
     if (!button) return;
 
     if (this.currentView === 'balance') {
-      button.textContent = 'Ejercicio actual';
+      button.textContent = 'Año actual';
       button.title = 'Volver al balance del ejercicio actual';
       button.setAttribute('aria-label', 'Volver al balance del ejercicio actual');
     } else {
@@ -6839,7 +6850,7 @@ const FichajesModule = {
 
     // Guardar selección actual
     const current = select.value;
-    select.innerHTML = '<option value="all">👥 Ver a todo el equipo</option>';
+    select.innerHTML = '<option value="all">👥 Todo el equipo</option>';
 
     const sorted = Array.from(STATE.allEmployees.values()).sort((a,b) => a.firstName.localeCompare(b.firstName));
     sorted.forEach(emp => {
