@@ -10398,24 +10398,52 @@ const FichajesModule = {
       // Progresión visual (0.5 es neutro, escala +- 20h)
       const progress = Math.min(100, Math.max(0, 50 + (stat.periodBalance / 72000) * 50));
 
+      // Tooltips contextuales (multilínea con \n + white-space:pre-line en CSS)
+      const fmtH = s => {
+        const v = Number(s || 0);
+        const sign = v < 0 ? '-' : '';
+        const abs = Math.abs(v);
+        return `${sign}${Math.floor(abs / 3600)}h ${Math.floor((abs % 3600) / 60)}m`;
+      };
+      const periodTooltip = [
+        `Trabajado: ${fmtH(stat.localEquivalentSeconds)}`,
+        `Teórico: ${fmtH(stat.localTheoreticSeconds)}`,
+        `Diferencia: ${fmtH(stat.periodBalance)}`,
+        ``,
+        `Fuente: ${sourceLabel}`
+      ].join('\n');
+      const stateTooltip = balanceTone.label === 'Superávit'
+        ? `${balanceTone.label}\nEl empleado tiene horas a favor para este ${scopeLabel}.`
+        : balanceTone.label === 'Déficit'
+          ? `${balanceTone.label}\nEl empleado debe horas para este ${scopeLabel}.`
+          : `Cuadrado\nTrabajado y teórico empatan.`;
+      const cumplimientoPct = stat.localTheoreticSeconds > 0
+        ? Math.round((stat.localEquivalentSeconds / stat.localTheoreticSeconds) * 100)
+        : 0;
+      const progressTooltip = [
+        `Cumplimiento: ${cumplimientoPct}%`,
+        `Trabajado: ${fmtH(stat.localEquivalentSeconds)}`,
+        `Teórico: ${fmtH(stat.localTheoreticSeconds)}`
+      ].join('\n');
+
       return `
         <tr class="${rowClass}">
           <td>
             <div class="balance-employee-cell">
-              <button type="button" class="balance-avatar-trigger" data-employee-id="${escapeHTML(rowId)}" title="Ver resumen ampliado de ${escapeHTML(stat.name)}">
+              <button type="button" class="balance-avatar-trigger" data-employee-id="${escapeHTML(rowId)}" data-tip="Ver balance ampliado de ${escapeHTML(stat.name)}" data-tip-pos="bottom">
                 ${renderLocalAvatar(stat.name, stat.photo, 'balance-avatar', 'width:32px; height:32px; border-radius:50%; object-fit:cover; border: 1px solid var(--border);')}
               </button>
               <div class="balance-employee-main">
                 <div class="balance-employee-name-row">
                   <span class="balance-employee-name-line" title="${escapeHTML(stat.name)}">${escapeHTML(stat.name)}</span>
-                  <span class="balance-days-pill" title="${escapeHTML(daysTitle)}">${escapeHTML(String(daysLabel))}</span>
+                  <span class="balance-days-pill" data-tip="${escapeHTML(daysTitle)}" data-tip-pos="bottom">${escapeHTML(String(daysLabel))}</span>
                 </div>
                 <span class="balance-row-processing">${escapeHTML(rowPhaseLabel)}</span>
               </div>
             </div>
           </td>
           <td class="text-center">
-            <div style="display:inline-flex; flex-direction:column; align-items:center; gap:4px;" title="${escapeHTML(sourceTitle)}">
+            <div style="display:inline-flex; flex-direction:column; align-items:center; gap:4px; position:relative;" data-tip="${escapeHTML(periodTooltip)}" data-tip-pos="bottom">
               <span style="font-size: 1.1rem; font-weight: 800; color: ${mColor}">${format(stat.periodBalance)}</span>
               <span style="display:inline-flex; align-items:center; gap:5px; padding:2px 7px; border-radius:999px; border:1px solid ${sourceBadgeColor}40; background:${sourceBadgeColor}17; color:${sourceBadgeColor}; font-size:0.58rem; font-weight:900; text-transform:uppercase; letter-spacing:0.4px;">
                 <span style="width:5px; height:5px; border-radius:50%; background:${sourceBadgeColor};"></span>
@@ -10424,20 +10452,20 @@ const FichajesModule = {
             </div>
           </td>
           <td class="text-center">
-            <span title="${escapeHTML(annualTitle)}" style="font-size: 0.95rem; font-weight: 500; color: ${aColor}; opacity: 0.8">${hasAnnualBalance ? format(stat.annualBalance) : '--'}</span>
+            <span data-tip="${escapeHTML(annualTitle)}" data-tip-pos="bottom" style="font-size: 0.95rem; font-weight: 500; color: ${aColor}; opacity: 0.8; display:inline-block;">${hasAnnualBalance ? format(stat.annualBalance) : '--'}</span>
           </td>
           <td class="text-center">
-             <div style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:20px; background:${mColor}15; border: 1px solid ${mColor}30; color:${mColor}; font-size:0.65rem; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">
+             <div data-tip="${escapeHTML(stateTooltip)}" data-tip-pos="bottom" style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:20px; background:${mColor}15; border: 1px solid ${mColor}30; color:${mColor}; font-size:0.65rem; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">
                <span style="width:6px; height:6px; border-radius:50%; background:${mColor}"></span>
                ${balanceTone.label}
              </div>
           </td>
           <td style="vertical-align: middle;">
-            <div style="height:6px; width:100%; background:rgba(255,255,255,0.05); border-radius:3px; position:relative; overflow:hidden;">
+            <div data-tip="${escapeHTML(progressTooltip)}" data-tip-pos="bottom" style="height:6px; width:100%; background:rgba(255,255,255,0.05); border-radius:3px; position:relative; overflow:hidden; cursor:help;">
               <div style="position:absolute; left:0; top:0; height:100%; width:${progress}%; background:${mColor}; opacity:0.5; transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);"></div>
               <div style="position:absolute; left:50%; top:0; height:100%; width:1px; background:rgba(255,255,255,0.2);"></div>
             </div>
-            <div title="${escapeHTML(sourceTitle)}" style="margin-top:6px; display:inline-flex; align-items:center; gap:5px; color:${sourceColor}; font-size:0.62rem; font-weight:800; text-transform:uppercase; letter-spacing:0.4px;">
+            <div data-tip="${escapeHTML(sourceTitle)}" data-tip-pos="bottom" style="margin-top:6px; display:inline-flex; align-items:center; gap:5px; color:${sourceColor}; font-size:0.62rem; font-weight:800; text-transform:uppercase; letter-spacing:0.4px; cursor:help;">
               <span style="width:5px; height:5px; border-radius:50%; background:${sourceColor};"></span>
               ${escapeHTML(sourceLabel)}
             </div>

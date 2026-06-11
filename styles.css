@@ -7525,35 +7525,58 @@ body {
 [data-tip]::after {
   content: attr(data-tip);
   position: absolute;
-  bottom: calc(100% + 6px);
+  bottom: calc(100% + 8px);
   left: 50%;
   transform: translate(-50%, -2px);
-  background: rgba(20, 22, 36, 0.96);
+  background: rgba(20, 22, 36, 0.97);
   color: #fff;
-  font-size: 0.7rem;
+  font-size: 0.72rem;
   font-weight: 500;
-  padding: 6px 9px;
-  border-radius: 6px;
-  white-space: nowrap;
+  line-height: 1.45;
+  padding: 8px 11px;
+  border-radius: 8px;
+  /* pre-line respeta \n literales del data-tip para multi-línea, normal-case
+     para que no se vea en mayúsculas si el padre tiene text-transform. */
+  white-space: pre-line;
+  text-transform: none;
+  letter-spacing: 0;
+  text-align: left;
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.18s ease, transform 0.18s ease;
   z-index: 9999;
-  box-shadow: 0 8px 20px rgba(0,0,0,0.35);
-  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.40);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  min-width: 160px;
+  max-width: 320px;
+  width: max-content;
 }
 [data-tip]:hover::after,
 [data-tip]:focus-visible::after {
   opacity: 1;
   transform: translate(-50%, 0);
 }
-/* Variante para posicionar el tooltip abajo */
 [data-tip-pos="bottom"]::after {
   bottom: auto;
-  top: calc(100% + 6px);
+  top: calc(100% + 8px);
   transform: translate(-50%, 2px);
 }
 [data-tip-pos="bottom"]:hover::after { transform: translate(-50%, 0); }
+[data-tip-pos="right"]::after {
+  bottom: auto;
+  top: 50%;
+  left: calc(100% + 8px);
+  transform: translate(-2px, -50%);
+}
+[data-tip-pos="right"]:hover::after { transform: translate(0, -50%); }
+[data-tip-pos="left"]::after {
+  bottom: auto;
+  top: 50%;
+  left: auto;
+  right: calc(100% + 8px);
+  transform: translate(2px, -50%);
+}
+[data-tip-pos="left"]:hover::after { transform: translate(0, -50%); }
 
 /* ════════════════════════════════════════════════════════════════════
    BREADCRUMBS — navegación entre modales encadenados
