@@ -5,7 +5,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.7.7';
+const APP_VERSION = '1.7.9';
 
 // ─── Debug Mode ───────────────────────────────────────────────────────────────
 // false en producción (silencia console.log/info/warn).
@@ -6415,7 +6415,11 @@ const FichajesModule = {
 
                 if (doff.dayOffTimeType === 'full_day' && dayOffSeconds > 0) {
                   existing.workdayOverride = dayOffSeconds;
-                  markEveOfNonWorkingDay(empId, doff.date, typeName || 'Día no laborable');
+                  // Solo marcar víspera si la empresa aplica reducción (Fibercom)
+                  // y el día libre es festivo de empresa, no vacaciones personales.
+                  if (_appliesZgzHolidays && calendarTypeInfo.isCompanyCalendar) {
+                    markEveOfNonWorkingDay(empId, doff.date, typeName || 'Día no laborable');
+                  }
                 }
                 if (isRemunerated && (dayOffSeconds > 0 || isFullDayImplicit)) {
                   if (isFullDayImplicit) {
@@ -8039,7 +8043,10 @@ const FichajesModule = {
 	          theoreticSource = compensatedSeconds > 0 ? `${_tmplLabel} + Calendario` : _tmplLabel;
 	        }
 	      }
-	      if (dayOverride?.eveOfNonWorkingDaySeconds && theoreticSeconds > dayOverride.eveOfNonWorkingDaySeconds) {
+	      // Si Sesame BI ya nos dio la jornada teórica final, no aplicar la
+	      // reducción víspera local: el BI ya refleja lo que Sesame calcula para
+	      // ese día (si para Sesame no es víspera, el BI devuelve 8h y es correcto).
+	      if (!isSesameComputedTheoretic && dayOverride?.eveOfNonWorkingDaySeconds && theoreticSeconds > dayOverride.eveOfNonWorkingDaySeconds) {
 	        theoreticSeconds = dayOverride.eveOfNonWorkingDaySeconds;
 	        theoreticSource = `${theoreticSource} + Víspera`;
 	      }
@@ -9425,18 +9432,22 @@ const FichajesModule = {
         .filter(Boolean);
       if (!absenceLabels.length && row.absenceLabel) absenceLabels.push(row.absenceLabel);
 
-      acc.worked += worked;
-      acc.compensated += compensated;
-      acc.compensatedApplied += Number(row.compensatedAppliedToTheoretic || 0);
-      acc.equivalent += equivalent;
-      acc.theoretic += theoretic;
-      acc.balance += Number(row.balanceSec || 0);
+      // Día vivo: excluido de los totales de trabajado/teórico/balance
+      // (imita Sesame: la cabecera mensual solo suma días cerrados).
+      if (!row.isLive) {
+        acc.worked += worked;
+        acc.compensated += compensated;
+        acc.compensatedApplied += Number(row.compensatedAppliedToTheoretic || 0);
+        acc.equivalent += equivalent;
+        acc.theoretic += theoretic;
+        acc.balance += Number(row.balanceSec || 0);
+        if (worked > 0) acc.workedDays += 1;
+        if (theoretic > 0) acc.theoreticDays += 1;
+      }
       acc.pause += Number(row.totalPauseSec || 0);
       acc.workSegments += Number(row.workSegments || 0);
       acc.pauseSegments += Number(row.pauseSegments || 0);
       acc.entries += entries.length;
-      if (worked > 0) acc.workedDays += 1;
-      if (theoretic > 0) acc.theoreticDays += 1;
       if (firstWorkIn !== null) {
         acc.entryMinutes += firstWorkIn;
         acc.entryCount += 1;
@@ -9476,6 +9487,49 @@ const FichajesModule = {
       compensatedItems: [],
       liveDays: 0
     });
+
+    // Proyectar teórico del día vivo y días futuros del MES EN CURSO siempre,
+    // independientemente de la vista (mes, anual, etc.).
+    // Imita Sesame: teórico del mes en curso = mes completo.
+    // Se acota al fin del mes en curso, no al fin del rango completo.
+    {
+      const _todayKey = getLocalDateKey();
+      const _todayDate = new Date(_todayKey + 'T00:00:00');
+      const _monthLastDay = new Date(_todayDate.getFullYear(), _todayDate.getMonth() + 1, 0);
+      const _monthEndKey = getLocalDateKey(_monthLastDay);
+      const { end: _rangeEnd } = this.getCurrentRangeKeys();
+      const _projEnd = _monthEndKey < _rangeEnd ? _monthEndKey : _rangeEnd;
+      if (_projEnd > _todayKey) {
+        const _coveredDates = new Set(rows.map(r => r.date));
+        const _empObj = STATE.allEmployees.get(id);
+        // Día vivo: fue excluido del reduce, recuperar su teórico aquí
+        const _liveRow = rows.find(r => r.isLive);
+        if (_liveRow) {
+          totals.theoretic += Number(_liveRow.theoreticSeconds || 28800);
+          totals.theoreticDays += 1;
+        }
+        // Días futuros laborables sin fichaje
+        let _cursor = addLocalDays(_todayKey, 1);
+        while (_cursor <= _projEnd) {
+          if (isWeekdayDateKey(_cursor) && !_coveredDates.has(_cursor)) {
+            const _ovKey = `${id}_${_cursor}`;
+            const _ov = this.dayOverrides?.get(_ovKey);
+            let _dayTh;
+            if (_ov && _ov.workdayOverride !== null) {
+              _dayTh = Number(_ov.workdayOverride || 0);
+            } else {
+              const _res = _empObj ? resolveEmployeeScheduleForDate(_empObj, _cursor) : null;
+              _dayTh = _res?.secondsForDay ?? 28800;
+            }
+            if (_dayTh > 0) {
+              totals.theoretic += _dayTh;
+              totals.theoreticDays += 1;
+            }
+          }
+          _cursor = addLocalDays(_cursor, 1);
+        }
+      }
+    }
 
     const official = this.officialHoursBagMap?.get(id) || null;
     const history = this.hoursBagRuleHistoryMap?.get(id) || null;
@@ -9593,6 +9647,63 @@ const FichajesModule = {
         pendingEdit: e.pendingEdit || false
       }))
     }));
+
+    // Añadir filas de días futuros laborables del mes en curso (como Sesame: 0h / 8h)
+    {
+      const _expToday = getLocalDateKey();
+      const _expTodayDate = new Date(_expToday + 'T00:00:00');
+      const _expMonthEnd = getLocalDateKey(new Date(_expTodayDate.getFullYear(), _expTodayDate.getMonth() + 1, 0));
+      const _expRangeEnd = endKey < _expMonthEnd ? endKey : _expMonthEnd;
+      const _expCoveredDates = new Set(jornadas.map(j => j.date));
+      const _expEmp = STATE.allEmployees.get(String(employeeId));
+      const _weekdayNames = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+      let _expCursor = addLocalDays(_expToday, 1);
+      while (_expCursor <= _expRangeEnd) {
+        if (isWeekdayDateKey(_expCursor) && !_expCoveredDates.has(_expCursor)) {
+          const _expOv = this.dayOverrides?.get(`${employeeId}_${_expCursor}`);
+          let _expTh;
+          if (_expOv && _expOv.workdayOverride !== null) {
+            _expTh = Number(_expOv.workdayOverride || 0);
+          } else {
+            const _expRes = _expEmp ? resolveEmployeeScheduleForDate(_expEmp, _expCursor) : null;
+            _expTh = _expRes?.secondsForDay ?? 28800;
+          }
+          if (_expTh > 0) {
+            const _expDow = new Date(_expCursor + 'T00:00:00').getDay();
+            jornadas.push({
+              date: _expCursor,
+              dayName: _weekdayNames[_expDow] || '',
+              inTime: '--:--',
+              outTime: '--:--',
+              workedSeconds: 0,
+              workedFormatted: '0h 0m',
+              theoreticSeconds: _expTh,
+              theoreticFormatted: fmt(_expTh),
+              theoreticBeforeCompensation: _expTh,
+              theoreticSource: 'Proyectado',
+              pactedSeconds: _expTh,
+              compensatedSeconds: 0,
+              compensatedFormatted: '0h 0m',
+              compensatedAppliedToTheoretic: 0,
+              compensatedItems: [],
+              totalPauseSec: 0,
+              pauseFormatted: '0h 0m',
+              balanceSec: -_expTh,
+              balanceLabel: fmt(-_expTh),
+              absenceLabel: null,
+              absenceSegments: [],
+              workSegments: 0,
+              pauseSegments: 0,
+              isLive: false,
+              isFutureProjected: true,
+              eveOfNonWorkingDayLabel: null,
+              entries: []
+            });
+          }
+        }
+        _expCursor = addLocalDays(_expCursor, 1);
+      }
+    }
 
     const payload = {
       meta: {
@@ -10022,14 +10133,54 @@ const FichajesModule = {
         });
       }
       const stat = stats.get(rowId);
-      stat.periodBalance += row.balanceSec;
-      stat.localPeriodBalance += row.balanceSec;
-      stat.localBaseBalance = (stat.localBaseBalance || 0) + row.balanceSec;
-      stat.localEquivalentSeconds += Number(row.totalEquivalentSeconds || row.workedSeconds || 0);
-      stat.localTheoreticSeconds += Number(row.theoreticSeconds || 0);
-      stat.sources.add(row.theoreticSource || 'Estimado');
+      // Día vivo excluido del balance/trabajado (imita Sesame: solo días cerrados)
+      if (!row.isLive) {
+        stat.periodBalance += row.balanceSec;
+        stat.localPeriodBalance += row.balanceSec;
+        stat.localBaseBalance = (stat.localBaseBalance || 0) + row.balanceSec;
+        stat.localEquivalentSeconds += Number(row.totalEquivalentSeconds || row.workedSeconds || 0);
+        stat.localTheoreticSeconds += Number(row.theoreticSeconds || 0);
+        stat.sources.add(row.theoreticSource || 'Estimado');
+      }
       stat.days += 1;
     });
+
+    // Teórico proyectado del mes en curso (día vivo + días futuros): imita Sesame.
+    // Siempre se aplica, acotado al fin del mes en curso.
+    {
+      const _btToday = getLocalDateKey();
+      const _btTodayDate = new Date(_btToday + 'T00:00:00');
+      const _btMonthLastDay = new Date(_btTodayDate.getFullYear(), _btTodayDate.getMonth() + 1, 0);
+      const _btMonthEndKey = getLocalDateKey(_btMonthLastDay);
+      const { end: _btRangeEnd } = this.getCurrentRangeKeys();
+      const _btEnd = _btMonthEndKey < _btRangeEnd ? _btMonthEndKey : _btRangeEnd;
+      if (_btEnd > _btToday) {
+        stats.forEach((stat, empId) => {
+          if (stat.hasOfficialBalance) return;
+          const _btEmp = STATE.allEmployees.get(empId);
+          const _btCovered = new Set(balanceRows.filter(r => String(r.employeeId) === empId).map(r => r.date));
+          // Día vivo
+          const _btLive = balanceRows.find(r => String(r.employeeId) === empId && r.isLive);
+          if (_btLive) stat.localTheoreticSeconds += Number(_btLive.theoreticSeconds || 28800);
+          // Días futuros laborables sin fichaje
+          let _btCursor = addLocalDays(_btToday, 1);
+          while (_btCursor <= _btEnd) {
+            if (isWeekdayDateKey(_btCursor) && !_btCovered.has(_btCursor)) {
+              const _btOv = this.dayOverrides?.get(`${empId}_${_btCursor}`);
+              let _btTh;
+              if (_btOv && _btOv.workdayOverride !== null) {
+                _btTh = Number(_btOv.workdayOverride || 0);
+              } else {
+                const _btRes = _btEmp ? resolveEmployeeScheduleForDate(_btEmp, _btCursor) : null;
+                _btTh = _btRes?.secondsForDay ?? 28800;
+              }
+              if (_btTh > 0) stat.localTheoreticSeconds += _btTh;
+            }
+            _btCursor = addLocalDays(_btCursor, 1);
+          }
+        });
+      }
+    }
 
     this.getBalanceEmployeeIds({ applySearch: true }).forEach(id => {
       const rowId = String(id);
