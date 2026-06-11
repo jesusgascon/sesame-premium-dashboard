@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=1.7.7" />
+  <link rel="stylesheet" href="styles.css?v=1.7.7-sesame" />
   <script>
     // Apply theme as early as possible to avoid dark flash
     const savedTheme = localStorage.getItem('theme') || 'dark';
@@ -389,6 +389,13 @@
             <button class="vt-btn" data-cal-view="week">Semana</button>
             <button class="vt-btn" data-cal-view="day">Día</button>
           </div>
+          <a id="open-sesame-portal-vac" class="btn-icon-round sesame-portal-btn" href="https://app.sesametime.com/employee/portal" target="_blank" rel="noopener noreferrer" title="Abrir Sesame oficial en nueva pestaña" aria-label="Abrir Sesame oficial">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+              <polyline points="15 3 21 3 21 9"></polyline>
+              <line x1="10" y1="14" x2="21" y2="3"></line>
+            </svg>
+          </a>
           <button id="theme-btn" class="theme-toggle btn-icon-round" title="Cambiar tema" aria-label="Cambiar tema">🌙</button>
           <button id="subscribe-btn" class="btn-icon-round" title="Sincronizar con Google Calendar" aria-label="Sincronizar con Google Calendar">🔗</button>
           <button id="export-btn" class="btn-icon-round" title="Exportar calendario (.ics)" aria-label="Exportar calendario en formato ICS">📅</button>
@@ -497,6 +504,13 @@
             </div>
 
             <div class="icon-actions-group">
+              <a id="open-sesame-portal" class="btn-icon-round sesame-portal-btn" href="https://app.sesametime.com/employee/portal" target="_blank" rel="noopener noreferrer" title="Abrir Sesame oficial en nueva pestaña" aria-label="Abrir Sesame oficial">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;">
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                  <polyline points="15 3 21 3 21 9"></polyline>
+                  <line x1="10" y1="14" x2="21" y2="3"></line>
+                </svg>
+              </a>
               <button id="kiosko-mode-btn" class="btn-icon-round" title="Modo Kiosko (Vista de oficina)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
               </button>
