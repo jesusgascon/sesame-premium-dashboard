@@ -5,7 +5,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.7.13';
+const APP_VERSION = '1.7.15';
 
 // ─── Debug Mode ───────────────────────────────────────────────────────────────
 // false en producción (silencia console.log/info/warn).
@@ -9424,6 +9424,7 @@ const FichajesModule = {
     const isVacationLabel = label => /vacaciones|vacation/i.test(String(label || ''));
 
     const totals = rows.reduce((acc, row) => {
+      if (row.isLive) acc.liveDays += 1;
       if (this.balanceLiveMode === 'closed' && row.isLive) return acc;
       const worked = Number(row.workedSeconds || 0);
       const compensated = Number(row.compensatedSeconds || 0);
@@ -9471,7 +9472,6 @@ const FichajesModule = {
       if (Array.isArray(row.compensatedItems)) {
         row.compensatedItems.forEach(item => acc.compensatedItems.push({ ...item, date: item.date || row.date }));
       }
-      if (row.isLive) acc.liveDays += 1;
       return acc;
     }, {
       worked: 0,
@@ -9878,11 +9878,12 @@ const FichajesModule = {
       }).join('');
       const openAttr = index === 0 ? ' open' : '';
       return `
-        <details class="balance-day-card${row.absenceLabel ? ' has-absence' : ''}"${openAttr}>
+        <details class="balance-day-card${row.absenceLabel ? ' has-absence' : ''}${row.isLive ? ' is-live' : ''}"${openAttr}>
           <summary class="balance-day-head">
             <div style="display:flex;align-items:center;gap:8px;">
               <strong>${escapeHTML(formatDayTitle(row))}</strong>
               ${row.absenceLabel ? `<span class="badge-absence">📌 ${escapeHTML(row.absenceLabel)}</span>` : ''}
+              ${row.isLive ? `<span class="badge-live" title="${this.balanceLiveMode === 'closed' ? 'Jornada en curso. En modo Sin hoy queda fuera de los totales del balance.' : 'Jornada en curso, incluida en el balance.'}"><span class="pulse-dot green"></span>En curso${this.balanceLiveMode === 'closed' ? ' · fuera del balance' : ''}</span>` : ''}
             </div>
             <b class="${Number(row.balanceSec || 0) >= 0 ? 'positive' : 'negative'}">${formatSigned(row.balanceSec)}</b>
             <span class="balance-day-toggle">Detalles</span>
@@ -9931,7 +9932,7 @@ const FichajesModule = {
           <div class="balance-employee-title">
             <span>${scopeTitle}</span>
             <h2>${safeName}</h2>
-            <p>${safeRange} · ${summary.rows.length} jornadas · ${summary.source}</p>
+            <p>${safeRange} · ${summary.rows.length} jornadas · ${summary.source} · <span class="balance-mode-chip ${this.balanceLiveMode === 'closed' ? 'closed' : 'live'}">${this.balanceLiveMode === 'closed' ? 'Sin hoy' : 'Con hoy'}</span></p>
             <div class="balance-title-actions">
               <button class="balance-export-json-btn" type="button" data-employee-id="${escapeHTML(String(employeeId))}" title="Descargar JSON con todos los fichajes y métricas del periodo" aria-label="Descargar JSON de fichajes">
                 <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -10407,8 +10408,8 @@ const FichajesModule = {
     const currentExerciseYear = new Date().getFullYear();
     const isCurrentExercise = this.currentDate.getFullYear() === currentExerciseYear && !this.isBalanceMonthScope();
     const exerciseButtonLabel = isCurrentExercise
-      ? 'Recargar ejercicio actual'
-      : `Ver ejercicio actual ${currentExerciseYear}`;
+      ? 'Recargar ejercicio'
+      : `Ejercicio ${currentExerciseYear}`;
     const _isLiveMode = this.balanceLiveMode !== 'closed';
     const balanceScopeActionHtml = `
       <button
@@ -10419,14 +10420,14 @@ const FichajesModule = {
       >
         ${exerciseButtonLabel}
       </button>
-      <span style="display:inline-flex; gap:0; border-radius:6px; overflow:hidden; border:1px solid rgba(148,163,184,0.25); margin-left:4px;">
-        <button type="button" onclick="FichajesModule.setBalanceLiveMode('live')" style="padding:4px 9px; font-size:0.65rem; border:none; cursor:pointer; background:${_isLiveMode ? 'rgba(45,212,191,0.18)' : 'transparent'}; color:${_isLiveMode ? '#2dd4bf' : 'var(--text-muted)'}; font-weight:${_isLiveMode ? '600' : '400'};" title="Incluir día actual (sesión abierta)">Con hoy</button>
-        <button type="button" onclick="FichajesModule.setBalanceLiveMode('closed')" style="padding:4px 9px; font-size:0.65rem; border:none; cursor:pointer; background:${!_isLiveMode ? 'rgba(45,212,191,0.18)' : 'transparent'}; color:${!_isLiveMode ? '#2dd4bf' : 'var(--text-muted)'}; font-weight:${!_isLiveMode ? '600' : '400'};" title="Solo días cerrados (sin sesión de hoy)">Sin hoy</button>
+      <span class="balance-live-toggle" role="group" aria-label="Modo de cálculo del día actual">
+        <button type="button" class="${_isLiveMode ? 'active' : ''}" aria-pressed="${_isLiveMode}" onclick="FichajesModule.setBalanceLiveMode('live')" title="Incluir día actual (sesión abierta)">Con hoy</button>
+        <button type="button" class="${!_isLiveMode ? 'active' : ''}" aria-pressed="${!_isLiveMode}" onclick="FichajesModule.setBalanceLiveMode('closed')" title="Solo días cerrados (sin sesión de hoy)">Sin hoy</button>
       </span>
     `;
     const sourceActionsHtml = officialSkipped
-      ? '<button type="button" class="btn-secondary" onclick="FichajesModule.retryOfficialWorkedHours()" style="font-size:0.65rem; padding:4px 8px;">Probar Sesame Statistics</button>'
-      : '<button type="button" class="btn-secondary" onclick="FichajesModule.useLocalBalanceOnly()" style="font-size:0.65rem; padding:4px 8px;">Usar solo cálculo local</button>';
+      ? '<button type="button" class="btn-secondary" onclick="FichajesModule.retryOfficialWorkedHours()" style="font-size:0.62rem; padding:3px 7px;" title="Reintentar el balance oficial de Sesame Statistics">Probar Sesame</button>'
+      : '<button type="button" class="btn-secondary" onclick="FichajesModule.useLocalBalanceOnly()" style="font-size:0.62rem; padding:3px 7px;" title="Usar solo el cálculo local, sin consultar Sesame Statistics">Solo local</button>';
     const useIndeterminateProgress = this.officialHoursBagLoading && (phase === 'local' || progressDone === 0);
     const progressTrackClass = useIndeterminateProgress
       ? 'balance-load-track balance-load-track-pending'
@@ -10463,33 +10464,33 @@ const FichajesModule = {
     ` : '';
     const sourceAuditHtml = `
       <tr class="balance-source-audit-row">
-        <td colspan="5" style="padding: 10px 14px; background: rgba(45, 212, 191, 0.07); border-bottom: 1px solid rgba(45, 212, 191, 0.16);">
+        <td colspan="5" style="padding: 5px 12px; background: rgba(45, 212, 191, 0.07); border-bottom: 1px solid rgba(45, 212, 191, 0.16);">
           ${loadingPanelHtml}
-          <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; font-size:0.72rem; color:var(--text-muted); ${loadingPanelHtml ? 'margin-top:10px;' : ''}">
-            <strong style="color:var(--text-primary); font-size:0.74rem;">Fuente del balance</strong>
-            <span style="display:inline-flex; align-items:center; gap:6px;">
-              <span style="width:7px; height:7px; border-radius:50%; background:#2dd4bf;"></span>
-              ${officialCount} Sesame Statistics
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; font-size:0.66rem; color:var(--text-muted); ${loadingPanelHtml ? 'margin-top:8px;' : ''}">
+            <strong style="color:var(--text-primary); font-size:0.68rem;" title="Origen de los datos de balance de cada empleado">Fuente</strong>
+            <span style="display:inline-flex; align-items:center; gap:5px;" title="Balances confirmados por Sesame Statistics">
+              <span style="width:6px; height:6px; border-radius:50%; background:#2dd4bf;"></span>
+              ${officialCount} Sesame
             </span>
-            <span style="display:inline-flex; align-items:center; gap:6px;">
-              <span style="width:7px; height:7px; border-radius:50%; background:#f59e0b;"></span>
-              ${localCount} calculado local
+            <span style="display:inline-flex; align-items:center; gap:5px;" title="Balances calculados localmente">
+              <span style="width:6px; height:6px; border-radius:50%; background:#f59e0b;"></span>
+              ${localCount} local
             </span>
-            <span style="display:inline-flex; align-items:center; gap:6px;">
-              <span style="width:7px; height:7px; border-radius:50%; background:#94a3b8;"></span>
-              ${pendingCount} pendientes
+            <span style="display:inline-flex; align-items:center; gap:5px;" title="Pendientes de respuesta de Sesame">
+              <span style="width:6px; height:6px; border-radius:50%; background:#94a3b8;"></span>
+              ${pendingCount} pend.
             </span>
-            <span style="display:inline-flex; align-items:center; gap:6px;">
-              <span style="width:7px; height:7px; border-radius:50%; background:#60a5fa;"></span>
-              ${adjustedLocalCount} ajuste bolsa
+            <span style="display:inline-flex; align-items:center; gap:5px;" title="Cálculo local ajustado con la bolsa de horas de Sesame">
+              <span style="width:6px; height:6px; border-radius:50%; background:#60a5fa;"></span>
+              ${adjustedLocalCount} bolsa
             </span>
-            <span style="display:inline-flex; align-items:center; gap:6px;">
-              <span style="width:7px; height:7px; border-radius:50%; background:#f87171;"></span>
-              ${errorCount} error/sin datos
+            <span style="display:inline-flex; align-items:center; gap:5px;" title="Empleados con error o sin datos">
+              <span style="width:6px; height:6px; border-radius:50%; background:#f87171;"></span>
+              ${errorCount} error
             </span>
-            ${officialSkipped ? '<span style="color:#f59e0b;">Modo local manual</span>' : ''}
-            ${this.balanceLiveMode === 'closed' ? '<span style="color:#2dd4bf;" title="El balance oficial de Sesame incluye el día en curso, por eso en este modo se usa el cálculo local de días cerrados.">Sin hoy: cálculo local</span>' : ''}
-            ${lastError && !officialSkipped ? `<span title="${escapeHTML(lastError)}" style="color:#f59e0b;">Ultimo error resumido</span>` : ''}
+            ${officialSkipped ? '<span style="color:#f59e0b;" title="Sesame Statistics desactivado manualmente">Local manual</span>' : ''}
+            ${this.balanceLiveMode === 'closed' ? '<span style="color:#2dd4bf;" title="El balance oficial de Sesame incluye el día en curso, por eso en este modo se usa el cálculo local de días cerrados.">Sin hoy: local</span>' : ''}
+            ${lastError && !officialSkipped ? `<span title="${escapeHTML(lastError)}" style="color:#f59e0b;">Último error</span>` : ''}
             <span class="balance-source-actions">
               ${balanceScopeActionHtml}
               ${sourceActionsHtml}
