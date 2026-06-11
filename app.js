@@ -11848,17 +11848,32 @@ async function openEmployeeScheduleManager(employeeId, options = {}) {
   const openPicker = () => {
     pickerYear = viewYear;
     renderPicker();
-    // Posicionar el popover bajo el botón trigger (igual que en la barra superior)
     const rect = $monthTrigger.getBoundingClientRect();
     const popoverW = 220;
     let leftPos = rect.left + rect.width / 2 - popoverW / 2;
     if (leftPos + popoverW > window.innerWidth - 8) leftPos = window.innerWidth - popoverW - 8;
     if (leftPos < 8) leftPos = 8;
-    $picker.style.position = 'fixed';
-    $picker.style.top = (rect.bottom + 8) + 'px';
-    $picker.style.left = leftPos + 'px';
+    // Forzar estilos inline con !important para que ganen sobre cualquier
+    // estilo heredado o del CSS que pudiera ocultarlo (display:none, etc).
+    $picker.setAttribute('style', [
+      `position: fixed !important`,
+      `top: ${rect.bottom + 8}px !important`,
+      `left: ${leftPos}px !important`,
+      `z-index: 10500 !important`,
+      `opacity: 1 !important`,
+      `visibility: visible !important`,
+      `pointer-events: auto !important`,
+      `display: block !important`
+    ].join('; '));
     $picker.classList.add('active');
     $monthTrigger.classList.add('active');
+    console.info('[picker]', 'opened', {
+      pickerInBody: document.body.contains($picker),
+      pickerClasses: $picker.className,
+      pickerStyle: $picker.getAttribute('style')?.substring(0, 100),
+      rect: { top: rect.top, bottom: rect.bottom, left: rect.left, width: rect.width },
+      viewport: { w: window.innerWidth, h: window.innerHeight }
+    });
     setTimeout(() => {
       const onDocClick = (e) => {
         if (!$picker.contains(e.target) && !$monthTrigger.contains(e.target)) {
@@ -11870,11 +11885,16 @@ async function openEmployeeScheduleManager(employeeId, options = {}) {
     }, 0);
   };
   $monthTrigger.addEventListener('click', (e) => {
+    console.info('[picker] click on month trigger', { active: $picker.classList.contains('active') });
     e.stopPropagation();
     e.preventDefault();
     if ($picker.classList.contains('active')) closePicker();
     else openPicker();
   });
+  // También en capture phase como fallback por si el global come el evento
+  $monthTrigger.addEventListener('click', (e) => {
+    console.info('[picker] click on month trigger (capture)');
+  }, true);
   $picker.querySelector('[data-picker-year-prev]').onclick = (e) => {
     e.stopPropagation();
     pickerYear--; renderPicker();
