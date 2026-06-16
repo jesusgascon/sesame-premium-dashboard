@@ -1,0 +1,17 @@
+version: 2
+updates:
+  # Mantiene al día las versiones de las GitHub Actions usadas en los workflows.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci"
+
+  # Dependencias Python del proxy local (requirements.txt).
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "deps"
