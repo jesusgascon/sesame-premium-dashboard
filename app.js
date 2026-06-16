@@ -2046,16 +2046,40 @@ async function fetchVacationBalance(employeeId) {
   }
 }
 
+// Lee el id de empresa de un objeto empleado crudo de la API, probando las
+// distintas claves que Sesame ha usado según versión/endpoint.
+function getEmployeeCompanyId(e) {
+  if (!e || typeof e !== 'object') return null;
+  return e.companyId ?? e.company_id ?? e.companyID ?? e.company?.id ?? null;
+}
+
 async function fetchEmployees() {
   try {
-    // 1. Intentamos el directorio global (tradicionalmente con más permisos)
-    let data = await apiFetch(`/api/v3/employees?limit=500&include=personalData,details`);
-    let results = data.data || data || [];
+    // 1. Fuente PRINCIPAL: endpoint POR EMPRESA. El companyId va en la URL, así
+    //    que Sesame devuelve SOLO la plantilla de la empresa activa. El directorio
+    //    global /api/v3/employees puede ignorar la cabecera x-company-id cuando el
+    //    token tiene acceso multi-empresa y devolver las plantillas de varias
+    //    empresas mezcladas (bug de empleados cruzados en fichajes y balances).
+    let results = [];
+    if (STATE.companyId) {
+      const companyData = await apiFetch(
+        `/api/v3/companies/${STATE.companyId}/employees?limit=500&include=personalData,details`
+      ).catch(() => null);
+      results = companyData?.data || (Array.isArray(companyData) ? companyData : []) || [];
+    }
 
-    // 2. Fallback final: endpoint de empresa
+    // 2. Fallback: directorio global (cuentas sin permiso sobre el endpoint por
+    //    empresa). Filtramos por companyId cuando el objeto lo expone, para no
+    //    arrastrar empleados de otra empresa del token.
     if (results.length <= 1) {
-      const companyData = await apiFetch(`/api/v3/companies/${STATE.companyId}/employees?limit=500&include=personalData,details`);
-      results = companyData.data || companyData || [];
+      const data = await apiFetch(`/api/v3/employees?limit=500&include=personalData,details`).catch(() => null);
+      let globalResults = data?.data || (Array.isArray(data) ? data : []) || [];
+      const cid = STATE.companyId ? String(STATE.companyId) : null;
+      const exposesCompany = globalResults.some(e => getEmployeeCompanyId(e));
+      if (cid && exposesCompany) {
+        globalResults = globalResults.filter(e => String(getEmployeeCompanyId(e)) === cid);
+      }
+      if (globalResults.length > results.length) results = globalResults;
     }
 
     // 3. Enriquecer con los horarios teóricos (contracts/scheduleTemplateViews)
@@ -2113,6 +2137,7 @@ async function fetchEmployees() {
 
       return {
         id: e.id,
+        companyId: getEmployeeCompanyId(e) || getEmployeeCompanyId(detail) || STATE.companyId || null,
         firstName: detail.firstName || e.firstName,
         lastName: detail.lastName || e.lastName,
         imageProfileURL: detail.imageProfileURL || e.imageProfileURL || e.photoUrl || e.avatarUrl || '',
