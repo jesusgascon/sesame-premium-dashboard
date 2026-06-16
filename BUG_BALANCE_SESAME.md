@@ -1,7 +1,10 @@
-# Análisis del Bug de Balance (Ausencias y Teórico) - v1.7.8+
+# Análisis del Bug de Balance (Ausencias y Teórico) — ARCHIVADO
 
-**Fecha**: Junio 2026
-**Estado**: ✅ CORREGIDO en v1.7.2 (parche aplicado 2026-06-10). Ver sección "Correcciones aplicadas" al final.
+**Reporte**: Junio 2026
+**Fix**: v1.7.2 (parche aplicado 2026-06-10)
+**Estado**: ✅ RESUELTO Y ESTABLE — verificado en releases posteriores hasta v1.8.0. Ver sección "Correcciones aplicadas" al final.
+
+> Documento histórico conservado como referencia técnica del análisis y la solución. El resumen de cambios por versión vive en [CHANGELOG.md](./CHANGELOG.md) y en el README.
 
 ## El Problema Central
 El cálculo local de balance (horas trabajadas vs horas teóricas) daba fallos masivos en las ausencias (ej. -265h en Fibercom, o 8h15m fijas en APL) cuando el motor de BI de Sesame no devolvía el cálculo procesado.

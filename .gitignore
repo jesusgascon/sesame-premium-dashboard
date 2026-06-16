@@ -34,3 +34,7 @@ server.log
 scratch/
 _scratch/
 *.log
+
+# Codex exports (análisis de sesiones, no forman parte del proyecto)
+codex-export-*/
+codex-export-*.tar.gz

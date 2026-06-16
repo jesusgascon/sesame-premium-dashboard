@@ -137,9 +137,6 @@ El frontend no utiliza librerías (Cero React, Vue o Tailwind) para garantizar u
 - **Kiosko Mode**: Un flag en el estado que aplica clases CSS a nivel del `<body>` para ocultar la barra lateral y controles, maximizando el área gráfica para pantallas de televisión en salas de reuniones.
 
 ---
-*Fin del Documento de Arquitectura.*
-
----
 
 ## 7. Motor de Ausencias Parciales (v1.6.0)
 
@@ -394,3 +391,37 @@ Pila global de modales encadenados. Cuando se abre un modal secundario desde otr
 ### 11.5. Cierre unificado
 
 Todos los modales registran su propio handler de `ESC` que cierra **solo el modal más reciente** (consulta el DOM para no cerrar uno oculto por `visibility: hidden`). Click fuera y botón `×` funcionan de forma uniforme.
+
+## 12. Aislamiento Multi-Empresa, Animaciones y Navegación (v1.8.0)
+
+### 12.1. Carga de empleados por empresa (anti-mezcla de plantillas)
+
+Con un token de **administrador multi-empresa**, el directorio global `/api/v3/employees` puede ignorar la cabecera `x-company-id` y devolver empleados de **todas** las empresas del token, mezclando las plantillas en Fichajes y Balances. `fetchEmployees()` aplica una estrategia jerárquica:
+
+1. **Fuente principal**: `/api/v3/companies/{companyId}/employees?include=personalData,details`. El `companyId` viaja en la URL, así que Sesame filtra en servidor y solo devuelve la plantilla de la empresa activa.
+2. **Fallback filtrado**: si la fuente principal falla o devuelve ≤1 empleado, se consulta el directorio global y se filtra por `companyId` cuando el objeto lo expone (`getEmployeeCompanyId()` prueba `companyId`, `company_id`, `companyID`, `company.id`).
+3. Cada empleado mapeado guarda su `companyId`, reforzando el guard `rowsBelongToAnotherCompany()`, que descarta lotes del BI Engine que pertenezcan a otra empresa.
+
+Resultado: `STATE.allEmployees` queda aislado por empresa y nunca contamina el selector, los fichajes ni el balance.
+
+### 12.2. Giro del icono de actualizar atado al ciclo de carga
+
+El icono 🔄 de la barra superior refleja **cualquier** carga, no solo el clic manual:
+
+- `setRefreshSpinning(btnId, on)`: helper con **duración mínima visible** (`REFRESH_SPIN_MIN_MS = 800`) que difiere la parada para que el giro sea perceptible aunque la carga termine al instante (caché) o el repintado sea lento por escritorio remoto. Si llega otra carga durante la parada diferida, cancela el timer y sigue girando.
+- `FichajesModule.syncRefreshSpinner()`: sincronización **absoluta** (toggle según `this.isLoading || this.officialHoursBagLoading`), invocada al inicio/fin de `loadData` y en cada `renderBalanceTable`, de modo que el icono gira durante todo el *warmup* de balance en segundo plano y nunca se queda pegado.
+
+Cubre refresco manual, auto-refresco silencioso cada 5 min y warmup de balance. Respeta `prefers-reduced-motion` (degrada a un cambio de color de acento estático).
+
+### 12.3. Botón flotante "subir arriba"
+
+`initScrollTopButton()` registra un único listener de `scroll` en **fase de captura** sobre `#app-screen` (el evento `scroll` no burbujea), filtrando por los contenedores scrollables principales (`.signings-table-container` de Fichajes/Balances y `.view` de Vacaciones). El botón `#scroll-top-btn` aparece al superar 400 px y devuelve el contenedor activo al inicio con scroll suave (instantáneo con `prefers-reduced-motion`). Vive a nivel de `<body>` con `position: fixed` y `z-index: 90`, por debajo de los modales (100) y del overlay de carga (9999), para no tapar diálogos.
+
+### 12.4. Animaciones premium de acceso y carga
+
+- `cardRise` (0.6s) + `cardChildIn` con *stagger*: entrada de las tarjetas de login y "Editar empresa" con leve overshoot y aparición escalonada de sus bloques.
+- `loadingCardIn`: el panel del overlay "Conectando a Sesame" entra con escala al mostrarse; el pulso del logo usa `var(--accent)`.
+- Toda la maquinaria respeta `@media (prefers-reduced-motion: reduce)`.
+
+---
+*Fin del Documento de Arquitectura (actualizado en v1.8.0).*

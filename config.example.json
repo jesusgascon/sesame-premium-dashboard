@@ -1,13 +1,16 @@
 {
-  "_comment": "Copia este fichero a config.json y rellena tus datos (sin tokens).",
+  "_comment": "Copia este fichero a config.json y rellena tus datos (sin tokens). Los campos hasToken y hasMasterPassword los gestiona server.py automáticamente a partir de config.secrets.json; aquí solo sirven de referencia.",
+  "activeId": "00000000-0000-0000-0000-000000000000",
+  "companyId": "00000000-0000-0000-0000-000000000000",
   "companies": [
     {
       "name": "Mi Empresa",
       "companyId": "00000000-0000-0000-0000-000000000000",
       "backendUrl": "https://back-eu1.sesametime.com",
       "brandColor": "#6C63FF",
-      "logoUrl": "https://tu-servidor.com/logo.png"
+      "logoUrl": "https://tu-servidor.com/logo.png",
+      "hasToken": false,
+      "hasMasterPassword": false
     }
-  ],
-  "activeId": "00000000-0000-0000-0000-000000000000"
+  ]
 }

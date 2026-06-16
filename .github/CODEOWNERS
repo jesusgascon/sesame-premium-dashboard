@@ -1,0 +1,10 @@
+# CODEOWNERS — Sesame Premium Dashboard
+# Revisión por defecto para todo el repositorio.
+*                       @jesusgascon
+
+# Áreas sensibles de seguridad (cambios revisados con especial atención)
+/server.py              @jesusgascon
+/get-token.py           @jesusgascon
+/config.secrets.example.json  @jesusgascon
+/COMPLIANCE.md          @jesusgascon
+/.github/SECURITY.md    @jesusgascon

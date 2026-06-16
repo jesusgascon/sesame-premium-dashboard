@@ -53,10 +53,10 @@ El proyecto debe usarse bajo estos principios:
 
 El proyecto ya incorpora varias medidas de reducción de riesgo:
 
-- `config.secrets.json` está separado de `config.json` y no debe subirse a Git.
+- `config.secrets.json` está separado de `config.json` y contiene tanto los tokens de sesión web/USID como las contraseñas maestras locales (cifrados en reposo). Está en `.gitignore` y no debe subirse a Git.
 - `/config` no devuelve tokens ni contraseñas al navegador.
 - El proxy local inyecta `Authorization` desde el servidor cuando usa secretos guardados.
-- Los tokens se cifran en reposo con Fernet si `cryptography` está instalado.
+- Los tokens y contraseñas maestras se cifran en reposo con Fernet. `cryptography` es una dependencia declarada en `requirements.txt` (`cryptography>=42.0.0`), por lo que el cifrado está disponible en una instalación estándar.
 - Las rutas sensibles como `config.secrets.json`, claves TLS y claves locales se bloquean desde `server.py`.
 - No se añade telemetría ni se envían datos reales de empleados a servicios externos.
 - El acceso LAN debe usarse solo en redes de confianza; `bash start.sh local` limita el panel al equipo actual.

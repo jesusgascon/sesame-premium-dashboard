@@ -5,7 +5,7 @@
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Frontend](https://img.shields.io/badge/frontend-Vanilla%20JS%20(ES6+)-yellow.svg)
 ![Backend](https://img.shields.io/badge/backend-Python%20Proxy-green.svg)
-![Version](https://img.shields.io/badge/version-1.7.7-success.svg)
+![Version](https://img.shields.io/badge/version-1.8.0-success.svg)
 ![Status](https://img.shields.io/badge/status-Production%20Ready-success.svg)
 
 ---
@@ -235,6 +235,13 @@ Para una inmersión profunda en los algoritmos de cruce de datos, heurísticas d
 ---
 
 ## 📜 Changelog Detallado
+
+### [v1.8.0] — 2026-06-16 | *Aislamiento multi-empresa de plantillas, animaciones premium y botón "subir arriba"*
+- **Corregido (crítico)**: En cuentas de **administrador multi-empresa**, el listado de empleados mezclaba las plantillas de las dos empresas en Fichajes y Balances. `fetchEmployees()` pasa a usar el endpoint **por empresa** `/api/v3/companies/{companyId}/employees` como fuente principal (el `companyId` de la URL filtra en servidor) y el directorio global solo como fallback filtrado por `companyId`. Cada empleado guarda su `companyId` para reforzar los guards anti-mezcla.
+- **Añadido**: **Botón flotante "subir arriba"** (`#scroll-top-btn`) que aparece al bajar más de 400 px en Fichajes/Balances y en las vistas de Vacaciones; sube con scroll suave (instantáneo con `prefers-reduced-motion`). Listener en fase de captura sobre `#app-screen` y `z-index` por debajo de los modales.
+- **Añadido**: El icono **🔄 de actualizar** ahora **gira** en *cualquier* refresco —manual, auto-refresco silencioso y warmup de balance en segundo plano— con sincronización absoluta (`setRefreshSpinning` / `syncRefreshSpinner`) y una duración mínima visible de 0,8 s para que sea perceptible aunque la carga termine al instante o vaya por escritorio remoto.
+- **Mejorado**: **Animaciones premium** en login, "Editar empresa" y el overlay "Conectando a Sesame" — entrada `cardRise` con leve overshoot y aparición escalonada de los bloques, panel de carga que entra con escala y pulso del logo tokenizado a `var(--accent)`. Todo respeta `prefers-reduced-motion`.
+- **Mejorado (docs)**: Documentación alineada al estado real y **andamiaje profesional de GitHub** (`.github/` con plantillas de issues/PR, `SECURITY.md`, `CODEOWNERS`), `CONTRIBUTING.md` y `CHANGELOG.md` dedicado. `.gitignore`, `config.example.json` y `COMPLIANCE.md` actualizados.
 
 ### [v1.7.23] — 2026-06-11 | *Panel lateral, protección multi-empresa y aviso de token caducado*
 - **Añadido**: Banner de **token caducado** con detección en vivo: un 401 de Sesame muestra un aviso flotante con el nombre de la empresa y acciones directas (Renovar credenciales, Abrir Sesame). Se retira solo con la primera respuesta correcta; estado independiente por empresa.
