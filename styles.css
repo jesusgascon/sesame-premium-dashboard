@@ -2037,6 +2037,43 @@ body {
   will-change: transform;
 }
 
+/* Botón flotante "subir arriba": aparece al bajar mucho en Fichajes/Balances
+   (y en las vistas de Vacaciones). z-index 90 para quedar por debajo de los
+   modales (.modal-overlay = 100) y del overlay de carga (9999). */
+.scroll-top-btn {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 90;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.28), inset 0 0 0 1px rgba(255,255,255,0.06);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(16px) scale(0.85);
+  transition: opacity 0.25s ease, transform 0.25s cubic-bezier(0.16,1,0.3,1),
+              visibility 0.25s ease, box-shadow 0.2s ease;
+}
+.scroll-top-btn svg { width: 22px; height: 22px; }
+.scroll-top-btn.visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0) scale(1);
+}
+.scroll-top-btn:hover {
+  transform: translateY(-2px) scale(1.06);
+  box-shadow: 0 12px 30px rgba(0,0,0,0.34);
+}
+.scroll-top-btn:active { transform: translateY(0) scale(0.95); }
+
 .header-actions {
   display: flex;
   align-items: center;

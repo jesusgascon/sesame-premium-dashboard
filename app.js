@@ -2563,10 +2563,45 @@ function stopAutoRefresh() {
 }
 
 
+// ── Botón flotante "subir arriba" ───────────────────────────────────────────
+// Aparece al bajar mucho en las zonas con scroll (Fichajes/Balances y las vistas
+// de Vacaciones) y devuelve el contenedor activo al inicio. Usa un listener en
+// fase de captura sobre #app-screen para cubrir cualquier contenedor scrollable
+// sin tener que re-enganchar cuando se recrea el contenido interno.
+function initScrollTopButton() {
+  const btn = document.getElementById('scroll-top-btn');
+  const root = document.getElementById('app-screen');
+  if (!btn || !root) return;
+  const SCROLLER_SELECTOR = '.signings-table-container, .view';
+  const THRESHOLD = 400;
+  let activeScroller = null;
+
+  // scroll no burbujea: lo capturamos en fase de captura desde el ancestro.
+  root.addEventListener('scroll', (e) => {
+    const el = e.target;
+    if (!(el instanceof HTMLElement) || !el.matches(SCROLLER_SELECTOR)) return;
+    activeScroller = el;
+    btn.classList.toggle('visible', el.scrollTop > THRESHOLD);
+  }, true);
+
+  btn.addEventListener('click', () => {
+    let target = activeScroller;
+    if (!target || target.offsetParent === null || target.scrollTop === 0) {
+      target = Array.from(root.querySelectorAll(SCROLLER_SELECTOR))
+        .find(el => el.offsetParent !== null && el.scrollTop > 0) || target;
+    }
+    if (!target) return;
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    target.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' });
+    btn.classList.remove('visible');
+  });
+}
+
 // ── Init ───────────────────────────────────────────────────────────────────
 async function init() {
   if (APP_BOOTSTRAPPED) return;
   APP_BOOTSTRAPPED = true;
+  initScrollTopButton();
 
   const versionEl = document.getElementById('app-version-display');
   if (versionEl) versionEl.textContent = 'Sesame HR Premium Dashboard v' + APP_VERSION;
