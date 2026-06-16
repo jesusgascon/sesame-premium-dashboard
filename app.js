@@ -2882,7 +2882,9 @@ async function startApp() {
     sessionStorage.setItem('ssm_current_date', STATE.currentDate.toISOString());
     loadData();
   });
-  $('refresh-btn').addEventListener('click', loadData);
+  // El giro del icono lo gestiona el ciclo de vida de loadData (ver
+  // setRefreshSpinning), así también gira en el auto-refresco silencioso.
+  $('refresh-btn').addEventListener('click', () => loadData(true));
   $('logout-btn').addEventListener('click', logout);
   initMonthPickers();
 
@@ -3358,15 +3360,44 @@ async function loadInitialData() {
   }
 }
 
+// Hace girar (o detiene) un botón redondo de "actualizar" de la barra superior.
+// Se invoca desde el ciclo de vida de las cargas, de modo que el icono gira en
+// CUALQUIER refresco: manual, auto-refresco silencioso o warmup de balance.
+// Mantiene el giro un mínimo de tiempo para que sea perceptible aunque la carga
+// termine al instante (datos en caché) o el repintado vaya lento por escritorio
+// remoto. La parada se difiere; si llega otra carga, se cancela y sigue girando.
+const REFRESH_SPIN_MIN_MS = 800;
+function setRefreshSpinning(btnId, on) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  if (on) {
+    if (btn._spinOffTimer) { clearTimeout(btn._spinOffTimer); btn._spinOffTimer = null; }
+    if (!btn.classList.contains('refreshing')) {
+      btn._spinStart = Date.now();
+      btn.classList.add('refreshing');
+    }
+  } else {
+    const elapsed = Date.now() - (btn._spinStart || 0);
+    const remaining = Math.max(0, REFRESH_SPIN_MIN_MS - elapsed);
+    if (btn._spinOffTimer) clearTimeout(btn._spinOffTimer);
+    btn._spinOffTimer = setTimeout(() => {
+      btn.classList.remove('refreshing');
+      btn._spinOffTimer = null;
+    }, remaining);
+  }
+}
+
 async function loadData(isSilent = false) {
   if (STATE.isLoading) return;
   STATE.isLoading = true;
   if (!isSilent) showLoading(true);
+  setRefreshSpinning('refresh-btn', true);
   try {
     await loadDataInternal();
   } finally {
     STATE.isLoading = false;
     if (!isSilent) showLoading(false);
+    setRefreshSpinning('refresh-btn', false);
   }
 }
 
@@ -5648,6 +5679,8 @@ const FichajesModule = {
       this.renderTable();
     });
     // Refresh btn
+    // El giro lo gestiona syncRefreshSpinner() según el estado de carga, así
+    // gira también en el auto-refresco silencioso y durante el warmup de balance.
     document.getElementById('refresh-signings-btn')?.addEventListener('click', () => {
       this.loadData(true);
     });
@@ -6125,6 +6158,13 @@ const FichajesModule = {
     `;
   },
 
+  // Sincroniza el giro del icono "actualizar" de fichajes con el estado real de
+  // carga (carga principal + warmup de balance en segundo plano). Idempotente:
+  // refleja siempre la verdad, así el icono nunca se queda girando pegado.
+  syncRefreshSpinner() {
+    setRefreshSpinning('refresh-signings-btn', !!(this.isLoading || this.officialHoursBagLoading));
+  },
+
   async loadData(ignoreCache = false, options = {}) {
     if (typeof ignoreCache === 'object' && ignoreCache !== null) {
       options = ignoreCache;
@@ -6133,6 +6173,7 @@ const FichajesModule = {
 
     if (this.isLoading) return;
     this.isLoading = true;
+    this.syncRefreshSpinner();
 
     // Empresa para la que se lanza esta carga. Si el usuario cambia de empresa
     // mientras la petición está en vuelo, los resultados se descartan al final
@@ -7263,6 +7304,7 @@ const FichajesModule = {
         this.finishSigningsTopProgress();
       }
       this.isLoading = false;
+      this.syncRefreshSpinner();
       STATE.lastUpdateFichajes = Date.now();
       refreshLastUpdateLabels();
     }
@@ -10561,6 +10603,9 @@ const FichajesModule = {
   renderBalanceTable() {
     const tbody = document.getElementById('signings-tbody');
     if (!tbody) return;
+    // El balance se repinta durante todo el warmup en segundo plano: aprovechamos
+    // para mantener el icono "actualizar" girando hasta que termine la carga.
+    this.syncRefreshSpinner();
 
     // Agregamos por empleado usando las mismas filas visibles del periodo activo.
     const stats = new Map();

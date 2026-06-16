@@ -1016,8 +1016,26 @@ body {
   box-shadow:
     0 40px 100px rgba(0,0,0,0.6),
     0 0 0 1px rgba(255,255,255,0.08);
-  animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: cardRise 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: transform, opacity;
   z-index: 10;
+}
+/* Los bloques internos (logo, formulario, footer) entran en cascada suave
+   tras el panel, para una sensación más cuidada en login y "editar empresa". */
+.setup-card > * {
+  animation: cardChildIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.setup-card > *:nth-child(1) { animation-delay: 0.12s; }
+.setup-card > *:nth-child(2) { animation-delay: 0.20s; }
+.setup-card > *:nth-child(3) { animation-delay: 0.28s; }
+.setup-card > *:nth-child(4) { animation-delay: 0.36s; }
+@keyframes cardRise {
+  from { opacity: 0; transform: translateY(34px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes cardChildIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 #lock-screen .setup-card,
@@ -2007,6 +2025,17 @@ body {
   background: var(--accent-glow); color: var(--accent);
   border-color: var(--accent);
 }
+.btn-icon-round:active { transform: scale(0.9); }
+/* Estado "refrescando": el propio botón redondo gira y se tiñe de accent
+   mientras se recargan los datos. La clase la añade/quita el handler JS. */
+.btn-icon-round.refreshing {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-glow);
+  pointer-events: none;
+  animation: spin 0.8s cubic-bezier(0.5, 0.1, 0.4, 0.9) infinite;
+  will-change: transform;
+}
 
 .header-actions {
   display: flex;
@@ -2698,20 +2727,30 @@ body {
   border: 1px solid rgba(255,255,255,0.05);
   text-align: center;
 }
+/* El panel entra con un leve overshoot cada vez que el overlay se muestra
+   (el JS solo quita la clase .hidden). */
+.loading-overlay:not(.hidden) .loading-content {
+  animation: loadingCardIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes loadingCardIn {
+  from { opacity: 0; transform: translateY(16px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
 .loading-logo-wrapper {
   position: relative; width: 110px; height: 110px; margin-bottom: 24px;
   display: flex; align-items: center; justify-content: center;
 }
 .loading-logo {
   width: 70px; height: 70px; border-radius: 18px; object-fit: cover; z-index: 2;
-  box-shadow: 0 0 20px rgba(108, 99, 255, 0.5);
+  box-shadow: 0 0 20px var(--accent-glow);
 }
 .pulse-anim {
-  animation: pulse-glow 2s infinite ease-in-out;
+  animation: pulse-glow 1.6s infinite cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;
 }
 @keyframes pulse-glow {
-  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(108, 99, 255, 0.7); }
-  50% { transform: scale(1.05); box-shadow: 0 0 25px 15px rgba(108, 99, 255, 0.2); }
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(108, 99, 255, 0.65); }
+  50% { transform: scale(1.06); box-shadow: 0 0 28px 16px rgba(108, 99, 255, 0.18); }
   100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(108, 99, 255, 0); }
 }
 .spinner-ring {
@@ -6831,7 +6870,8 @@ body {
   .skeleton-filter,
   .skeleton-box,
   .spinner-sm,
-  .spinner-ring {
+  .spinner-ring,
+  .btn-icon-round.refreshing {
     animation: none !important;
   }
 }
