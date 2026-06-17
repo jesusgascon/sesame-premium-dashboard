@@ -1,6 +1,6 @@
 # Dependencias del servidor proxy de Sesame HR
 # cryptography permite cifrar tokens y contraseñas maestras en reposo con Fernet.
-cryptography>=42.0.0
+cryptography>=49.0.0
 
 # Si en el futuro se desea usar requests o flask:
 # requests>=2.31.0
