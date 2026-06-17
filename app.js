@@ -2607,6 +2607,12 @@ function switchCompany(cid) {
   if (typeof FichajesModule !== 'undefined') {
     FichajesModule.data = [];
     FichajesModule.realSignings = [];
+    // Resetear el filtro de empleado: el empleado seleccionado puede no existir
+    // en la nueva empresa. Sin esto seguiría filtrando por su ID (y mostrando su
+    // nombre arriba) con datos cruzados. Volvemos a "Todo el equipo".
+    FichajesModule.selectedEmployee = 'all';
+    const empSelect = document.getElementById('signings-employee-select');
+    if (empSelect) empSelect.value = 'all';
     if (FichajesModule.failedIds) FichajesModule.failedIds.clear();
     FichajesModule.biSchemaFields = null;
     FichajesModule.biTheoreticMap = new Map();
