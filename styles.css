@@ -236,6 +236,18 @@ body {
               color 0.35s ease, box-shadow 0.35s ease !important;
 }
 
+/* Estado deshabilitado uniforme para botones (desbloqueo de login, guardar
+   horario, aplicar…): atenúa y desatura para distinguirlo de un botón activo.
+   Los botones realmente deshabilitados no reciben :hover, así que no hace falta
+   neutralizarlo aparte. */
+button:disabled,
+button[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: saturate(0.55);
+  box-shadow: none;
+}
+
 /* ============================================================
    LOCK SCREEN & ANIMATIONS
    ============================================================ */
@@ -977,7 +989,7 @@ body {
 }
 
 [data-theme="light"] .loc-link:hover {
-  background: var(--accent);
+  background: var(--accent-light); /* indigo más oscuro: texto blanco cumple WCAG AA */
 }
 
 .loc-addr {
@@ -2364,6 +2376,14 @@ body {
   font-weight: 850;
   white-space: nowrap;
 }
+/* En tema claro el fondo del tag es un pastel claro (color de ausencia al 25%),
+   así que el texto blanco quedaría ilegible: lo pasamos a texto oscuro y oscurecemos
+   el badge de unidades. El punto y el borde siguen aportando el color del tipo. */
+[data-theme="light"] .emp-absence-tag { color: var(--text-primary); }
+[data-theme="light"] .emp-absence-units {
+  background: rgba(0,0,0,0.12);
+  color: var(--text-primary);
+}
 .emp-absence-detail {
   display: inline-flex;
   align-items: center;
@@ -2442,6 +2462,8 @@ body {
 .stat-bar-bg {
   height: 4px; background: rgba(255,255,255,0.07); border-radius: 99px; overflow: hidden;
 }
+/* En claro, el blanco al 7% sobre fondo claro era casi invisible. */
+[data-theme="light"] .stat-bar-bg { background: rgba(0,0,0,0.08); }
 .stat-bar { height: 100%; border-radius: 99px; transition: width 0.8s cubic-bezier(0.4,0,0.2,1); }
 
 /* ============================================================
