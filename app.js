@@ -2316,6 +2316,12 @@ function applyThemeUI() {
 
 function toggleTheme() {
   STATE.theme = STATE.theme === 'light' ? 'dark' : 'light';
+  // Cross-fade suave de colores solo al conmutar (no en la carga inicial).
+  document.body.classList.add('theme-transitioning');
+  window.clearTimeout(toggleTheme._t);
+  toggleTheme._t = window.setTimeout(() => {
+    document.body.classList.remove('theme-transitioning');
+  }, 420);
   applyThemeUI();
 }
 
@@ -2767,7 +2773,10 @@ function switchModule(module, options = {}) {
     if (vacacionesNav) vacacionesNav.classList.remove('is-module-hidden');
     if (absenceSection) absenceSection.style.display = 'block';
     if (employeeSection) employeeSection.style.display = 'block';
-    if (!options.skipLoad) loadData();
+    // Carga silenciosa (sin overlay "Conectando a Sesame"): al cambiar a
+    // Vacaciones la sección se actualiza en sitio con el icono 🔄 girando,
+    // igual que Fichajes/Balances. El overlay solo se usa en el arranque inicial.
+    if (!options.skipLoad) loadData(true);
   }
 }
 
@@ -8808,17 +8817,36 @@ const FichajesModule = {
     let totalWorked = 0;
     let totalTheoretic = 0;
 
+    // Calcula posición/ancho (%) de un tramo en el eje 0-24h del día. Si el tramo
+    // cruza medianoche (salida < entrada, p.ej. un fichaje sin cerrar 16:40→08:04),
+    // la barra se dibuja hasta el final del día en lugar de salir con ancho negativo
+    // (que la hacía desaparecer). Devuelve null si las horas no son válidas.
+    const _timelineBar = (inStr, outStr) => {
+      if (!inStr || !outStr) return null;
+      const [hIn, mIn] = String(inStr).split(':').map(Number);
+      const [hOut, mOut] = String(outStr).split(':').map(Number);
+      if (isNaN(hIn) || isNaN(hOut)) return null;
+      const inDec = hIn + (mIn || 0) / 60;
+      let outDec = hOut + (mOut || 0) / 60;
+      const crossesMidnight = outDec < inDec; // fichaje sin cerrar: cruza medianoche
+      if (crossesMidnight) outDec = 24; // dibujar hasta fin de día
+      return {
+        left: (inDec / 24) * 100,
+        width: Math.max(0, ((outDec - inDec) / 24) * 100),
+        crossesMidnight,
+      };
+    };
+
     // ── Helpers: HTML de ausencias (sin backticks anizados) ──────────────
     const _absTimelineHtml = (segs) => {
       if (!segs || !segs.length) return '';
       return segs.filter(a => !a.isFullDay).map(abs => {
-        const p = abs.start.split(':').map(Number);
-        const q = abs.end.split(':').map(Number);
-        if (isNaN(p[0]) || isNaN(q[0])) return '';
-        const ps = ((p[0] + (p[1]||0)/60) / 24) * 100;
-        const pw = (((q[0] + (q[1]||0)/60) - (p[0] + (p[1]||0)/60)) / 24) * 100;
-        const lbl = (abs.label || 'Ausencia') + ': ' + abs.start.substring(0,5) + '-' + abs.end.substring(0,5);
-        return '<div class="mini-timeline-bar absence" style="left:' + ps.toFixed(2) + '%;width:' + pw.toFixed(2) + '%;" title="' + escapeHTML(lbl) + '"></div>';
+        const bar = _timelineBar(abs.start, abs.end);
+        if (!bar) return '';
+        const cls = 'mini-timeline-bar absence' + (bar.crossesMidnight ? ' crosses-midnight' : '');
+        const lbl = (abs.label || 'Ausencia') + ': ' + abs.start.substring(0,5) + '-' + abs.end.substring(0,5)
+                  + (bar.crossesMidnight ? ' (cruza medianoche)' : '');
+        return '<div class="' + cls + '" style="left:' + bar.left.toFixed(2) + '%;width:' + bar.width.toFixed(2) + '%;" title="' + escapeHTML(lbl) + '"></div>';
       }).join('');
     };
     const _getAbsenceTableItems = (segs, entries) => {
@@ -8941,23 +8969,21 @@ const FichajesModule = {
           ...(row.entries || []).map(e => {
             if (!e.in || !e.out || e.in === "--:--" || e.out === "--:--") return "";
             if (e.in.includes(' ')) return "";
-            const [hIn, mIn] = e.in.split(':').map(Number);
-            const [hOut, mOut] = e.out.split(':').map(Number);
-            if (isNaN(hIn) || isNaN(hOut)) return "";
-            const ps = ((hIn + (mIn||0)/60) / 24) * 100;
-            const pw = (((hOut + (mOut||0)/60) - (hIn + (mIn||0)/60)) / 24) * 100;
+            const bar = _timelineBar(e.in, e.out);
+            if (!bar) return "";
             const typeClass = safeClassToken(e.type || 'work', 'work');
-            const title = `${e.typeLabel || 'Trabajo'}: ${e.in} - ${e.out}`;
-            return '<div class="timeline-bar ' + typeClass + '" style="left:' + ps + '%;width:' + pw + '%" title="' + escapeHTML(title) + '"></div>';
+            const cls = 'timeline-bar ' + typeClass + (bar.crossesMidnight ? ' crosses-midnight' : '');
+            const title = `${e.typeLabel || 'Trabajo'}: ${e.in} - ${e.out}`
+                        + (bar.crossesMidnight ? ' (sin cerrar · cruza medianoche)' : '');
+            return '<div class="' + cls + '" style="left:' + bar.left + '%;width:' + bar.width + '%" title="' + escapeHTML(title) + '"></div>';
           }),
           ...(row.absenceSegments || []).filter(a => !a.isFullDay).map(abs => {
-            const [hIn, mIn] = abs.start.split(':').map(Number);
-            const [hOut, mOut] = abs.end.split(':').map(Number);
-            if (isNaN(hIn) || isNaN(hOut)) return "";
-            const ps = ((hIn + (mIn||0)/60) / 24) * 100;
-            const pw = (((hOut + (mOut||0)/60) - (hIn + (mIn||0)/60)) / 24) * 100;
-            const title = `${abs.label || 'Ausencia'}: ${abs.start.substring(0,5)} - ${abs.end.substring(0,5)}`;
-            return '<div class="timeline-bar absence" style="left:' + ps + '%;width:' + pw + '%" title="' + escapeHTML(title) + '"></div>';
+            const bar = _timelineBar(abs.start, abs.end);
+            if (!bar) return "";
+            const cls = 'timeline-bar absence' + (bar.crossesMidnight ? ' crosses-midnight' : '');
+            const title = `${abs.label || 'Ausencia'}: ${abs.start.substring(0,5)} - ${abs.end.substring(0,5)}`
+                        + (bar.crossesMidnight ? ' (cruza medianoche)' : '');
+            return '<div class="' + cls + '" style="left:' + bar.left + '%;width:' + bar.width + '%" title="' + escapeHTML(title) + '"></div>';
           })
         ].join('');
 
@@ -9044,13 +9070,12 @@ const FichajesModule = {
                        ${_absTimelineHtml(row.absenceSegments)}
                        ${(row.entries || []).map(e => {
                          if (!e.in || !e.out || e.in === "--:--" || e.out === "--:--") return "";
-                         const [hIn, mIn] = e.in.split(':').map(Number);
-                         const [hOut, mOut] = e.out.split(':').map(Number);
-                         const start = ((hIn + (mIn||0)/60) / 24) * 100;
-                         const width = (((hOut + (mOut||0)/60) - (hIn + (mIn||0)/60)) / 24) * 100;
+                         const bar = _timelineBar(e.in, e.out);
+                         if (!bar) return "";
                          const typeClass = safeClassToken(e.type || 'work', 'work');
-                         const title = `${e.typeLabel || 'Trabajo'}: ${e.in}-${e.out}`;
-                         return `<div class="mini-timeline-bar ${typeClass}" style="left: ${start}%; width: ${width}%;" title="${escapeHTML(title)}"></div>`;
+                         const cls = `mini-timeline-bar ${typeClass}${bar.crossesMidnight ? ' crosses-midnight' : ''}`;
+                         const title = `${e.typeLabel || 'Trabajo'}: ${e.in}-${e.out}${bar.crossesMidnight ? ' (sin cerrar · cruza medianoche)' : ''}`;
+                         return `<div class="${cls}" style="left: ${bar.left}%; width: ${bar.width}%;" title="${escapeHTML(title)}"></div>`;
                        }).join('')}
                      </div>
 

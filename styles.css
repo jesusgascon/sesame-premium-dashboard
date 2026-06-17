@@ -15,7 +15,7 @@
   --text-main:     #f0f2ff;
   --text-secondary:#b5bddf;
   --text-2:        #9CA3C8;
-  --text-muted:    #7d86a8;
+  --text-muted:    #8b94b8;
   --text-rgb:      240, 242, 255;
   --accent:        #6C63FF;
   --accent-rgb:    108, 99, 255;
@@ -49,6 +49,9 @@
 
   --sidebar-w: 240px;
   --transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out-premium: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 [data-theme="light"] {
@@ -208,6 +211,29 @@ body {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
   box-shadow: 0 0 0 5px var(--accent-glow);
+}
+
+/* Transición suave al navegar: el cambio de módulo se desvanece y el cambio de
+   sub-vista (calendario/lista/stats, fichajes, balances) entra deslizando. Evita
+   el "corte seco". Solo se dispara al añadir .active (navegación), no en los
+   refrescos silenciosos, que únicamente repintan filas sin tocar estas clases. */
+@keyframes viewSwitchIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes moduleFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.view.active { animation: viewSwitchIn 0.3s var(--ease-out-premium); }
+.module-wrapper.active { animation: moduleFadeIn 0.3s ease; }
+
+/* Cross-fade de colores al conmutar tema claro/oscuro. La clase la añade el
+   handler de toggleTheme() solo durante ~420 ms, evitando parpadeos en carga. */
+.theme-transitioning,
+.theme-transitioning * {
+  transition: background-color 0.35s ease, border-color 0.35s ease,
+              color 0.35s ease, box-shadow 0.35s ease !important;
 }
 
 /* ============================================================
@@ -2875,6 +2901,15 @@ body {
   .module-btn { padding: 10px; }
 }
 
+/* Topbar en anchuras intermedias (tablet / escritorio remoto comprimido):
+   cuando los grupos no caben en una línea, las acciones bajan ocupando el
+   ancho completo y alineadas a la izquierda, para que el salto se vea
+   intencionado en lugar de descuadrado. */
+@media (max-width: 1100px) {
+  .top-bar { align-items: flex-start; }
+  .header-actions { width: 100%; justify-content: flex-start; }
+}
+
 /* --- EXPANSIÓN: FESTIVOS --- */
 .cal-day.holiday {
   background: rgba(230, 57, 70, 0.05); /* Rojo muy sutil */
@@ -4485,6 +4520,20 @@ body {
 .timeline-bar.special {
   background: #9b51e0;
   opacity: 0.85;
+}
+/* Tramo que cruza medianoche (fichaje sin cerrar): rayado diagonal de aviso
+   superpuesto al color base + borde derecho destacado, para detectar de un
+   vistazo la jornada que quedó abierta hasta el día siguiente. */
+.timeline-bar.crosses-midnight,
+.mini-timeline-bar.crosses-midnight {
+  opacity: 1;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(255, 181, 71, 0.5) 0, rgba(255, 181, 71, 0.5) 3px,
+    transparent 3px, transparent 7px
+  );
+  border-right: 2px solid var(--warn);
+  box-shadow: 0 0 8px rgba(255, 181, 71, 0.4);
 }
 
 .employee-cell { display: flex; align-items: center; gap: 10px; }
@@ -6689,6 +6738,22 @@ body {
 
 .signings-table tbody tr:hover {
   background: rgba(var(--accent-rgb), 0.055);
+}
+
+/* Filas alternadas (zebra) para lectura más cómoda en tablas largas.
+   El hover se aplica a nivel de celda para ganar a la zebra en filas pares. */
+.signings-table tbody tr:nth-child(even) td {
+  background: rgba(var(--text-rgb), 0.022);
+}
+.signings-table tbody tr:hover td {
+  background: rgba(var(--accent-rgb), 0.075);
+}
+/* Cabecera fija: no se pierde al hacer scroll dentro del contenedor de la tabla. */
+.signings-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--bg-card-solid);
 }
 
 .timeline-track {
