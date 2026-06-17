@@ -2471,6 +2471,98 @@ async function handleDeleteCompany() {
   }
 }
 
+/**
+ * Animación "Brand Sweep" del cambio de empresa.
+ *
+ * Implementada con la Web Animations API (element.animate) — NO con animaciones
+ * CSS — a propósito: por escritorio remoto (RDP) y cuando el SO desactiva
+ * animaciones, el navegador reporta `prefers-reduced-motion: reduce`, y la regla
+ * global wildcard de styles.css aplastaría cualquier animación CSS a 0.01ms
+ * (efecto invisible). WAAPI no se ve afectada por esa regla, así que el efecto
+ * se ejecuta SIEMPRE. Además usa solo transform/opacity y colores sólidos (sin
+ * blur ni mix-blend-mode, que RDP descarta), para que se vea de verdad.
+ *
+ * El color del barrido sale de --accent, que applyCompanyBranding ya repintó con
+ * el de la NUEVA empresa justo antes de llamar aquí.
+ */
+function playCompanySwitchAnimation() {
+  // Reentrante: limpia un overlay previo si se cambia muy rápido de empresa.
+  const prev = document.getElementById('company-switch-overlay');
+  if (prev) prev.remove();
+
+  const host = document.querySelector('.main-content') || document.body;
+
+  // 1) Overlay real (no pseudo-elemento) con barrido diagonal del acento nuevo.
+  const ov = document.createElement('div');
+  ov.id = 'company-switch-overlay';
+  ov.style.cssText = [
+    'position:absolute', 'inset:0', 'z-index:60', 'pointer-events:none',
+    'overflow:hidden', 'border-radius:inherit'
+  ].join(';');
+  const band = document.createElement('div');
+  band.style.cssText = [
+    'position:absolute', 'top:-20%', 'bottom:-20%', 'left:-60%', 'width:85%',
+    'transform:translateX(-60%) skewX(-12deg)',
+    // Gradiente sólido del acento: bien visible, sin blend ni blur.
+    'background:linear-gradient(90deg,' +
+      'transparent 0%,' +
+      'color-mix(in srgb, var(--accent) 30%, transparent) 30%,' +
+      'color-mix(in srgb, var(--accent) 85%, transparent) 48%,' +
+      'var(--accent) 50%,' +
+      'color-mix(in srgb, var(--accent) 85%, transparent) 52%,' +
+      'color-mix(in srgb, var(--accent) 30%, transparent) 70%,' +
+      'transparent 100%)',
+    'box-shadow:0 0 90px 22px color-mix(in srgb, var(--accent) 55%, transparent)'
+  ].join(';');
+  ov.appendChild(band);
+
+  // El host necesita ser contenedor de posicionamiento para el overlay absoluto.
+  const hostPosWasStatic = getComputedStyle(host).position === 'static';
+  if (hostPosWasStatic) host.style.position = 'relative';
+  host.appendChild(ov);
+
+  const PREMIUM = 'cubic-bezier(0.16, 1, 0.3, 1)';
+  const DUR = 1150;
+
+  // 2) Barrido cruzando toda la pantalla (más lento y marcado).
+  band.animate([
+    { transform: 'translateX(-90%) skewX(-12deg)', opacity: 0 },
+    { opacity: 1, offset: 0.18 },
+    { opacity: 1, offset: 0.78 },
+    { transform: 'translateX(240%) skewX(-12deg)', opacity: 0 }
+  ], { duration: DUR, easing: PREMIUM, fill: 'forwards' });
+
+  // 3) Swap del contenido: se aparta y vuelve (solo opacity+scale, sin blur).
+  const active = host.querySelector(':scope > .module-wrapper.active') ||
+                 document.querySelector('.module-wrapper.active');
+  if (active) {
+    active.animate([
+      { opacity: 1, transform: 'scale(1) translateY(0)' },
+      { opacity: 0.08, transform: 'scale(0.955) translateY(16px)', offset: 0.34 },
+      { opacity: 1, transform: 'scale(1) translateY(0)' }
+    ], { duration: DUR, easing: PREMIUM });
+  }
+
+  // 4) Micro-stagger de la nueva identidad (logo + nombre, en la sidebar),
+  //    sincronizado para entrar tras el paso del barrido.
+  const logo = document.getElementById('company-logo-container');
+  const name = document.getElementById('company-name-display');
+  [[logo, 360], [name, 470]].forEach(([el, delay]) => {
+    if (!el) return;
+    el.animate([
+      { opacity: 0, transform: 'translateY(10px) scale(0.92)' },
+      { opacity: 1, transform: 'none' }
+    ], { duration: 560, delay, easing: PREMIUM, fill: 'backwards' });
+  });
+
+  // Limpieza al terminar el barrido.
+  window.clearTimeout(playCompanySwitchAnimation._t);
+  playCompanySwitchAnimation._t = window.setTimeout(() => {
+    ov.remove();
+    if (hostPosWasStatic) host.style.position = '';
+  }, DUR + 80);
+}
+
 function switchCompany(cid) {
   const next = STATE.companies.find(c => c.companyId === cid);
   if (!next) return;
@@ -2480,8 +2572,10 @@ function switchCompany(cid) {
   STATE.backendUrl = next.backendUrl;
   saveCredentials();
 
-  // Apply branding immediately for better UX
+  // Apply branding immediately for better UX. Esto actualiza --accent/logo/nombre
+  // ANTES de disparar la animación, para que el "Brand Sweep" use ya el color nuevo.
   applyCompanyBranding(next);
+  playCompanySwitchAnimation();
 
   // El banner de token caducado es por empresa: al cambiar, mostrar/ocultar
   // según el estado de la nueva. Editar credenciales también lo re-evalúa
@@ -2865,7 +2959,7 @@ function initMonthPickers() {
         STATE.currentDate = new Date(year, month, 1);
         sessionStorage.setItem('ssm_current_date', STATE.currentDate.toISOString());
         updateMonthLabel();
-        loadData();
+        reloadCalendarSilent();
       }
       _closeAll();
       return;
@@ -2924,7 +3018,7 @@ async function startApp() {
   $('today-btn').addEventListener('click', () => {
     STATE.currentDate = new Date();
     sessionStorage.setItem('ssm_current_date', STATE.currentDate.toISOString());
-    loadData();
+    reloadCalendarSilent();
   });
   // El giro del icono lo gestiona el ciclo de vida de loadData (ver
   // setRefreshSpinning), así también gira en el auto-refresco silencioso.
@@ -5072,7 +5166,7 @@ function shiftPeriod(dir) {
   // Persistir fecha para que no se resetee al cambiar de módulo
   sessionStorage.setItem('ssm_current_date', STATE.currentDate.toISOString());
 
-  loadData();
+  reloadCalendarSilent();
 }
 
 function switchView(view) {
@@ -5087,7 +5181,7 @@ function switchCalView(calView) {
   if (!['month', 'week', 'day'].includes(calView)) return;
   STATE.calView = calView;
   $$('[data-cal-view]').forEach(b => b.classList.toggle('active', b.dataset.calView === calView));
-  loadData();
+  reloadCalendarSilent();
 }
 
 // ── Screen management ──────────────────────────────────────────────────────
@@ -5102,6 +5196,36 @@ function showApp() {
 
 function showLoading(show) {
   $('loading-overlay').classList.toggle('hidden', !show);
+}
+
+// ── Loader LOCAL del calendario (Vacaciones) ───────────────────────────────
+// Para la navegación de calendario (cambio de mes/vista/hoy/picker) NO usamos
+// el overlay global "Conectando a Sesame": atenuamos in-situ el grid y mostramos
+// la misma píldora de progreso indeterminada de Fichajes/Balances, contenida en
+// la tarjeta del calendario. La carga INICIAL sigue usando el overlay grande.
+function setCalendarLoading(show) {
+  const wrapper = document.querySelector('.calendar-wrapper');
+  if (!wrapper) return;
+  let bar = document.getElementById('calendar-progress');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'calendar-progress';
+    bar.className = 'signings-progress-container is-indeterminate calendar-progress hidden';
+    bar.innerHTML = '<div class="signings-progress-bar"></div>';
+    wrapper.prepend(bar);
+  }
+  wrapper.classList.toggle('is-month-loading', show);
+  bar.classList.toggle('hidden', !show);
+  ['prev-month', 'next-month'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.disabled = show;
+  });
+}
+
+// Recarga silenciosa del calendario con loader local (sin overlay global).
+function reloadCalendarSilent() {
+  setCalendarLoading(true);
+  loadData(true).finally(() => setCalendarLoading(false));
 }
 
 async function logout() {
@@ -8544,6 +8668,41 @@ const FichajesModule = {
        }
     }
 
+    // POST-PASE: Continuación visual de fichajes que cruzan medianoche.
+    // Cuando un fichaje entra un día y sale al día siguiente, Sesame muestra
+    // un tramo "fantasma" (00:00 → hora de salida) en el día donde TERMINA.
+    // Replicamos solo la parte segura: el tramo se guarda en un array APARTE
+    // (continuationSegments) que SOLO lee el render del timeline. Así no toca
+    // ninguna métrica (Primera Entrada, nº de tramos, balances, totales) ni la
+    // tabla de detalle: el fichaje sigue contando íntegro en su día de inicio.
+    for (const key in grouped) {
+      const g = grouped[key];
+      for (const e of g.entries) {
+        if (!e.inOriginal || !e.outOriginal) continue;
+        const inD = new Date(e.inOriginal);
+        const outD = new Date(e.outOriginal);
+        if (isNaN(inD.getTime()) || isNaN(outD.getTime()) || outD.getFullYear() <= 2000) continue;
+        // ¿La salida cae en un día local distinto (posterior) al de la entrada?
+        const inDayKey = `${inD.getFullYear()}-${String(inD.getMonth()+1).padStart(2,'0')}-${String(inD.getDate()).padStart(2,'0')}`;
+        const outDayKey = `${outD.getFullYear()}-${String(outD.getMonth()+1).padStart(2,'0')}-${String(outD.getDate()).padStart(2,'0')}`;
+        if (outDayKey <= inDayKey) continue;
+        const nextKey = `${g.employeeId}_${outDayKey}`;
+        const nextGroup = grouped[nextKey];
+        if (!nextGroup) continue; // solo si la fila del día siguiente ya existe
+        if (!nextGroup.continuationSegments) nextGroup.continuationSegments = [];
+        // Evitar duplicar si ya añadimos esta continuación
+        if (nextGroup.continuationSegments.some(x => x.outOriginal === e.outOriginal)) continue;
+        nextGroup.continuationSegments.push({
+          outOriginal: e.outOriginal,
+          in: "00:00",
+          out: e.out,
+          type: e.type,
+          typeLabel: (e.typeLabel || 'Trabajo') + ' (viene del día anterior)',
+          isContinuation: true
+        });
+      }
+    }
+
     // Transform groups to array format expected by renderTable
     const todayStr = getLocalDateKey();
     for (const key in grouped) {
@@ -8643,6 +8802,21 @@ const FichajesModule = {
       // --- Computed enriched metrics for the detail panel ---
       const workEntries = g.entries.filter(e => e.type === 'work' || e.type === 'special' || e.type === 'private');
       const pauseEntries = g.entries.filter(e => e.type === 'pause');
+      // Aviso de cumplimiento: tramo de trabajo continuo > 6h. El art. 34.4 ET
+      // y el art. 28 del Convenio del Metal de Zaragoza obligan a un descanso
+      // (15 min ET / 20 min convenio) cuando la jornada continuada excede de 6h;
+      // un tramo único > 6h indica que esa pausa pudo no respetarse. Flag SOLO
+      // de visualización: no altera duraciones, totales ni balances.
+      // 6h + 1 min de gracia: la duración se muestra a resolución de minuto, así
+      // que un tramo de 6h00m02s (legalmente >6h pero visualmente "6h00m") no se
+      // marca para no parecer un falso positivo; se marca desde 6h01m en adelante.
+      const LONG_WORK_SEC = 21600 + 60;
+      let longWorkCount = 0;
+      for (const e of g.entries) {
+        e.isLongWork = e.type === 'work' && (e.durationSec || 0) > LONG_WORK_SEC;
+        if (e.isLongWork) longWorkCount++;
+      }
+      const hasLongWorkSegment = longWorkCount > 0;
       const totalPauseSec = pauseEntries.reduce((sum, e) => sum + (e.durationSec || 0), 0);
       const pauseH = Math.floor(totalPauseSec / 3600);
       const pauseM = Math.round((totalPauseSec % 3600) / 60);
@@ -8694,6 +8868,9 @@ const FichajesModule = {
         absenceSegments: g.absenceSegments,
         isLive: isLive,
         entries: g.entries,
+        continuationSegments: g.continuationSegments || [],
+        hasLongWorkSegment: hasLongWorkSegment,
+        longWorkCount: longWorkCount,
         // Enriched computed metrics
         workSegments: workEntries.length,
         pauseSegments: pauseEntries.length,
@@ -8978,9 +9155,10 @@ const FichajesModule = {
             const bar = _timelineBar(e.in, e.out);
             if (!bar) return "";
             const typeClass = safeClassToken(e.type || 'work', 'work');
-            const cls = 'timeline-bar ' + typeClass + (bar.crossesMidnight ? ' crosses-midnight' : '');
+            const cls = 'timeline-bar ' + typeClass + (bar.crossesMidnight ? ' crosses-midnight' : '') + (e.isLongWork ? ' over-max-segment' : '');
             const title = `${e.typeLabel || 'Trabajo'}: ${e.in} - ${e.out}`
-                        + (bar.crossesMidnight ? ' (sin cerrar · cruza medianoche)' : '');
+                        + (bar.crossesMidnight ? ' (sin cerrar · cruza medianoche)' : '')
+                        + (e.isLongWork ? ' ⚠ Tramo > 6h sin pausa (descanso obligatorio art. 34.4 ET)' : '');
             return '<div class="' + cls + '" style="left:' + bar.left + '%;width:' + bar.width + '%" title="' + escapeHTML(title) + '"></div>';
           }),
           ...(row.absenceSegments || []).filter(a => !a.isFullDay).map(abs => {
@@ -8989,6 +9167,14 @@ const FichajesModule = {
             const cls = 'timeline-bar absence' + (bar.crossesMidnight ? ' crosses-midnight' : '');
             const title = `${abs.label || 'Ausencia'}: ${abs.start.substring(0,5)} - ${abs.end.substring(0,5)}`
                         + (bar.crossesMidnight ? ' (cruza medianoche)' : '');
+            return '<div class="' + cls + '" style="left:' + bar.left + '%;width:' + bar.width + '%" title="' + escapeHTML(title) + '"></div>';
+          }),
+          ...(row.continuationSegments || []).map(e => {
+            const bar = _timelineBar(e.in, e.out);
+            if (!bar) return "";
+            const typeClass = safeClassToken(e.type || 'work', 'work');
+            const cls = 'timeline-bar ' + typeClass + ' continues-from-prev';
+            const title = `${e.typeLabel || 'Trabajo'}: ${e.in} - ${e.out}`;
             return '<div class="' + cls + '" style="left:' + bar.left + '%;width:' + bar.width + '%" title="' + escapeHTML(title) + '"></div>';
           })
         ].join('');
@@ -9056,6 +9242,7 @@ const FichajesModule = {
                        <div class="detail-meta-item"><span class="detail-meta-label">Balance Sem.</span><span class="detail-meta-val" style="color: ${row.weeklyBalanceSec >= 0 ? '#4ade80' : '#f87171'}">${safeWeeklyBalanceLabel}</span></div>
                         ${scheduleHtmlForDay}
                      </div>
+                     ${row.hasLongWorkSegment ? `<div class="over-max-note" title="El art. 34.4 ET y el art. 28 del Convenio del Metal de Zaragoza obligan a un descanso (20 min) cuando la jornada continuada supera las 6h.">⚠ ${row.longWorkCount > 1 ? row.longWorkCount + ' tramos' : 'Tramo'} de trabajo &gt; 6h sin pausa</div>` : ''}
 
                      ${theoretic > 0 ? (() => {
                        const pct = Math.min(Math.round((worked / theoretic) * 100), 150);
@@ -9079,8 +9266,16 @@ const FichajesModule = {
                          const bar = _timelineBar(e.in, e.out);
                          if (!bar) return "";
                          const typeClass = safeClassToken(e.type || 'work', 'work');
-                         const cls = `mini-timeline-bar ${typeClass}${bar.crossesMidnight ? ' crosses-midnight' : ''}`;
-                         const title = `${e.typeLabel || 'Trabajo'}: ${e.in}-${e.out}${bar.crossesMidnight ? ' (sin cerrar · cruza medianoche)' : ''}`;
+                         const cls = `mini-timeline-bar ${typeClass}${bar.crossesMidnight ? ' crosses-midnight' : ''}${e.isLongWork ? ' over-max-segment' : ''}`;
+                         const title = `${e.typeLabel || 'Trabajo'}: ${e.in}-${e.out}${bar.crossesMidnight ? ' (sin cerrar · cruza medianoche)' : ''}${e.isLongWork ? ' ⚠ Tramo > 6h sin pausa' : ''}`;
+                         return `<div class="${cls}" style="left: ${bar.left}%; width: ${bar.width}%;" title="${escapeHTML(title)}"></div>`;
+                       }).join('')}
+                       ${(row.continuationSegments || []).map(e => {
+                         const bar = _timelineBar(e.in, e.out);
+                         if (!bar) return "";
+                         const typeClass = safeClassToken(e.type || 'work', 'work');
+                         const cls = `mini-timeline-bar ${typeClass} continues-from-prev`;
+                         const title = `${e.typeLabel || 'Trabajo'}: ${e.in}-${e.out}`;
                          return `<div class="${cls}" style="left: ${bar.left}%; width: ${bar.width}%;" title="${escapeHTML(title)}"></div>`;
                        }).join('')}
                      </div>
@@ -9260,6 +9455,7 @@ const FichajesModule = {
 	                        const safeOut = escapeHTML(e.out || '--:--');
 	                        const safeDuration = escapeHTML(e.duration || '--');
 	                        const safeTypeLabel = escapeHTML(e.typeLabel || 'Trabajo');
+	                        const longWorkBadge = e.isLongWork ? ' <span class="over-max-flag" title="Tramo de trabajo continuo de más de 6h. El art. 34.4 ET y el art. 28 del Convenio del Metal de Zaragoza exigen un descanso cuando la jornada continuada supera las 6h.">⚠</span>' : '';
 
 	                        let originContent = `<span class="td-loc" title="${safeAuditTooltip}">${oIn.icon} ${safeOriginInLabel}${isEditedIn ? ' ✏️' : ''}</span>`;
 	                        if (e.originIn !== e.originOut && e.originOut && e.out !== '--:--') {
@@ -9277,7 +9473,7 @@ const FichajesModule = {
 	                        const html = `
 	                        <tr class="${highlightClass}">
 	                          <td><strong title="${safeAuditTooltip}">${safeIn} - ${safeOut}</strong></td>
-	                          <td><span class="td-duration">${safeDuration}</span></td>
+	                          <td><span class="td-duration${e.isLongWork ? ' td-duration-over' : ''}">${safeDuration}</span>${longWorkBadge}</td>
 	                          <td><span class="signing-type-badge ${typeCls}">${icon} ${safeTypeLabel}</span></td>
 	                          <td>${originContent}</td>
 	                          <td>${locContent}</td>

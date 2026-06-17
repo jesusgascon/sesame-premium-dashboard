@@ -4558,6 +4558,55 @@ button[disabled] {
   box-shadow: 0 0 8px rgba(255, 181, 71, 0.4);
 }
 
+/* Continuación de un fichaje que empezó el día anterior (00:00 → salida).
+   La marca va en el borde IZQUIERDO porque viene de antes de la medianoche. */
+.timeline-bar.continues-from-prev,
+.mini-timeline-bar.continues-from-prev {
+  opacity: 1;
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(255, 181, 71, 0.5) 0, rgba(255, 181, 71, 0.5) 3px,
+    transparent 3px, transparent 7px
+  );
+  border-left: 2px solid var(--warn);
+  box-shadow: 0 0 8px rgba(255, 181, 71, 0.4);
+}
+
+/* Aviso de cumplimiento: tramo de trabajo continuo > 6h sin pausa
+   (art. 34.4 ET / art. 28 Convenio del Metal de Zaragoza). Es un WARNING no
+   crítico, así que usa la familia ÁMBAR (--warn) que el proyecto reserva para
+   avisos —no el rojo, que aquí significa déficit/error/dato privado—. Se
+   diferencia del ámbar de "cruza medianoche" por la FORMA: anillo inset (este)
+   frente al rayado diagonal + borde lateral + glow de aquel. El portador del
+   aviso es el icono ⚠; la cifra de duración NO se tiñe (no debe competir ni
+   confundirse con el rojo de balance negativo), solo se refuerza en negrita. */
+.timeline-bar.over-max-segment,
+.mini-timeline-bar.over-max-segment {
+  box-shadow: inset 0 0 0 1.5px rgba(255, 181, 71, 0.9);
+}
+.over-max-flag {
+  color: var(--warn);
+  font-size: 0.85em;
+  cursor: help;
+}
+.td-duration-over {
+  font-weight: 600;
+}
+.over-max-note {
+  margin-top: 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--warn);
+  cursor: help;
+}
+/* Tema claro: el ámbar como texto pequeño no contrasta sobre fondo blanco,
+   se oscurece a amber-700 para cumplir AA. El anillo del timeline va sobre la
+   propia barra (no sobre el fondo de página), por eso no necesita override. */
+[data-theme="light"] .over-max-flag,
+[data-theme="light"] .over-max-note {
+  color: #b45309;
+}
+
 .employee-cell { display: flex; align-items: center; gap: 10px; }
 .emp-avatar-sm {
   width: 24px; height: 24px; border-radius: 50%;
@@ -5137,49 +5186,92 @@ button[disabled] {
 /* ── Barra de progreso superior (modo determinado + indeterminado) ──
    Estilo unificado con .balance-warmup-track: gradiente teal→azul→violeta,
    efecto cometa fluido y glow sutil del color medio. */
+/* ── Barra de progreso de carga (Fichajes + Balances) ──
+   Antes era full-bleed (width:100% + border-bottom recto), nacía en la esquina
+   del área de contenido fuera de cualquier tarjeta. Ahora es una "píldora"
+   CONTENIDA, redondeada y tokenizada, alineada con el margen lateral de la
+   tarjeta del top-bar (18px), para integrarse con el lenguaje de esquinas
+   redondeadas. Mismos IDs/clases: no toca markup ni la lógica JS. */
 .signings-progress-container {
-  width: 100%;
-  height: 4px;
-  background: rgba(99, 102, 241, 0.08);
   position: relative;
+  height: 5px;
+  margin: 10px 18px 2px;
+  border-radius: 999px;
+  background: rgba(var(--accent-rgb), 0.10);
+  border: 1px solid rgba(var(--accent-rgb), 0.12);
   overflow: hidden;
-  border-bottom: 1px solid rgba(99, 102, 241, 0.10);
+}
+
+.signings-progress-container.hidden {
+  display: none;
 }
 
 .signings-progress-bar {
   width: 0%;
   height: 100%;
-  background: linear-gradient(90deg, #2dd4bf 0%, #60a5fa 50%, #a78bfa 100%);
+  border-radius: inherit;
+  background: linear-gradient(90deg,
+    var(--accent) 0%,
+    var(--accent-light) 50%,
+    var(--accent) 100%);
   background-size: 200% 100%;
   transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 0 14px rgba(96, 165, 250, 0.55);
+  box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.45);
   animation: signings-progress-flow 2.4s ease-in-out infinite;
+  will-change: background-position;
 }
 
-/* Modo indeterminate: barra "cometa" que recorre fluidamente el track */
+/* Modo indeterminate: cometa que recorre la píldora con extremos suaves. */
 .signings-progress-container.is-indeterminate .signings-progress-bar {
   width: 100%;
   background: linear-gradient(90deg,
     transparent 0%,
-    rgba(45, 212, 191, 0.35) 18%,
-    rgba(96, 165, 250, 0.95) 50%,
-    rgba(167, 139, 250, 0.35) 82%,
+    rgba(var(--accent-rgb), 0.30) 20%,
+    var(--accent-light) 50%,
+    rgba(var(--accent-rgb), 0.30) 80%,
     transparent 100%);
-  background-size: 50% 100%;
+  background-size: 45% 100%;
   background-repeat: no-repeat;
-  background-position: -50% 0;
-  animation: signings-progress-comet 1.6s cubic-bezier(0.65, 0.05, 0.36, 1) infinite;
-  box-shadow: 0 0 18px rgba(96, 165, 250, 0.45);
+  background-position: -45% 0;
+  animation: signings-progress-comet 1.5s cubic-bezier(0.65, 0.05, 0.36, 1) infinite;
+  box-shadow: 0 0 14px rgba(var(--accent-rgb), 0.40);
+  will-change: background-position;
+}
+
+@media (max-width: 768px) {
+  .signings-progress-container { margin-left: 14px; margin-right: 14px; }
 }
 
 @keyframes signings-progress-comet {
-  0%   { background-position: -50% 0; }
-  100% { background-position: 150% 0; }
+  0%   { background-position: -45% 0; }
+  100% { background-position: 145% 0; }
 }
 
 @keyframes signings-progress-flow {
   0%, 100% { background-position: 0% 0; }
   50%      { background-position: 100% 0; }
+}
+
+/* ── Loader contenido del cambio de mes/vista en Vacaciones ──
+   Sin overlay global: la tarjeta del calendario se atenúa in-situ y muestra la
+   misma píldora indeterminada de Fichajes/Balances, alineada al ancho del grid
+   (la .view ya aplica 18px de inset, así que no es full-bleed). Anima solo
+   opacity/filter del grid + el background-position de la píldora. */
+.calendar-progress {
+  margin: 0 0 8px;
+}
+.calendar-wrapper .calendar-grid {
+  transition: opacity 0.25s ease, filter 0.25s ease;
+}
+.calendar-wrapper.is-month-loading .calendar-grid {
+  opacity: 0.45;
+  filter: saturate(0.85);
+  pointer-events: none;
+}
+#prev-month:disabled,
+#next-month:disabled {
+  opacity: 0.5;
+  cursor: progress;
 }
 
 .employee-mode-bar {
