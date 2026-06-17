@@ -2626,9 +2626,35 @@ function switchCompany(cid) {
   // Nota: NO borramos ssm_company_mode ni ssm_bi_waf porque son correctos por empresa
   // Solo los borramos si el admin cambió el rol del usuario en Sesame.
 
+  // Vaciar la sección principal (calendario + tabla de fichajes/balances) y
+  // mostrar un placeholder de carga, para NO seguir enseñando datos de la
+  // empresa anterior durante los segundos que tarda en llegar la nueva.
+  // El render de la nueva empresa (refreshAllViews / renderTable) lo reemplaza.
+  showCompanySwitchLoading(next.name);
+
   // Cargamos TODO de la nueva empresa (Metadatos + Calendario)
   loadInitialData();
   startAutoRefresh();
+}
+
+/**
+ * Sustituye al instante el contenido de la sección principal por un placeholder
+ * de carga al cambiar de empresa, para que no se vean datos de la empresa
+ * anterior mientras llegan los nuevos. Cubre los tres módulos: #calendar-grid
+ * (Vacaciones, todas las cal-views) y #signings-tbody (Fichajes y Balances).
+ */
+function showCompanySwitchLoading(companyName) {
+  const safe = escapeHTML(companyName || 'la nueva empresa');
+  const loader = `
+    <div class="company-switch-loader">
+      <div class="csl-ring"></div>
+      <div class="csl-text">Cargando datos de ${safe}…</div>
+      <div class="csl-sub">Un momento, recuperando información de Sesame</div>
+    </div>`;
+  const grid = document.getElementById('calendar-grid');
+  if (grid) grid.innerHTML = `<div style="grid-column:1/-1">${loader}</div>`;
+  const tbody = document.getElementById('signings-tbody');
+  if (tbody) tbody.innerHTML = `<tr><td colspan="4" style="border:none;background:none;padding:0;">${loader}</td></tr>`;
 }
 
 /**
