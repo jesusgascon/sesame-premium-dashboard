@@ -3108,6 +3108,9 @@ async function startApp() {
   // Auto-login if credentials available
   const canUseLocalProxySession = isLocalProxy() && sessionStorage.getItem('ssm_unlocked') === 'true';
   if (STATE.companyId && (STATE.token || canUseLocalProxySession)) {
+    // Mostrar el módulo guardado ANTES de revelar la app, para no enseñar el
+    // calendario (activo por defecto en el HTML) y saltar de sección después.
+    switchModule(STATE.currentModule, { skipLoad: true });
     showApp();
     await loadInitialData();
     switchModule(STATE.currentModule, { skipLoad: STATE.currentModule === 'vacaciones' });
@@ -3259,6 +3262,9 @@ async function finalizeLogin(companyData = {}) {
     logoUrl: logoUrl
   });
 
+  // Mostrar el módulo guardado ANTES de revelar la app, para no enseñar el
+  // calendario (activo por defecto en el HTML) y saltar de sección después.
+  switchModule(STATE.currentModule, { skipLoad: true });
   showApp();
   sessionStorage.setItem('ssm_unlocked', 'true');
   await loadInitialData();
