@@ -946,7 +946,12 @@ async function apiFetch(path, params = {}, isRetry = false) {
 
   const fetchOptions = {
     method: params.method || 'GET',
-    headers
+    headers,
+    // CRÍTICO: la empresa viaja en cabeceras (x-company-id/csid/Authorization),
+    // NO en la URL. El navegador cachea respuestas GET por URL, así que sin esto
+    // al cambiar de empresa servía la respuesta cacheada de la empresa anterior
+    // (había que hacer Ctrl+Shift+R). no-store fuerza datos frescos siempre.
+    cache: 'no-store'
   };
   if (params.body) fetchOptions.body = params.body;
 
@@ -2640,8 +2645,10 @@ function switchCompany(cid) {
 /**
  * Sustituye al instante el contenido de la sección principal por un placeholder
  * de carga al cambiar de empresa, para que no se vean datos de la empresa
- * anterior mientras llegan los nuevos. Cubre los tres módulos: #calendar-grid
- * (Vacaciones, todas las cal-views) y #signings-tbody (Fichajes y Balances).
+ * anterior mientras llegan los nuevos. Cubre Fichajes/Balances (#signings-tbody)
+ * y las tres vistas de Vacaciones: calendario (#calendar-grid), Empleados
+ * (#employee-list-container) y Stats (#stats-container). Todas se re-renderizan
+ * en refreshAllViews, que reemplaza estos placeholders con los datos nuevos.
  */
 function showCompanySwitchLoading(companyName) {
   const safe = escapeHTML(companyName || 'la nueva empresa');
@@ -2651,8 +2658,13 @@ function showCompanySwitchLoading(companyName) {
       <div class="csl-text">Cargando datos de ${safe}…</div>
       <div class="csl-sub">Un momento, recuperando información de Sesame</div>
     </div>`;
+  const fullWidth = `<div style="grid-column:1/-1">${loader}</div>`;
   const grid = document.getElementById('calendar-grid');
-  if (grid) grid.innerHTML = `<div style="grid-column:1/-1">${loader}</div>`;
+  if (grid) grid.innerHTML = fullWidth;
+  const empList = document.getElementById('employee-list-container');
+  if (empList) empList.innerHTML = fullWidth;
+  const stats = document.getElementById('stats-container');
+  if (stats) stats.innerHTML = fullWidth;
   const tbody = document.getElementById('signings-tbody');
   if (tbody) tbody.innerHTML = `<tr><td colspan="4" style="border:none;background:none;padding:0;">${loader}</td></tr>`;
 }
