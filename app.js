@@ -946,13 +946,19 @@ async function apiFetch(path, params = {}, isRetry = false) {
 
   const fetchOptions = {
     method: params.method || 'GET',
-    headers,
-    // CRÍTICO: la empresa viaja en cabeceras (x-company-id/csid/Authorization),
-    // NO en la URL. El navegador cachea respuestas GET por URL, así que sin esto
-    // al cambiar de empresa servía la respuesta cacheada de la empresa anterior
-    // (había que hacer Ctrl+Shift+R). no-store fuerza datos frescos siempre.
-    cache: 'no-store'
+    headers
   };
+  // Caché selectiva (clave para no romper nada):
+  // - Si la empresa va en la URL (/companies/{id}/...), la caché GET del navegador
+  //   está correctamente indexada por empresa → la DEJAMOS. Esto es vital para que
+  //   el endpoint por-empresa de empleados sea fiable en la ráfaga de carga inicial
+  //   y no falle cayendo al directorio global (que mezcla plantillas de varias
+  //   empresas del token → empleados cruzados en fichajes/balances).
+  // - Si la empresa NO va en la URL (solo en cabeceras), la misma URL se reutiliza
+  //   para todas las empresas y la caché serviría datos de OTRA empresa al cambiar
+  //   (bug del calendario con datos viejos) → forzamos no-store.
+  const companyInUrl = !!STATE.companyId && path.includes(STATE.companyId);
+  if (!companyInUrl) fetchOptions.cache = 'no-store';
   if (params.body) fetchOptions.body = params.body;
 
   try {
