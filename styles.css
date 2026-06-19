@@ -4835,8 +4835,15 @@ button[disabled] {
   -webkit-backdrop-filter: blur(18px);
 }
 
-#vacaciones-presence-popover {
+/* Ambos popovers de presencia se posicionan con position:fixed (coordenadas
+   calculadas en JS vía positionFixedPopover). Así escapan del contexto de
+   apilamiento que crea el backdrop-filter del .top-bar y no quedan nunca por
+   detrás de la sección de resúmenes (#fichajes-insights). */
+#vacaciones-presence-popover,
+#presence-out-popover {
   position: fixed;
+  top: auto;
+  right: auto;
   z-index: 10000;
 }
 

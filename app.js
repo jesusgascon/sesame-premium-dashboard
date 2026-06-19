@@ -5989,6 +5989,11 @@ const FichajesModule = {
     const popover = document.getElementById('presence-out-popover');
     if (!popover) return;
     popover.classList.add('hidden');
+    // Limpiamos las coordenadas inline calculadas por positionFixedPopover.
+    popover.style.top = '';
+    popover.style.left = '';
+    popover.style.right = '';
+    popover.style.width = '';
     document.getElementById('filter-live-out')?.classList.remove('active');
   },
 
@@ -6031,6 +6036,9 @@ const FichajesModule = {
       <div class="presence-out-list">${listHtml}</div>
     `;
     popover.classList.remove('hidden');
+    // position:fixed + coordenadas ancladas al botón "Fuera": el popover escapa
+    // del contexto de apilamiento del .top-bar y no queda tras los resúmenes.
+    positionFixedPopover(popover, document.getElementById('filter-live-out'));
     document.getElementById('filter-live-out')?.classList.add('active');
   },
 
@@ -10925,21 +10933,25 @@ const FichajesModule = {
 
     // En vista Balance el filtro de presencia (Trabajando/Pausa/Fuera) debe
     // filtrar EL CONJUNTO DE EMPLEADOS VISIBLES según su estado actual, no
-    // filtrar filas concretas por fecha. Calculamos los empleados que cumplen
-    // el estado actual y limitamos las filas a ellos.
+    // filtrar filas concretas por fecha. El balance se nutre de varias fuentes
+    // (filas locales, directorio, bolsa de horas oficial e histórico de reglas),
+    // así que calculamos el conjunto de empleados que cumplen el estado UNA vez
+    // y lo aplicamos a TODAS las fuentes; de lo contrario las fuentes oficiales
+    // reinyectarían a todos los empleados y el filtro no surtiría efecto.
+    let presenceMatchIds = null;
     if (this.presenceFilter && this.presenceFilter !== 'all') {
-      const matchingEmpIds = new Set();
+      presenceMatchIds = new Set();
       STATE.allEmployees.forEach((_, id) => {
         const status = this.getCurrentActivityKind(id);
         if (this.presenceFilter === 'working' && (status === 'working' || status === 'remote')) {
-          matchingEmpIds.add(String(id));
+          presenceMatchIds.add(String(id));
         } else if (this.presenceFilter === 'paused' && status === 'paused') {
-          matchingEmpIds.add(String(id));
+          presenceMatchIds.add(String(id));
         } else if (this.presenceFilter === 'out' && (status === 'out' || !status)) {
-          matchingEmpIds.add(String(id));
+          presenceMatchIds.add(String(id));
         }
       });
-      balanceRows = balanceRows.filter(r => matchingEmpIds.has(String(r.employeeId)));
+      balanceRows = balanceRows.filter(r => presenceMatchIds.has(String(r.employeeId)));
     }
 
     balanceRows.forEach(row => {
@@ -11017,6 +11029,7 @@ const FichajesModule = {
 
     this.getBalanceEmployeeIds({ applySearch: true }).forEach(id => {
       const rowId = String(id);
+      if (presenceMatchIds && !presenceMatchIds.has(rowId)) return;
       if (stats.has(rowId)) return;
       const empInfo = this.getBalanceEmployeeInfo(rowId);
       stats.set(rowId, {
@@ -11041,6 +11054,7 @@ const FichajesModule = {
         const matchesEmployee = !this.selectedEmployee || this.selectedEmployee === 'all' || String(this.selectedEmployee) === rowId;
         const matchesSearch = !this.searchQuery || empInfo.name.toLowerCase().includes(String(this.searchQuery).toLowerCase());
         if (!matchesEmployee || !matchesSearch) return;
+        if (presenceMatchIds && !presenceMatchIds.has(rowId)) return;
 
         if (!stats.has(rowId)) {
           stats.set(rowId, {
@@ -11077,6 +11091,7 @@ const FichajesModule = {
         const matchesEmployee = !this.selectedEmployee || this.selectedEmployee === 'all' || String(this.selectedEmployee) === String(id);
         const matchesSearch = !this.searchQuery || name.toLowerCase().includes(String(this.searchQuery).toLowerCase());
         if (!matchesEmployee || !matchesSearch) return;
+        if (presenceMatchIds && !presenceMatchIds.has(String(id))) return;
 
         if (!stats.has(id)) {
           stats.set(id, {
@@ -11138,12 +11153,26 @@ const FichajesModule = {
     }
 
     if (rows.length === 0) {
+      // Si el vacío se debe al filtro de presencia (Trabajando/Pausa), lo decimos
+      // explícitamente para que quede claro que NO es falta de datos, sino que
+      // ahora mismo no hay nadie en ese estado.
+      const presenceEmpty = {
+        working: { icon: '🟢', title: 'Nadie está trabajando ahora', msg: 'No hay ningún compañero fichado y activo en este momento. Quita el filtro «Trab.» para ver el balance de todo el equipo.' },
+        paused: { icon: '🟡', title: 'Nadie está en pausa ahora', msg: 'Ningún compañero está en pausa en este momento. Quita el filtro «Pausa» para ver el balance de todo el equipo.' }
+      };
+      const presenceCard = (this.presenceFilter && this.presenceFilter !== 'all') ? presenceEmpty[this.presenceFilter] : null;
+      const card = presenceCard || {
+        icon: '⚖️',
+        title: 'Sin datos de balance',
+        msg: 'No hay fichajes suficientes en este rango para calcular el balance.'
+      };
       tbody.innerHTML = `
         <tr><td colspan="5" style="padding: 0;">
           <div class="empty-state-card">
-            <div class="empty-state-icon" aria-hidden="true">⚖️</div>
-            <h3 class="empty-state-title">Sin datos de balance</h3>
-            <p class="empty-state-msg">No hay fichajes suficientes en este rango para calcular el balance.</p>
+            <div class="empty-state-icon" aria-hidden="true">${card.icon}</div>
+            <h3 class="empty-state-title">${escapeHTML(card.title)}</h3>
+            <p class="empty-state-msg">${escapeHTML(card.msg)}</p>
+            ${presenceCard ? `<button type="button" class="btn-secondary btn-compact" onclick="FichajesModule.togglePresenceFilter('${this.presenceFilter}')" style="margin-top:12px;">Quitar filtro</button>` : ''}
           </div>
         </td></tr>`;
       return;
