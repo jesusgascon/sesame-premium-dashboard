@@ -5,7 +5,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.9.10';
+const APP_VERSION = '1.9.11';
 
 // ─── Debug Mode ───────────────────────────────────────────────────────────────
 // false en producción (silencia console.log/info/warn).
@@ -2590,10 +2590,12 @@ function playCompanySwitchAnimation() {
  * Usa la Web Animations API (no la afecta el wildcard de prefers-reduced-motion)
  * y colores sólidos, para que se vea bien también por escritorio remoto.
  */
-function playLogoutAnimation(onCovered) {
+function playLogoutAnimation(onCovered, message) {
   if (document.getElementById('logout-overlay')) return; // anti-reentrada
   const PREMIUM = 'cubic-bezier(0.16, 1, 0.3, 1)';
   const CLOSE = 720, HOLD = 620;
+  const msgMain = (message && message.main) || 'Sesión cerrada';
+  const msgSub = (message && message.sub) || 'Hasta pronto 👋';
   const appScreen = document.getElementById('app-screen');
 
   // Paleta del telón según el tema activo: en claro usamos una superficie clara con
@@ -2628,8 +2630,8 @@ function playLogoutAnimation(onCovered) {
       'justify-content:center;font-size:35px;background:color-mix(in srgb, var(--accent) 22%, ' + iconBg + ');' +
       'border:1px solid color-mix(in srgb, var(--accent) 55%, transparent);' +
       'box-shadow:0 0 44px color-mix(in srgb, var(--accent) 50%, transparent);">🔒</div>' +
-    '<div style="font-size:1.08rem;font-weight:700;letter-spacing:.02em;color:' + textMain + ';">Sesión cerrada</div>' +
-    '<div style="font-size:.82rem;color:' + textSub + ';">Hasta pronto 👋</div>';
+    '<div style="font-size:1.08rem;font-weight:700;letter-spacing:.02em;color:' + textMain + ';">' + msgMain + '</div>' +
+    '<div style="font-size:.82rem;color:' + textSub + ';">' + msgSub + '</div>';
 
   ov.appendChild(top);
   ov.appendChild(bot);
@@ -2643,7 +2645,7 @@ function playLogoutAnimation(onCovered) {
   ], { duration: CLOSE, easing: PREMIUM, fill: 'forwards' });
 
   // Telón: cierra.
-  const topClose = top.animate(
+  top.animate(
     [{ transform: 'translateY(-100%)' }, { transform: 'translateY(0)' }],
     { duration: CLOSE, easing: PREMIUM, fill: 'forwards' });
   bot.animate(
@@ -2657,16 +2659,15 @@ function playLogoutAnimation(onCovered) {
     { opacity: 1, transform: 'scale(1) translateY(0)' }
   ], { duration: CLOSE + HOLD, easing: PREMIUM, fill: 'forwards' });
 
-  topClose.finished.then(() => {
-    // Con la pantalla totalmente cubierta por el telón mantenemos un instante el
-    // mensaje "Sesión cerrada" y ejecutamos el cierre real. `onCovered` recarga la
-    // página para re-inicializar limpio (el desbloqueo en caliente tras logout
-    // dejaba estado a medias y requería un Ctrl+Shift+R); la recarga sucede oculta
-    // tras el telón, así que la transición a la pantalla de contraseña es limpia.
-    window.setTimeout(() => {
-      try { if (typeof onCovered === 'function') onCovered(); } catch (_) {}
-    }, HOLD);
-  });
+  // Tras cerrarse el telón + la pausa, ejecutamos el cierre real. `onCovered`
+  // recarga la página para re-inicializar limpio (el desbloqueo en caliente tras
+  // logout dejaba estado a medias y requería un Ctrl+Shift+R); la recarga sucede
+  // oculta tras el telón, así que la transición a la pantalla de contraseña es
+  // limpia. Usamos setTimeout (no animation.finished) para que también dispare con
+  // la pestaña en segundo plano, importante para el cierre por inactividad.
+  window.setTimeout(() => {
+    try { if (typeof onCovered === 'function') onCovered(); } catch (_) {}
+  }, CLOSE + HOLD);
 }
 
 function switchCompany(cid) {
@@ -3180,8 +3181,11 @@ async function startApp() {
   // El giro del icono lo gestiona el ciclo de vida de loadData (ver
   // setRefreshSpinning), así también gira en el auto-refresco silencioso.
   $('refresh-btn').addEventListener('click', () => loadData(true));
-  $('logout-btn').addEventListener('click', logout);
+  $('logout-btn').addEventListener('click', () => logout());
   initMonthPickers();
+
+  // Privacidad: auto-cierre de sesión tras 10 min de inactividad del usuario.
+  startIdleWatch();
 
   document.addEventListener('click', (event) => {
     const trigger = event.target.closest('[data-presence-list-trigger]');
@@ -5385,8 +5389,13 @@ function reloadCalendarSilent() {
   loadData(true).finally(() => setCalendarLoading(false));
 }
 
-async function logout() {
-  // Paramos ya el auto-refresco para que no pinte nada bajo el telón.
+async function logout(opts = {}) {
+  // `opts` puede ser un MouseEvent (viene del click del botón): tratamos como
+  // logout normal salvo que se pase explícitamente { idle: true }.
+  const isIdle = opts && opts.idle === true;
+
+  // Paramos el vigilante de inactividad y el auto-refresco (no pintar bajo el telón).
+  stopIdleWatch();
   stopAutoRefresh();
 
   // Relock real: limpia credenciales/estado y RECARGA para re-inicializar limpio.
@@ -5405,6 +5414,10 @@ async function logout() {
     location.reload();
   };
 
+  const message = isIdle
+    ? { main: 'Sesión cerrada por inactividad', sub: 'Vuelve a introducir la contraseña para entrar' }
+    : { main: 'Sesión cerrada', sub: 'Hasta pronto 👋' };
+
   // Con reduce-motion (o sin soporte de WAAPI) cerramos sin animación.
   const reduceMotion = window.matchMedia &&
     window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -5412,7 +5425,53 @@ async function logout() {
     doRelock();
     return;
   }
-  playLogoutAnimation(doRelock);
+  playLogoutAnimation(doRelock, message);
+}
+
+// ── Auto-cierre por inactividad (privacidad) ─────────────────────────────────
+// Si no hay interacción del usuario durante IDLE_LOGOUT_MS, cerramos la sesión
+// con la animación y se exige volver a introducir la contraseña. Solo cuenta la
+// actividad real del usuario (ratón, teclado, scroll, táctil); los refrescos de
+// red en segundo plano NO la reinician.
+const IDLE_LOGOUT_MS = 10 * 60 * 1000; // 10 minutos
+let _idleTimer = null;
+let _idleLastReset = 0;
+let _idleWatching = false;
+
+function resetIdleTimer() {
+  if (!_idleWatching) return;
+  const now = Date.now();
+  // Throttle: no re-armar más de una vez por segundo (mousemove dispara mucho).
+  if (_idleTimer && now - _idleLastReset < 1000) return;
+  _idleLastReset = now;
+  if (_idleTimer) clearTimeout(_idleTimer);
+  _idleTimer = setTimeout(() => {
+    // Modo Kiosko: pantalla de oficina pensada para estar siempre visible; nunca la
+    // cerramos por inactividad, solo reprogramamos el temporizador.
+    if (document.body.classList.contains('kiosko-mode-active')) {
+      _idleLastReset = 0;
+      resetIdleTimer();
+      return;
+    }
+    // Solo si seguimos dentro de la app desbloqueada y no hay ya un cierre en curso.
+    if (sessionStorage.getItem('ssm_unlocked') === 'true' &&
+        !document.getElementById('logout-overlay')) {
+      logout({ idle: true });
+    }
+  }, IDLE_LOGOUT_MS);
+}
+
+function startIdleWatch() {
+  if (_idleWatching) return;
+  _idleWatching = true;
+  ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click', 'wheel']
+    .forEach(ev => document.addEventListener(ev, resetIdleTimer, { passive: true, capture: true }));
+  resetIdleTimer();
+}
+
+function stopIdleWatch() {
+  _idleWatching = false;
+  if (_idleTimer) { clearTimeout(_idleTimer); _idleTimer = null; }
 }
 
 // El arranque se registra al final del archivo, después de declarar todos los módulos.
