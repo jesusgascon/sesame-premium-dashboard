@@ -5,7 +5,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.9.7';
+const APP_VERSION = '1.9.9';
 
 // ─── Debug Mode ───────────────────────────────────────────────────────────────
 // false en producción (silencia console.log/info/warn).
@@ -2575,6 +2575,89 @@ function playCompanySwitchAnimation() {
     ov.remove();
     if (hostPosWasStatic) host.style.position = '';
   }, DUR + 80);
+}
+
+/**
+ * Animación de cierre de sesión: un "telón" que se cierra sobre toda la app
+ * (paneles superior e inferior que se juntan en el centro) con un candado y el
+ * mensaje "Sesión cerrada", y que luego se abre revelando la pantalla de
+ * contraseña. Más larga y marcada que la de cambio de empresa.
+ *
+ * `onCovered` se invoca cuando la pantalla está totalmente cubierta: ese es el
+ * momento de hacer el "relock" real (limpiar credenciales y mostrar el
+ * lock-screen) por debajo del telón, antes de abrirlo.
+ *
+ * Usa la Web Animations API (no la afecta el wildcard de prefers-reduced-motion)
+ * y colores sólidos, para que se vea bien también por escritorio remoto.
+ */
+function playLogoutAnimation(onCovered) {
+  if (document.getElementById('logout-overlay')) return; // anti-reentrada
+  const PREMIUM = 'cubic-bezier(0.16, 1, 0.3, 1)';
+  const CLOSE = 720, HOLD = 620;
+  const appScreen = document.getElementById('app-screen');
+
+  const ov = document.createElement('div');
+  ov.id = 'logout-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:99999;pointer-events:all;overflow:hidden;';
+
+  const panelBase =
+    'position:absolute;left:0;right:0;height:51%;' +
+    'background:linear-gradient(180deg, color-mix(in srgb, var(--accent) 22%, #0a0b13), #0a0b13);';
+  const top = document.createElement('div');
+  top.style.cssText = panelBase + 'top:0;transform:translateY(-100%);' +
+    'box-shadow:0 16px 60px color-mix(in srgb, var(--accent) 45%, transparent);';
+  const bot = document.createElement('div');
+  bot.style.cssText = panelBase + 'bottom:0;transform:translateY(100%);' +
+    'box-shadow:0 -16px 60px color-mix(in srgb, var(--accent) 45%, transparent);';
+
+  const center = document.createElement('div');
+  center.style.cssText =
+    'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;' +
+    'justify-content:center;gap:14px;opacity:0;';
+  center.innerHTML =
+    '<div style="width:76px;height:76px;border-radius:21px;display:flex;align-items:center;' +
+      'justify-content:center;font-size:35px;background:color-mix(in srgb, var(--accent) 22%, #11131f);' +
+      'border:1px solid color-mix(in srgb, var(--accent) 55%, transparent);' +
+      'box-shadow:0 0 44px color-mix(in srgb, var(--accent) 50%, transparent);">🔒</div>' +
+    '<div style="font-size:1.08rem;font-weight:700;letter-spacing:.02em;color:#fff;">Sesión cerrada</div>' +
+    '<div style="font-size:.82rem;color:rgba(255,255,255,.62);">Hasta pronto 👋</div>';
+
+  ov.appendChild(top);
+  ov.appendChild(bot);
+  ov.appendChild(center);
+  document.body.appendChild(ov);
+
+  // La app se encoge y se atenúa mientras se cierra el telón.
+  if (appScreen) appScreen.animate([
+    { transform: 'scale(1)', opacity: 1 },
+    { transform: 'scale(0.94)', opacity: 0.22 }
+  ], { duration: CLOSE, easing: PREMIUM, fill: 'forwards' });
+
+  // Telón: cierra.
+  const topClose = top.animate(
+    [{ transform: 'translateY(-100%)' }, { transform: 'translateY(0)' }],
+    { duration: CLOSE, easing: PREMIUM, fill: 'forwards' });
+  bot.animate(
+    [{ transform: 'translateY(100%)' }, { transform: 'translateY(0)' }],
+    { duration: CLOSE, easing: PREMIUM, fill: 'forwards' });
+
+  // Candado + texto: aparecen justo al juntarse los paneles.
+  center.animate([
+    { opacity: 0, transform: 'scale(0.82) translateY(10px)' },
+    { opacity: 0, transform: 'scale(0.82) translateY(10px)', offset: 0.4 },
+    { opacity: 1, transform: 'scale(1) translateY(0)' }
+  ], { duration: CLOSE + HOLD, easing: PREMIUM, fill: 'forwards' });
+
+  topClose.finished.then(() => {
+    // Con la pantalla totalmente cubierta por el telón mantenemos un instante el
+    // mensaje "Sesión cerrada" y ejecutamos el cierre real. `onCovered` recarga la
+    // página para re-inicializar limpio (el desbloqueo en caliente tras logout
+    // dejaba estado a medias y requería un Ctrl+Shift+R); la recarga sucede oculta
+    // tras el telón, así que la transición a la pantalla de contraseña es limpia.
+    window.setTimeout(() => {
+      try { if (typeof onCovered === 'function') onCovered(); } catch (_) {}
+    }, HOLD);
+  });
 }
 
 function switchCompany(cid) {
@@ -5294,21 +5377,33 @@ function reloadCalendarSilent() {
 }
 
 async function logout() {
+  // Paramos ya el auto-refresco para que no pinte nada bajo el telón.
   stopAutoRefresh();
-  clearCredentials();
-  sessionStorage.removeItem('ssm_unlocked');
-  sessionStorage.removeItem('ssm_current_date');
-  sessionStorage.removeItem('ssm_signings_date');
-  sessionStorage.removeItem('ssm_signings_view');
-  sessionStorage.removeItem('ssm_fichajes_cache');
 
-  STATE.token = STATE.companyId = STATE.currentUser = null;
-  STATE.absenceTypes = [];
-  STATE.calendarData = {};
-  STATE.activeFilters = new Set();
-  const passInput = $('master-pass');
-  if (passInput) passInput.value = '';
-  showScreen('lock-screen');
+  // Relock real: limpia credenciales/estado y RECARGA para re-inicializar limpio.
+  // La app cablea sus listeners y el flujo de desbloqueo una sola vez por carga de
+  // página (en init()/startApp(), que no son idempotentes), por lo que desbloquear
+  // en caliente tras un logout dejaba la sesión a medias (sin "Verificando…" y con
+  // datos viejos) hasta un Ctrl+Shift+R. Recargar replica ese refresco manual y
+  // garantiza una pantalla de contraseña y un arranque correctos.
+  const doRelock = () => {
+    clearCredentials();
+    sessionStorage.removeItem('ssm_unlocked');
+    sessionStorage.removeItem('ssm_current_date');
+    sessionStorage.removeItem('ssm_signings_date');
+    sessionStorage.removeItem('ssm_signings_view');
+    sessionStorage.removeItem('ssm_fichajes_cache');
+    location.reload();
+  };
+
+  // Con reduce-motion (o sin soporte de WAAPI) cerramos sin animación.
+  const reduceMotion = window.matchMedia &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduceMotion) {
+    doRelock();
+    return;
+  }
+  playLogoutAnimation(doRelock);
 }
 
 // El arranque se registra al final del archivo, después de declarar todos los módulos.
