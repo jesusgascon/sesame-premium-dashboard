@@ -927,7 +927,7 @@ async function apiFetch(path, params = {}, isRetry = false) {
 
   // Añadimos parámetros de búsqueda si existen
   Object.entries(params).forEach(([k, v]) => {
-    if (k === 'method' || k === 'body' || k === 'overrideBackend' || k === 'headers') return;
+    if (k === 'method' || k === 'body' || k === 'overrideBackend' || k === 'headers' || k === 'noStore') return;
     if (Array.isArray(v)) v.forEach(i => finalUrl.searchParams.append(k, i));
     else finalUrl.searchParams.set(k, v);
   });
@@ -957,8 +957,11 @@ async function apiFetch(path, params = {}, isRetry = false) {
   // - Si la empresa NO va en la URL (solo en cabeceras), la misma URL se reutiliza
   //   para todas las empresas y la caché serviría datos de OTRA empresa al cambiar
   //   (bug del calendario con datos viejos) → forzamos no-store.
+  // Datos en tiempo real (presencia) piden noStore explícito: aunque la empresa
+  // vaya en la URL, NO deben cachearse o al volver a una empresa veríamos la
+  // presencia vieja de cuando estuvimos en ella (estado obsoleto hasta un F5 duro).
   const companyInUrl = !!STATE.companyId && path.includes(STATE.companyId);
-  if (!companyInUrl) fetchOptions.cache = 'no-store';
+  if (params.noStore || !companyInUrl) fetchOptions.cache = 'no-store';
   if (params.body) fetchOptions.body = params.body;
 
   try {
@@ -1563,7 +1566,7 @@ async function fetchPresence() {
     let list = [];
     if (DISCOVERY.workingPresence) {
       AUDIT.lastPresencePathTried = DISCOVERY.workingPresence;
-      const data = await apiFetch(DISCOVERY.workingPresence);
+      const data = await apiFetch(DISCOVERY.workingPresence, { noStore: true });
       list = data.data || data || [];
     } else {
       AUDIT.isSearching = true;
@@ -2606,6 +2609,10 @@ function switchCompany(cid) {
   // Limpiamos el estado anterior antes de la carga completa
   STATE.allEmployees.clear();
   STATE.presenceMap.clear();
+  // La presencia en tiempo real es por empresa: hay que vaciar también la lista
+  // (no solo el mapa) o el resumen "Trab./Pausa/Fuera" seguiría mostrando la
+  // gente de la empresa anterior hasta que llegue el nuevo fetchPresence.
+  STATE.presenceList = [];
   STATE.calendarData = {};
   STATE.hiddenEmployeeIds.clear();
 
@@ -2613,6 +2620,9 @@ function switchCompany(cid) {
   if (typeof FichajesModule !== 'undefined') {
     FichajesModule.data = [];
     FichajesModule.realSignings = [];
+    // Presencia en tiempo real de la empresa anterior: vaciar para no contar a su
+    // gente como "trabajando ahora" en la nueva empresa hasta el nuevo fetch.
+    FichajesModule.realtimePresence = [];
     // Resetear el filtro de empleado: el empleado seleccionado puede no existir
     // en la nueva empresa. Sin esto seguiría filtrando por su ID (y mostrando su
     // nombre arriba) con datos cruzados. Volvemos a "Todo el equipo".
@@ -2648,6 +2658,11 @@ function switchCompany(cid) {
   // empresa anterior durante los segundos que tarda en llegar la nueva.
   // El render de la nueva empresa (refreshAllViews / renderTable) lo reemplaza.
   showCompanySwitchLoading(next.name);
+
+  // Vaciar de inmediato el resumen de presencia del top-bar (Trab./Pausa/Fuera):
+  // sin esto seguiría enseñando los contadores de la empresa anterior hasta que
+  // el nuevo fetchPresence (asíncrono) termine.
+  renderTeamPresenceSummary([]);
 
   // Cargamos TODO de la nueva empresa (Metadatos + Calendario)
   loadInitialData();
