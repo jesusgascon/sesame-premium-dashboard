@@ -5,7 +5,7 @@
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Frontend](https://img.shields.io/badge/frontend-Vanilla%20JS%20(ES6+)-yellow.svg)
 ![Backend](https://img.shields.io/badge/backend-Python%20Proxy-green.svg)
-![Version](https://img.shields.io/badge/version-1.8.0-success.svg)
+![Version](https://img.shields.io/badge/version-1.9.7-success.svg)
 ![Status](https://img.shields.io/badge/status-Production%20Ready-success.svg)
 
 ---
@@ -235,6 +235,17 @@ Para una inmersión profunda en los algoritmos de cruce de datos, heurísticas d
 ---
 
 ## 📜 Changelog Detallado
+
+### [v1.9.7] — 2026-06-19 | *Cumplimiento >6h, fichajes nocturnos, aislamiento de empresa y presencia fiable*
+- **Añadido**: **Cumplimiento de jornada >6h**. Los tramos de trabajo continuo que superan el máximo legal sin pausa (Estatuto de los Trabajadores art. 34.4 y Convenio del Metal de Zaragoza) se marcan de forma discreta pero visible: anillo ámbar en la línea de tiempo, icono ⚠ en la tabla y nota en el resumen del fichaje.
+- **Añadido**: **Continuación de fichajes que cruzan medianoche**. El tramo nocturno se muestra también en el día en que termina (como Sesame), mediante segmentos de continuación que **no** contaminan las métricas del día (primera entrada, nº de tramos, totales).
+- **Añadido**: **Animación de cambio de empresa** (barrido diagonal de marca + transición de contenido y logo) con la Web Animations API, visible también por escritorio remoto. Y **carga in-place de Vacaciones** al cambiar de mes, con indicador ligero en vez del overlay "Conectando a Sesame".
+- **Corregido (crítico)**: **Datos cruzados al cambiar de empresa**. Calendario, empleados, fichajes y balances podían seguir mostrando datos de la empresa anterior hasta un F5 duro. Se limpia todo el estado por empresa y se aplica **caché selectiva**: se conserva la caché por-empresa cuando el `companyId` va en la URL y se fuerza `no-store` cuando solo viaja en cabeceras.
+- **Corregido**: **Presencia obsoleta al cambiar de empresa** (Trab./Pausa/Tele./Fuera). Se vacían `presenceList` y `realtimePresence` y se refresca el resumen al instante; la presencia (dato en tiempo real) nunca se cachea (`noStore`), así al volver a una empresa no se ve su presencia antigua.
+- **Corregido**: **Filtro de presencia en Balance**. «Trab.»/«Pausa» ahora filtran *todas* las fuentes del balance (filas locales, directorio, bolsa oficial de Sesame e histórico de reglas); antes las oficiales reinyectaban a toda la plantilla. Estado vacío explícito (con botón "Quitar filtro") cuando no hay nadie en ese estado.
+- **Corregido**: **Popover "Fuera ahora"**. El `backdrop-filter` del `.top-bar` lo atrapaba en su contexto de apilamiento (salía desplazado y por detrás de los resúmenes y de la cabecera de la tabla). Se ancla al `<body>` con `position:fixed`, con coordenadas correctas y por encima de todo.
+- **Corregido**: el **filtro de empleado** se resetea a «Todo el equipo» al cambiar de empresa; **arranque** directo en el último módulo usado; **legibilidad** del tema claro (marca >6h, continuación nocturna) y estado deshabilitado de los botones de navegación.
+- **Mantenimiento**: perfil profesional del repo (Código de Conducta, CI), `dependabot` y bumps de `actions/checkout`, `setup-node`, `setup-python` y `cryptography`.
 
 ### [v1.8.0] — 2026-06-16 | *Aislamiento multi-empresa de plantillas, animaciones premium y botón "subir arriba"*
 - **Corregido (crítico)**: En cuentas de **administrador multi-empresa**, el listado de empleados mezclaba las plantillas de las dos empresas en Fichajes y Balances. `fetchEmployees()` pasa a usar el endpoint **por empresa** `/api/v3/companies/{companyId}/employees` como fuente principal (el `companyId` de la URL filtra en servidor) y el directorio global solo como fallback filtrado por `companyId`. Cada empleado guarda su `companyId` para reforzar los guards anti-mezcla.

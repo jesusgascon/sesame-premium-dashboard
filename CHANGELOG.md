@@ -6,6 +6,48 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/) y el proy
 [Versionado Semántico](https://semver.org/lang/es/). El detalle ampliado de cada versión vive en el
 [README](./README.md#-changelog-detallado).
 
+## [1.9.7] — 2026-06-19
+
+### Añadido
+- **Cumplimiento de jornada >6h**: los tramos de trabajo continuo que superan el máximo legal sin pausa
+  (Estatuto de los Trabajadores art. 34.4 y Convenio del Metal de Zaragoza) se señalan de forma discreta
+  pero visible en la línea de tiempo (anillo ámbar), en la tabla (icono ⚠) y en el resumen del fichaje.
+- **Continuación de fichajes que cruzan medianoche**: los tramos nocturnos se muestran también en el día
+  en el que terminan, como hace Sesame, mediante segmentos de continuación que **no** contaminan las
+  métricas del día (primera entrada, número de tramos, totales).
+- **Animación de cambio de empresa**: barrido diagonal de marca con transición de contenido y logo,
+  implementada con la Web Animations API para que se vea también por escritorio remoto.
+- **Carga in-place de Vacaciones**: al cambiar de mes se usa un indicador ligero en lugar del overlay
+  "Conectando a Sesame", que resultaba intrusivo para una operación tan frecuente.
+
+### Corregido
+- **(Crítico) Datos cruzados al cambiar de empresa**: el calendario, los empleados, los fichajes y los
+  balances podían seguir mostrando datos de la empresa anterior hasta un refresco completo. Se limpia
+  todo el estado por empresa (plantilla, presencia, calendario, fichajes, balances, mapas oficiales) y
+  se aplica **caché selectiva**: se conserva la caché por-empresa cuando la empresa va en la URL y se
+  fuerza `no-store` cuando solo viaja en cabeceras (evita servir datos de otra empresa).
+- **Presencia obsoleta al cambiar de empresa** (Trab./Pausa/Tele./Fuera): se vacían `presenceList` y
+  `realtimePresence` y se refresca el resumen al instante; además la presencia (dato en tiempo real)
+  nunca se cachea, así al volver a una empresa no se ve su presencia antigua.
+- **Filtro de presencia en Balance**: «Trab.»/«Pausa» ahora filtran **todas** las fuentes del balance
+  (filas locales, directorio, bolsa oficial de Sesame e histórico de reglas); antes las fuentes oficiales
+  reinyectaban a toda la plantilla y el filtro no surtía efecto. Estado vacío explícito cuando no hay
+  nadie en ese estado, con botón para quitar el filtro.
+- **Popover "Fuera ahora"**: el `backdrop-filter` del `.top-bar` lo atrapaba en su contexto de
+  apilamiento (salía desplazado y por detrás de los resúmenes y de la cabecera de la tabla). Ahora se
+  ancla al `<body>` con `position:fixed`, con coordenadas correctas y por encima de todo.
+- **Filtro de empleado** al cambiar de empresa: se resetea a «Todo el equipo» (el empleado seleccionado
+  podía no existir en la nueva empresa y arrastraba datos cruzados).
+- **Arranque** directo en el último módulo usado, sin pasar por el calendario de Vacaciones.
+- **Tema claro**: legibilidad de la marca >6h y de la continuación nocturna, y estado deshabilitado de
+  los botones de navegación.
+
+### Mejorado
+- **Pulido visual**: barra de progreso de fichajes como píldora, loader de cambio de mes en Vacaciones y
+  refinamiento general de la capa premium.
+- **Mantenimiento del repositorio**: perfil profesional (Código de Conducta, CI), `dependabot` y
+  actualización de `actions/checkout`, `setup-node`, `setup-python` y del requisito de `cryptography`.
+
 ## [1.8.0] — 2026-06-16
 
 ### Corregido
