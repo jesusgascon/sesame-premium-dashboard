@@ -6050,9 +6050,16 @@ const FichajesModule = {
       </div>
       <div class="presence-out-list">${listHtml}</div>
     `;
+    // CLAVE: el .top-bar tiene backdrop-filter, que convierte a ese contenedor en
+    // el bloque contenedor de los hijos position:fixed (y crea su propio contexto
+    // de apilamiento). Eso atrapaba el popover dentro del header: salía desplazado
+    // y por detrás del thead sticky de la tabla. Lo movemos a <body> para que su
+    // position:fixed sea relativo al viewport de verdad y su z-index domine.
+    if (popover.parentElement !== document.body) {
+      document.body.appendChild(popover);
+    }
     popover.classList.remove('hidden');
-    // position:fixed + coordenadas ancladas al botón "Fuera": el popover escapa
-    // del contexto de apilamiento del .top-bar y no queda tras los resúmenes.
+    // Coordenadas ancladas al botón "Fuera" (rect en coordenadas de viewport).
     positionFixedPopover(popover, document.getElementById('filter-live-out'));
     document.getElementById('filter-live-out')?.classList.add('active');
   },
