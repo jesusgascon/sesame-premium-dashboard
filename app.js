@@ -5,7 +5,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.9.9';
+const APP_VERSION = '1.9.10';
 
 // ─── Debug Mode ───────────────────────────────────────────────────────────────
 // false en producción (silencia console.log/info/warn).
@@ -2596,13 +2596,22 @@ function playLogoutAnimation(onCovered) {
   const CLOSE = 720, HOLD = 620;
   const appScreen = document.getElementById('app-screen');
 
+  // Paleta del telón según el tema activo: en claro usamos una superficie clara con
+  // texto oscuro; en oscuro, el telón profundo con texto blanco. El acento (marca)
+  // se mezcla en ambos casos para mantener identidad.
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  const panelFill = isLight ? '#eef1f8' : '#0a0b13';
+  const iconBg    = isLight ? '#ffffff' : '#11131f';
+  const textMain  = isLight ? '#1b1e2b' : '#ffffff';
+  const textSub   = isLight ? 'rgba(27,30,43,.58)' : 'rgba(255,255,255,.62)';
+
   const ov = document.createElement('div');
   ov.id = 'logout-overlay';
   ov.style.cssText = 'position:fixed;inset:0;z-index:99999;pointer-events:all;overflow:hidden;';
 
   const panelBase =
     'position:absolute;left:0;right:0;height:51%;' +
-    'background:linear-gradient(180deg, color-mix(in srgb, var(--accent) 22%, #0a0b13), #0a0b13);';
+    'background:linear-gradient(180deg, color-mix(in srgb, var(--accent) 22%, ' + panelFill + '), ' + panelFill + ');';
   const top = document.createElement('div');
   top.style.cssText = panelBase + 'top:0;transform:translateY(-100%);' +
     'box-shadow:0 16px 60px color-mix(in srgb, var(--accent) 45%, transparent);';
@@ -2616,11 +2625,11 @@ function playLogoutAnimation(onCovered) {
     'justify-content:center;gap:14px;opacity:0;';
   center.innerHTML =
     '<div style="width:76px;height:76px;border-radius:21px;display:flex;align-items:center;' +
-      'justify-content:center;font-size:35px;background:color-mix(in srgb, var(--accent) 22%, #11131f);' +
+      'justify-content:center;font-size:35px;background:color-mix(in srgb, var(--accent) 22%, ' + iconBg + ');' +
       'border:1px solid color-mix(in srgb, var(--accent) 55%, transparent);' +
       'box-shadow:0 0 44px color-mix(in srgb, var(--accent) 50%, transparent);">🔒</div>' +
-    '<div style="font-size:1.08rem;font-weight:700;letter-spacing:.02em;color:#fff;">Sesión cerrada</div>' +
-    '<div style="font-size:.82rem;color:rgba(255,255,255,.62);">Hasta pronto 👋</div>';
+    '<div style="font-size:1.08rem;font-weight:700;letter-spacing:.02em;color:' + textMain + ';">Sesión cerrada</div>' +
+    '<div style="font-size:.82rem;color:' + textSub + ';">Hasta pronto 👋</div>';
 
   ov.appendChild(top);
   ov.appendChild(bot);
