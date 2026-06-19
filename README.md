@@ -5,7 +5,7 @@
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Frontend](https://img.shields.io/badge/frontend-Vanilla%20JS%20(ES6+)-yellow.svg)
 ![Backend](https://img.shields.io/badge/backend-Python%20Proxy-green.svg)
-![Version](https://img.shields.io/badge/version-1.9.7-success.svg)
+![Version](https://img.shields.io/badge/version-1.9.11-success.svg)
 ![Status](https://img.shields.io/badge/status-Production%20Ready-success.svg)
 
 ---
@@ -235,6 +235,11 @@ Para una inmersión profunda en los algoritmos de cruce de datos, heurísticas d
 ---
 
 ## 📜 Changelog Detallado
+
+### [v1.9.11] — 2026-06-19 | *Cierre de sesión con animación y auto-bloqueo por inactividad*
+- **Añadido**: **Animación de cierre de sesión** — un "telón" (paneles superior e inferior con tinte de marca) se cierra sobre la app con un candado y *"Sesión cerrada"*, y luego se revela la pantalla de contraseña. Hecha con la Web Animations API (se ve también por escritorio remoto) y **adaptada al tema claro/oscuro**. Respeta `prefers-reduced-motion`.
+- **Añadido**: **Auto-cierre de sesión por inactividad** (privacidad). Tras 10 min sin interacción real del usuario (ratón, teclado, scroll, táctil) la sesión se cierra con la animación y exige volver a introducir la contraseña. Solo cuenta la actividad del usuario (los refrescos de red en segundo plano no reinician el contador) y funciona con la pestaña en segundo plano. El **modo Kiosko** queda excluido.
+- **Corregido**: **Re-login en caliente tras cerrar sesión**. El desbloqueo posterior a un logout quedaba a medias (sin *"Verificando…"* y con datos viejos) porque `init()`/`startApp()` solo se ejecutan una vez por carga de página y no son idempotentes. Ahora el cierre de sesión recarga la página (oculto tras el telón) para re-inicializar limpio, equivalente al `Ctrl+Shift+R` manual.
 
 ### [v1.9.7] — 2026-06-19 | *Cumplimiento >6h, fichajes nocturnos, aislamiento de empresa y presencia fiable*
 - **Añadido**: **Cumplimiento de jornada >6h**. Los tramos de trabajo continuo que superan el máximo legal sin pausa (Estatuto de los Trabajadores art. 34.4 y Convenio del Metal de Zaragoza) se marcan de forma discreta pero visible: anillo ámbar en la línea de tiempo, icono ⚠ en la tabla y nota en el resumen del fichaje.

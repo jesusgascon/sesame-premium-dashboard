@@ -6,6 +6,25 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/) y el proy
 [Versionado Semántico](https://semver.org/lang/es/). El detalle ampliado de cada versión vive en el
 [README](./README.md#-changelog-detallado).
 
+## [1.9.11] — 2026-06-19
+
+### Añadido
+- **Animación de cierre de sesión**: un "telón" (paneles superior e inferior con tinte de marca)
+  se cierra sobre la app con un candado y el mensaje "Sesión cerrada", y luego se revela la pantalla
+  de contraseña. Implementada con la Web Animations API (visible también por escritorio remoto) y
+  adaptada al **tema claro/oscuro** activo. Respeta `prefers-reduced-motion`.
+- **Auto-cierre de sesión por inactividad** (privacidad): tras 10 minutos sin interacción real del
+  usuario (ratón, teclado, scroll, táctil) se cierra la sesión con la animación y se exige volver a
+  introducir la contraseña. Solo cuenta la actividad del usuario —los refrescos de red en segundo
+  plano no reinician el contador— y funciona con la pestaña en segundo plano. El **modo Kiosko** queda
+  excluido (la pantalla de oficina nunca se cierra por inactividad).
+
+### Corregido
+- **Re-login en caliente tras cerrar sesión**: el desbloqueo posterior a un logout quedaba a medias
+  (sin "Verificando…" y con datos viejos) porque la inicialización y el cableado de eventos solo se
+  ejecutan una vez por carga de página y no son idempotentes. Ahora el cierre de sesión recarga la
+  página (oculto tras el telón) para re-inicializar limpio, equivalente al `Ctrl+Shift+R` manual.
+
 ## [1.9.7] — 2026-06-19
 
 ### Añadido
