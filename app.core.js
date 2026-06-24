@@ -5,7 +5,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.9.12';
+const APP_VERSION = '1.9.13';
 
 // ─── Debug Mode ───────────────────────────────────────────────────────────────
 // false en producción (silencia console.log/info/warn).
@@ -2271,12 +2271,19 @@ function isToday(dateStr) {
  * Retorna un icono según el origen del fichaje (BI Engine)
  */
 function getOriginIcon(origin) {
-  if (!origin) return '❓';
-  const o = origin.toLowerCase();
-  if (o.includes('web')) return '💻';
-  if (o.includes('app') || o.includes('mobile')) return '📱';
-  if (o.includes('tablet') || o.includes('kiosk') || o.includes('kiosko')) return '📟';
-  return '📍';
+  return getOriginMeta(origin).icon;
+}
+
+// Mapea el origen del fichaje (web/app/tablet/...) a icono + etiqueta legible.
+// Misma correspondencia que la columna "Origen" del detalle de fichajes.
+function getOriginMeta(origin) {
+  const o = (origin || '').toLowerCase();
+  if (o.includes('request')) return { icon: '📝', label: 'Solicitud' };
+  if (o.includes('automatic_pause')) return { icon: '🤖', label: 'Auto Pausa' };
+  if (o.includes('web')) return { icon: '🌐', label: 'Web' };
+  if (o.includes('app') || o.includes('mobile')) return { icon: '📱', label: 'App' };
+  if (o.includes('wall') || o.includes('tablet') || o.includes('kiosk') || o.includes('kiosko')) return { icon: '📟', label: 'Tablet' };
+  return { icon: '📍', label: origin || 'Oficina' };
 }
 
 function isSafeHttpUrl(value) {

@@ -1202,7 +1202,7 @@ function updateLocationZoom(delta) {
   updateLocationMapFrame();
 }
 
-function openLocationModal({ lat, lon, kind = 'Ubicación', time = '', employee = '' }) {
+function openLocationModal({ lat, lon, kind = 'Ubicación', time = '', employee = '', origin = '', device = '' }) {
   const safeLat = Number(lat);
   const safeLon = Number(lon);
   if (!Number.isFinite(safeLat) || !Number.isFinite(safeLon)) return;
@@ -1214,7 +1214,16 @@ function openLocationModal({ lat, lon, kind = 'Ubicación', time = '', employee 
   const title = $('location-modal-title');
   if (title) title.textContent = `${kind} del fichaje`;
 
-  const subtitleParts = [employee, time].filter(Boolean);
+  // Origen del fichaje (web/app/tablet) y, si existe, nombre del dispositivo
+  // (p. ej. desde qué tablet se fichó). El dato viene de check_in/out_device_name.
+  let deviceLabel = '';
+  if (origin) {
+    const meta = getOriginMeta(origin);
+    deviceLabel = device ? `${meta.icon} ${meta.label} · ${device}` : `${meta.icon} ${meta.label}`;
+  } else if (device) {
+    deviceLabel = `📟 ${device}`;
+  }
+  const subtitleParts = [employee, time, deviceLabel].filter(Boolean);
   const subtitle = $('location-modal-subtitle');
   if (subtitle) subtitle.textContent = subtitleParts.join(' · ');
 

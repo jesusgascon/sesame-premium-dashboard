@@ -6,6 +6,11 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/) y el proy
 [Versionado Semántico](https://semver.org/lang/es/). El detalle ampliado de cada versión vive en el
 [README](./README.md#-changelog-detallado).
 
+## [1.9.13] — 2026-06-24
+
+### Añadido
+- **Dispositivo de fichaje visible**: el detalle de Fichajes muestra, en pequeño bajo la columna «Origen» y en el modal «Mapa de fichaje», el origen del fichaje (🌐 Web / 📱 App / 📟 Tablet) y el **nombre del terminal** cuando Sesame lo proporciona (p. ej. la tablet concreta). Si entrada y salida usan dispositivos distintos, se muestran ambos. El dato proviene de `check_in/out_device_name`.
+
 ## [1.9.12] — 2026-06-24
 
 ### Cambiado

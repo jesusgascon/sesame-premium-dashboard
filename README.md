@@ -5,7 +5,7 @@
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Frontend](https://img.shields.io/badge/frontend-Vanilla%20JS%20(ES6+)-yellow.svg)
 ![Backend](https://img.shields.io/badge/backend-Python%20Proxy-green.svg)
-![Version](https://img.shields.io/badge/version-1.9.12-success.svg)
+![Version](https://img.shields.io/badge/version-1.9.13-success.svg)
 ![Status](https://img.shields.io/badge/status-Production%20Ready-success.svg)
 
 ---
@@ -276,6 +276,9 @@ Para una inmersión profunda en los algoritmos de cruce de datos, heurísticas d
 ---
 
 ## 📜 Changelog Detallado
+
+### [v1.9.13] — 2026-06-24 | *Dispositivo de fichaje visible en detalle y mapa*
+- **Añadido**: el detalle de Fichajes muestra el **origen** del fichaje (🌐 Web / 📱 App / 📟 Tablet) y el **nombre del terminal** desde el que se fichó (p. ej. la tablet concreta) cuando Sesame lo proporciona — tanto en pequeño bajo la columna «Origen» como en el subtítulo del modal **«Mapa de fichaje»**. Si entrada y salida usan dispositivos distintos, se muestran ambos. Origen del dato: `check_in/out_device_name` (la app móvil y la web no siempre reportan nombre de terminal; las tablets sí).
 
 ### [v1.9.12] — 2026-06-24 | *Frontend modular: `app.js` dividido en 5 módulos*
 - **Cambiado**: el archivo único `app.js` (~13.200 líneas) se divide en **cinco módulos clásicos** cargados en orden — `app.core.js` (estado, helpers, capa API, fechas), `app.boot.js` (multi-empresa, temas, animaciones, arranque), `app.vacaciones.js` (calendario, filtros, estadísticas), `app.misc.js` (export, navegación, idle/logout) y `app.fichajes.js` (FichajesModule + gestores + arranque). **Sin cambios funcionales** — la app es idéntica; la división mejora orden, mantenimiento y aislamiento entre áreas. Garantizado por **reconstrucción byte-a-byte** del original y auditoría del grafo de dependencias. Ver [ARCHITECTURE.md §13](./ARCHITECTURE.md).

@@ -4114,8 +4114,8 @@ const FichajesModule = {
 		                        const safeAddrOut = escapeHTML(e.addrOut || '');
 		                        const safeLocInTime = escapeHTML(e.in || '--:--');
 		                        const safeLocOutTime = escapeHTML(e.out || '--:--');
-		                        const locIn = hasCoordIn ? `<button type="button" title="Ver entrada en mapa: ${latIn}, ${lonIn}" class="loc-link" data-lat="${latIn}" data-lon="${lonIn}" data-kind="Entrada" data-time="${safeLocInTime}" data-employee="${safeEmpName}">📍 In</button>` : (safeAddrIn ? `<span class="loc-addr" title="Dirección entrada: ${safeAddrIn}">📍 ${safeAddrIn}</span>` : '');
-		                        const locOut = hasCoordOut ? `<button type="button" title="Ver salida en mapa: ${latOut}, ${lonOut}" class="loc-link" data-lat="${latOut}" data-lon="${lonOut}" data-kind="Salida" data-time="${safeLocOutTime}" data-employee="${safeEmpName}">📍 Out</button>` : (safeAddrOut ? `<span class="loc-addr" title="Dirección salida: ${safeAddrOut}">📍 ${safeAddrOut}</span>` : '');
+		                        const locIn = hasCoordIn ? `<button type="button" title="Ver entrada en mapa: ${latIn}, ${lonIn}" class="loc-link" data-lat="${latIn}" data-lon="${lonIn}" data-kind="Entrada" data-time="${safeLocInTime}" data-employee="${safeEmpName}" data-origin="${escapeHTML(e.originIn || '')}" data-device="${escapeHTML(e.deviceNameIn || '')}">📍 In</button>` : (safeAddrIn ? `<span class="loc-addr" title="Dirección entrada: ${safeAddrIn}">📍 ${safeAddrIn}</span>` : '');
+		                        const locOut = hasCoordOut ? `<button type="button" title="Ver salida en mapa: ${latOut}, ${lonOut}" class="loc-link" data-lat="${latOut}" data-lon="${lonOut}" data-kind="Salida" data-time="${safeLocOutTime}" data-employee="${safeEmpName}" data-origin="${escapeHTML(e.originOut || '')}" data-device="${escapeHTML(e.deviceNameOut || '')}">📍 Out</button>` : (safeAddrOut ? `<span class="loc-addr" title="Dirección salida: ${safeAddrOut}">📍 ${safeAddrOut}</span>` : '');
 		                        const locContent = (locIn || locOut) ? `<div class="td-loc-group">${locIn}${locOut}</div>` : `<span style="opacity:0.3" title="Sin datos de geolocalización en este fichaje">--</span>`;
 
                         // Map origin to nice labels/icons
@@ -4157,6 +4157,12 @@ const FichajesModule = {
 	                        const safeOut = escapeHTML(e.out || '--:--');
 	                        const safeDuration = escapeHTML(e.duration || '--');
 	                        const safeTypeLabel = escapeHTML(e.typeLabel || 'Trabajo');
+                        // Dispositivo de fichaje (p. ej. la tablet concreta). Si entrada y
+                        // salida usaron dispositivos distintos, se muestran ambos.
+                        const devIn = (e.deviceNameIn || '').trim();
+                        const devOut = (e.deviceNameOut || '').trim();
+                        const deviceText = (devIn && devOut && devIn !== devOut) ? `${devIn} → ${devOut}` : (devIn || devOut);
+                        const deviceHtml = deviceText ? `<span class="td-device" title="Dispositivo de fichaje: ${escapeHTML(deviceText)}" style="display:block;font-size:0.66rem;opacity:0.6;margin-top:2px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📟 ${escapeHTML(deviceText)}</span>` : '';
 	                        const longWorkBadge = e.isLongWork ? ' <span class="over-max-flag" title="Tramo de trabajo continuo de más de 6h. El art. 34.4 ET y el art. 28 del Convenio del Metal de Zaragoza exigen un descanso cuando la jornada continuada supera las 6h.">⚠</span>' : '';
 
 	                        let originContent = `<span class="td-loc" title="${safeAuditTooltip}">${oIn.icon} ${safeOriginInLabel}${isEditedIn ? ' ✏️' : ''}</span>`;
@@ -4177,7 +4183,7 @@ const FichajesModule = {
 	                          <td><strong title="${safeAuditTooltip}">${safeIn} - ${safeOut}</strong></td>
 	                          <td><span class="td-duration${e.isLongWork ? ' td-duration-over' : ''}">${safeDuration}</span>${longWorkBadge}</td>
 	                          <td><span class="signing-type-badge ${typeCls}">${icon} ${safeTypeLabel}</span></td>
-	                          <td>${originContent}</td>
+	                          <td>${originContent}${deviceHtml}</td>
 	                          <td>${locContent}</td>
                         </tr>`;
                             return { start: safeIn, html };
@@ -4214,7 +4220,9 @@ const FichajesModule = {
 	              lon: button.dataset.lon,
 	              kind: button.dataset.kind,
 	              time: button.dataset.time,
-	              employee: button.dataset.employee
+	              employee: button.dataset.employee,
+              origin: button.dataset.origin,
+              device: button.dataset.device
 	            });
 	          });
 	        });
