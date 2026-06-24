@@ -30,5 +30,8 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Comprobar sintaxis de app.js
-        run: node --check app.js
+      - name: Comprobar sintaxis de los módulos JS
+        run: |
+          for f in app.core.js app.boot.js app.vacaciones.js app.misc.js app.fichajes.js; do
+            node --check "$f"
+          done

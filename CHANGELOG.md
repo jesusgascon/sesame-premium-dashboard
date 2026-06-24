@@ -6,6 +6,12 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/) y el proy
 [Versionado Semántico](https://semver.org/lang/es/). El detalle ampliado de cada versión vive en el
 [README](./README.md#-changelog-detallado).
 
+## [1.9.12] — 2026-06-24
+
+### Cambiado
+- **Frontend modular**: el monolito `app.js` (~13.200 líneas) se divide en **cinco módulos clásicos** cargados en orden — `app.core.js` (estado, helpers, capa API, fechas, ausencias), `app.boot.js` (multi-empresa, temas, animaciones, arranque), `app.vacaciones.js` (calendario, filtros, estadísticas, modales), `app.misc.js` (export, navegación, idle/logout) y `app.fichajes.js` (FichajesModule, gestores y arranque `DOMContentLoaded`). **Sin cambios funcionales**: la app se comporta de forma idéntica. Mejora la navegación, el mantenimiento y el aislamiento entre áreas. Garantizado por **reconstrucción byte-a-byte** del `app.js` original y auditoría del grafo de dependencias por módulo. Detalle en [ARCHITECTURE.md §13](./ARCHITECTURE.md).
+- **Mantenimiento**: `server.py` (`PUBLIC_FILES`) e `index.html` sirven y cargan los cinco módulos en el orden obligatorio; `.github/workflows/ci.yml` valida la sintaxis de los cinco. `actions/checkout` del CI actualizado a v7.
+
 ## [1.9.11] — 2026-06-19
 
 ### Añadido

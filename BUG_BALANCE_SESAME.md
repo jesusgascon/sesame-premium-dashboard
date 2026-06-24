@@ -47,7 +47,7 @@ Para arreglar esto limpiamente desde v1.7.2 sin romper la arquitectura:
 
 ## Correcciones aplicadas (2026-06-10)
 
-Los 4 puntos anteriores han sido implementados en `app.js`:
+Los 4 puntos anteriores han sido implementados en el frontend (desde v1.9.12 repartido en módulos; el grueso de esta lógica vive hoy en `app.fichajes.js` y `app.core.js`):
 
 ### 1. ✅ `getDayOffSeconds` — búsqueda exhaustiva de tiempos (línea ~244)
 Añadida lectura desde `partialDay.startTime`, `partialDay.start_time`, `details.startTime`, `details.start_time`. Antes solo leía el primer nivel del objeto.

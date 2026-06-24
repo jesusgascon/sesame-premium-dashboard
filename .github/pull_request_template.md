@@ -18,7 +18,7 @@ Resumen breve de los cambios y motivación.
 - [ ] Probado en modo multi-empresa (cambio de empresa)
 - [ ] Verificado que el diff **no** contiene secretos ni datos reales
 - [ ] `python3 -m py_compile server.py get-token.py` sin errores
-- [ ] `node --check app.js` sin errores
+- [ ] `node --check` sin errores en los 5 módulos JS (core, boot, vacaciones, misc, fichajes)
 
 ## Checklist
 - [ ] Sigue el estilo del proyecto (vanilla JS, sin frameworks)

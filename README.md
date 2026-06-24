@@ -5,7 +5,7 @@
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Frontend](https://img.shields.io/badge/frontend-Vanilla%20JS%20(ES6+)-yellow.svg)
 ![Backend](https://img.shields.io/badge/backend-Python%20Proxy-green.svg)
-![Version](https://img.shields.io/badge/version-1.9.11-success.svg)
+![Version](https://img.shields.io/badge/version-1.9.12-success.svg)
 ![Status](https://img.shields.io/badge/status-Production%20Ready-success.svg)
 
 ---
@@ -235,6 +235,10 @@ Para una inmersión profunda en los algoritmos de cruce de datos, heurísticas d
 ---
 
 ## 📜 Changelog Detallado
+
+### [v1.9.12] — 2026-06-24 | *Frontend modular: `app.js` dividido en 5 módulos*
+- **Cambiado**: el archivo único `app.js` (~13.200 líneas) se divide en **cinco módulos clásicos** cargados en orden — `app.core.js` (estado, helpers, capa API, fechas), `app.boot.js` (multi-empresa, temas, animaciones, arranque), `app.vacaciones.js` (calendario, filtros, estadísticas), `app.misc.js` (export, navegación, idle/logout) y `app.fichajes.js` (FichajesModule + gestores + arranque). **Sin cambios funcionales** — la app es idéntica; la división mejora orden, mantenimiento y aislamiento entre áreas. Garantizado por **reconstrucción byte-a-byte** del original y auditoría del grafo de dependencias. Ver [ARCHITECTURE.md §13](./ARCHITECTURE.md).
+- **Mantenimiento**: `server.py` (`PUBLIC_FILES`), `index.html` (orden de carga) y CI actualizados a los cinco módulos; `actions/checkout` del CI a v7.
 
 ### [v1.9.11] — 2026-06-19 | *Cierre de sesión con animación y auto-bloqueo por inactividad*
 - **Añadido**: **Animación de cierre de sesión** — un "telón" (paneles superior e inferior con tinte de marca) se cierra sobre la app con un candado y *"Sesión cerrada"*, y luego se revela la pantalla de contraseña. Hecha con la Web Animations API (se ve también por escritorio remoto) y **adaptada al tema claro/oscuro**. Respeta `prefers-reduced-motion`.

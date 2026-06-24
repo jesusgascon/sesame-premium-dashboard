@@ -41,7 +41,7 @@ docs: alinear README y ARCHITECTURE con el estado actual
 
 ```bash
 python3 -m py_compile server.py get-token.py
-node --check app.js
+for f in app.core.js app.boot.js app.vacaciones.js app.misc.js app.fichajes.js; do node --check "$f"; done
 # Revisa que el diff no contenga secretos:
 git diff | grep -iE "token|password|key" | grep -vE "example|gitignore"
 ```

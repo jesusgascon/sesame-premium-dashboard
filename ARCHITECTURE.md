@@ -54,7 +54,7 @@ Inventario funcional de endpoints usados por la aplicación:
 | BI Analytics | `/api/v3/analytics/report-query` |
 
 ### 1.4. Resiliencia y Domain Flipping (Failover)
-La función `apiFetch` en `app.js` es el núcleo de la comunicación. Implementa una heurística de recuperación de errores:
+La función `apiFetch` (definida en `app.core.js`) es el núcleo de la comunicación. Implementa una heurística de recuperación de errores:
 1. **Intento Primario**: Lanza la petición al subdominio configurado (ej. `back-eu1.sesametime.com`).
 2. **Detección de Caídas**: Si recibe un error `502`, `503`, o un fallo de red (`TypeError: Failed to fetch`), activa el modo de reintento.
 3. **Domain Flipping**: Cambia dinámicamente el objetivo de `back-eu1` a `api-eu1` (o viceversa) e inyecta la nueva ruta en `X-Backend-Url`. Esto ha demostrado saltar mantenimientos puntuales o bloqueos zonales en la infraestructura de Sesame.
@@ -423,5 +423,41 @@ Cubre refresco manual, auto-refresco silencioso cada 5 min y warmup de balance. 
 - `loadingCardIn`: el panel del overlay "Conectando a Sesame" entra con escala al mostrarse; el pulso del logo usa `var(--accent)`.
 - Toda la maquinaria respeta `@media (prefers-reduced-motion: reduce)`.
 
+## 13. Estructura Modular del Frontend (v1.9.12)
+
+Hasta la v1.9.11 todo el frontend vivía en un único `app.js` (~13.200 líneas). En v1.9.12 ese monolito se dividió en **cinco módulos**, sin cambiar ni una línea de lógica: la app se comporta de forma **idéntica**. La división mejora la navegación, el mantenimiento y el aislamiento entre áreas.
+
+### 13.1. Modelo de carga (scripts clásicos, no ES modules)
+
+Los cinco ficheros se cargan como `<script>` **clásicos** (no `type="module"`), por lo que **comparten un único scope global**: las `function`/`var` de nivel superior se exponen en `window` y los `const`/`let` viven en el *global lexical environment* compartido entre scripts clásicos. Se eligió este modelo en lugar de ES modules para **no romper los `onclick=` inline del HTML** (que invocan funciones globales por nombre) ni las ~500 referencias al objeto `STATE`. El resultado es semánticamente equivalente al monolito, verificable porque **la concatenación de los cinco ficheros en orden reproduce el `app.js` original byte a byte**.
+
+### 13.2. Los cinco módulos y su orden de carga obligatorio
+
+`index.html` los carga en este orden (y `server.py` los publica vía `PUBLIC_FILES`):
+
+| # | Fichero | Responsabilidad |
+|---|---------|-----------------|
+| 1 | `app.core.js` | Cimientos: `STATE`, helpers de DOM (`$`/`$$`), saneado HTML, toasts/`ssmConfirm`, pila de modales, helpers de ausencias, `AUDIT`/`DISCOVERY`, **capa API** (`apiFetch`/`apiFetchBi`), API de horarios/plantillas, empleados y utilidades de fecha (`readSessionDate`). |
+| 2 | `app.boot.js` | Config multi-empresa, temas, animaciones (cambio de empresa, telón de logout), arranque (`init`, `startApp`, `switchModule`) y carga de datos (`loadInitialData`, `loadData`). |
+| 3 | `app.vacaciones.js` | Vista de Vacaciones: render de filtros, calendario, lista de empleados, estadísticas (Chart.js) y modales. |
+| 4 | `app.misc.js` | Utilidades transversales: export CSV/JSON/iCal, navegación de periodos, `logout` y auto-cierre por inactividad (`startIdleWatch`). |
+| 5 | `app.fichajes.js` | `FichajesModule` (motor de fichajes, balance y presencia), gestores de plantillas/calendario, y el arranque final `addEventListener('DOMContentLoaded', init)`. |
+
+### 13.3. La regla de oro del orden
+
+El hoisting de funciones **no cruza** entre scripts clásicos separados. Por eso el orden no es estético sino obligatorio:
+
+- **`app.core.js` va primero** porque el inicializador de `STATE` (`currentDate: readSessionDate(...)`) y `setInterval(refreshLastUpdateLabels, …)` se ejecutan **en carga** y dependen de funciones definidas en core. Todo el código que se ejecuta al cargar core se resuelve dentro de core.
+- **`app.fichajes.js` va último** porque contiene el `DOMContentLoaded → init` que enciende la app: cuando se dispara, los cuatro módulos anteriores ya están cargados. El inicializador eager de `const FichajesModule` solo usa `readSessionDate` (core) y builtins.
+- **`app.boot.js`, `app.vacaciones.js` y `app.misc.js` no ejecutan nada en carga** (solo definen). Sus referencias a módulos posteriores (p. ej. `FichajesModule`) ocurren siempre dentro de cuerpos de función —y por tanto en *runtime*, tras `DOMContentLoaded`—, varias con guarda `typeof … !== 'undefined'`.
+
+El grafo de dependencias se auditó por módulo: toda referencia tiene definición, las únicas dependencias *en carga* apuntan a módulos anteriores, y no hay identificadores de nivel superior duplicados (que provocarían *"Identifier already declared"* en el scope compartido).
+
+### 13.4. Implicaciones de mantenimiento
+
+- **Cache-busting**: cada `<script>` lleva su `?v=X.Y.Z`; al cambiar cualquier módulo hay que avanzar la versión (`APP_VERSION` en `app.core.js` y los `?v=` de `index.html`).
+- **Alta en el servidor**: cualquier fichero JS nuevo debe añadirse a `PUBLIC_FILES` en `server.py` o el proxy responde 404.
+- **CI**: `.github/workflows/ci.yml` valida la sintaxis (`node --check`) de los cinco módulos.
+
 ---
-*Fin del Documento de Arquitectura (actualizado en v1.8.0).*
+*Fin del Documento de Arquitectura (actualizado en v1.9.12).*

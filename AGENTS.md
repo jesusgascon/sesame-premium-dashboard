@@ -66,7 +66,7 @@ Sí se pueden leer y mejorar:
 - `config.secrets.example.json`
 - `index.html`
 - `styles.css`
-- `app.js`
+- `app.core.js`, `app.boot.js`, `app.vacaciones.js`, `app.misc.js`, `app.fichajes.js` (el frontend, dividido en módulos clásicos cargados en orden; ver ARCHITECTURE.md §13)
 - `server.py`
 - `get-token.py`
 - `start.sh`
