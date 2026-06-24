@@ -5,7 +5,7 @@
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Frontend](https://img.shields.io/badge/frontend-Vanilla%20JS%20(ES6+)-yellow.svg)
 ![Backend](https://img.shields.io/badge/backend-Python%20Proxy-green.svg)
-![Version](https://img.shields.io/badge/version-1.9.14-success.svg)
+![Version](https://img.shields.io/badge/version-1.9.15-success.svg)
 ![Status](https://img.shields.io/badge/status-Production%20Ready-success.svg)
 
 ---
@@ -276,6 +276,10 @@ Para una inmersión profunda en los algoritmos de cruce de datos, heurísticas d
 ---
 
 ## 📜 Changelog Detallado
+
+### [v1.9.15] — 2026-06-24 | *Fichaje fuera de oficina marcado en los pines del mapa*
+- **Cambiado**: el indicador de fichaje **fuera del recinto de la oficina** se muestra ahora **sobre los propios pines** 📍 In / 📍 Out del detalle (se convierten en **🚩 rojo** cuando la geolocalización cae fuera), en lugar de un badge aparte en la columna Origen. Tooltip explicativo en cada pin.
+- **Añadido**: se solicita también `check_out_inside_office` a Sesame, de modo que **entrada y salida** se marcan de forma independiente (antes solo se disponía del dato de entrada). El descubrimiento de esquema BI se re-ejecuta automáticamente (auto-tuning: el campo se ignora sin romper nada si la empresa no lo expone).
 
 ### [v1.9.14] — 2026-06-24 | *Estadísticas de dispositivos y unificación de la barra superior*
 - **Añadido**: panel **«Dispositivos y origen»** en los resúmenes de Fichajes — reparto por canal (🌐 Web / 📱 App / 📟 Tablet), % de fichajes dentro/fuera de la oficina y ranking de **terminales más usados** (qué tablet se usa más). Banner a todo el ancho, calculado sobre los fichajes visibles.

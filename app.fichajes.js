@@ -1155,7 +1155,7 @@ const FichajesModule = {
       }
 
       // Claves de configuración por empresa (scope externo para ser accesibles en todo loadData)
-      const BI_SCHEMA_CACHE_KEY = `ssm_bi_schema_${STATE.companyId}`;
+      const BI_SCHEMA_CACHE_KEY = `ssm_bi_schema_v2_${STATE.companyId}`;
       const BI_WAF_KEY          = `ssm_bi_waf_${STATE.companyId}`;
       const COMPANY_MODE_KEY    = `ssm_company_mode_${STATE.companyId}`;
       const biWafBlocked        = localStorage.getItem(BI_WAF_KEY) === 'blocked';
@@ -1190,6 +1190,7 @@ const FichajesModule = {
           {"field": "schedule_context_check.check_in_office_name", "alias": "officeNameIn"},
           {"field": "schedule_context_check.check_out_office_name", "alias": "officeNameOut"},
           {"field": "schedule_context_check.check_in_inside_office", "alias": "insideOfficeIn"},
+          {"field": "schedule_context_check.check_out_inside_office", "alias": "insideOfficeOut"},
           {"field": "schedule_context_check.check_in_performed_by_employee_name", "alias": "performedByNameIn"},
           {"field": "schedule_context_check.check_out_performed_by_employee_name", "alias": "performedByNameOut"},
           {"field": "schedule_context_check.check_in_performed_by_employee_id", "alias": "performedByIdIn"},
@@ -3169,6 +3170,7 @@ const FichajesModule = {
         officeNameIn: c.officeNameIn || (c.checkIn && c.checkIn.officeName) || '',
         officeNameOut: c.officeNameOut || (c.checkOut && c.checkOut.officeName) || '',
         insideOfficeIn: c.insideOfficeIn ?? (c.checkIn ? c.checkIn.insideOffice : null) ?? null,
+        insideOfficeOut: c.insideOfficeOut ?? (c.checkOut ? c.checkOut.insideOffice : null) ?? null,
         performedByNameIn: c.performedByNameIn || (c.checkIn && c.checkIn.performedByEmployeeName) || '',
         performedByNameOut: c.performedByNameOut || (c.checkOut && c.checkOut.performedByEmployeeName) || '',
         performedByIdIn: c.performedByIdIn || (c.checkIn && c.checkIn.performedByEmployeeId) || '',
@@ -3353,6 +3355,7 @@ const FichajesModule = {
          officeNameIn: record.officeNameIn || '',
          officeNameOut: record.officeNameOut || '',
          insideOfficeIn: record.insideOfficeIn,
+         insideOfficeOut: record.insideOfficeOut,
          performedByNameIn: record.performedByNameIn || '',
          performedByNameOut: record.performedByNameOut || '',
          performedByIdIn: record.performedByIdIn || '',
@@ -4113,10 +4116,18 @@ const FichajesModule = {
 		                        const hasCoordOut = Number.isFinite(latOut) && Number.isFinite(lonOut);
 		                        const safeAddrIn = escapeHTML(e.addrIn || '');
 		                        const safeAddrOut = escapeHTML(e.addrOut || '');
+                        const outIn = e.insideOfficeIn === false;
+                        const outOut = e.insideOfficeOut === false;
+                        const inIcon = outIn ? '🚩' : '📍';
+                        const outIcon = outOut ? '🚩' : '📍';
+                        const inFlagCls = outIn ? ' loc-link-out' : '';
+                        const outFlagCls = outOut ? ' loc-link-out' : '';
+                        const inFlagTitle = outIn ? ' — 🚩 FUERA de la oficina' : '';
+                        const outFlagTitle = outOut ? ' — 🚩 FUERA de la oficina' : '';
 		                        const safeLocInTime = escapeHTML(e.in || '--:--');
 		                        const safeLocOutTime = escapeHTML(e.out || '--:--');
-		                        const locIn = hasCoordIn ? `<button type="button" title="Ver entrada en mapa: ${latIn}, ${lonIn}" class="loc-link" data-lat="${latIn}" data-lon="${lonIn}" data-kind="Entrada" data-time="${safeLocInTime}" data-employee="${safeEmpName}" data-origin="${escapeHTML(e.originIn || '')}" data-device="${escapeHTML(e.deviceNameIn || '')}">📍 In</button>` : (safeAddrIn ? `<span class="loc-addr" title="Dirección entrada: ${safeAddrIn}">📍 ${safeAddrIn}</span>` : '');
-		                        const locOut = hasCoordOut ? `<button type="button" title="Ver salida en mapa: ${latOut}, ${lonOut}" class="loc-link" data-lat="${latOut}" data-lon="${lonOut}" data-kind="Salida" data-time="${safeLocOutTime}" data-employee="${safeEmpName}" data-origin="${escapeHTML(e.originOut || '')}" data-device="${escapeHTML(e.deviceNameOut || '')}">📍 Out</button>` : (safeAddrOut ? `<span class="loc-addr" title="Dirección salida: ${safeAddrOut}">📍 ${safeAddrOut}</span>` : '');
+		                        const locIn = hasCoordIn ? `<button type="button" title="Ver entrada en mapa: ${latIn}, ${lonIn}${inFlagTitle}" class="loc-link${inFlagCls}" data-lat="${latIn}" data-lon="${lonIn}" data-kind="Entrada" data-time="${safeLocInTime}" data-employee="${safeEmpName}" data-origin="${escapeHTML(e.originIn || '')}" data-device="${escapeHTML(e.deviceNameIn || '')}">${inIcon} In</button>` : (safeAddrIn ? `<span class="loc-addr" title="Dirección entrada: ${safeAddrIn}">📍 ${safeAddrIn}</span>` : '');
+		                        const locOut = hasCoordOut ? `<button type="button" title="Ver salida en mapa: ${latOut}, ${lonOut}${outFlagTitle}" class="loc-link${outFlagCls}" data-lat="${latOut}" data-lon="${lonOut}" data-kind="Salida" data-time="${safeLocOutTime}" data-employee="${safeEmpName}" data-origin="${escapeHTML(e.originOut || '')}" data-device="${escapeHTML(e.deviceNameOut || '')}">${outIcon} Out</button>` : (safeAddrOut ? `<span class="loc-addr" title="Dirección salida: ${safeAddrOut}">📍 ${safeAddrOut}</span>` : '');
 		                        const locContent = (locIn || locOut) ? `<div class="td-loc-group">${locIn}${locOut}</div>` : `<span style="opacity:0.3" title="Sin datos de geolocalización en este fichaje">--</span>`;
 
                         // Map origin to nice labels/icons
@@ -4177,10 +4188,6 @@ const FichajesModule = {
                         }
 
                         // Use a class that only applies if there is an explicit THIRD PARTY edit or request
-                        // Resalta el fichaje cuando la geolocalización lo sitúa FUERA del recinto de la oficina
-                        if (e.insideOfficeIn === false) {
-                          originContent += ' <span class="out-office-flag" title="Fichaje realizado FUERA del recinto de la oficina (geolocalización)">🚩 Fuera</span>';
-                        }
                         const highlightClass = (isEditedIn || isEditedOut) ? 'row-is-edited' : '';
 
 	                        const html = `
@@ -5197,6 +5204,7 @@ const FichajesModule = {
         officeNameIn: e.officeNameIn || null,
         officeNameOut: e.officeNameOut || null,
         insideOfficeIn: e.insideOfficeIn ?? null,
+        insideOfficeOut: e.insideOfficeOut ?? null,
         latIn: e.checkInLat || null,
         lonIn: e.checkInLon || null,
         latOut: e.checkOutLat || null,

@@ -6,6 +6,14 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/) y el proy
 [Versionado Semántico](https://semver.org/lang/es/). El detalle ampliado de cada versión vive en el
 [README](./README.md#-changelog-detallado).
 
+## [1.9.15] — 2026-06-24
+
+### Cambiado
+- El indicador de fichaje **fuera del recinto de la oficina** se muestra ahora sobre los **pines** 📍 In / 📍 Out del detalle del día (pasan a **🚩 rojo** cuando la geolocalización cae fuera), en vez de un badge aparte en la columna Origen.
+
+### Añadido
+- Se solicita también `check_out_inside_office` a Sesame para marcar **entrada y salida** de forma independiente (antes solo se disponía del dato de entrada). El esquema BI se re-descubre automáticamente; el campo se ignora sin romper nada si la empresa no lo expone.
+
 ## [1.9.14] — 2026-06-24
 
 ### Añadido

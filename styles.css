@@ -8754,13 +8754,11 @@ body {
 .dev-office-line { font-size: 0.8rem; opacity: 0.92; }
 .dev-stats-empty { font-size: 0.78rem; opacity: 0.5; }
 
-/* Distintivo de fichaje fuera del recinto de la oficina (detalle del día) */
-.out-office-flag {
-  display: inline-flex; align-items: center; gap: 3px;
-  font-size: 0.66rem; font-weight: 700; line-height: 1;
-  color: #ef4444;
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.32);
-  border-radius: 999px; padding: 2px 7px; margin-left: 4px;
-  white-space: nowrap; vertical-align: middle;
+/* Pin de fichaje FUERA del recinto de la oficina (botón 📍 In/Out → 🚩) */
+.loc-link.loc-link-out,
+.loc-addr.loc-link-out {
+  color: #ef4444 !important;
+  background: rgba(239, 68, 68, 0.12) !important;
+  border-color: rgba(239, 68, 68, 0.42) !important;
+  font-weight: 700;
 }
