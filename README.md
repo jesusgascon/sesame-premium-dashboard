@@ -5,7 +5,7 @@
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Frontend](https://img.shields.io/badge/frontend-Vanilla%20JS%20(ES6+)-yellow.svg)
 ![Backend](https://img.shields.io/badge/backend-Python%20Proxy-green.svg)
-![Version](https://img.shields.io/badge/version-1.9.16-success.svg)
+![Version](https://img.shields.io/badge/version-1.9.17-success.svg)
 ![Status](https://img.shields.io/badge/status-Production%20Ready-success.svg)
 
 ---
@@ -276,6 +276,9 @@ Para una inmersión profunda en los algoritmos de cruce de datos, heurísticas d
 ---
 
 ## 📜 Changelog Detallado
+
+### [v1.9.17] — 2026-06-24 | *Selector de empleado en Balances*
+- **Añadido**: en la vista **Balances** vuelve a mostrarse el **selector de empleado** para filtrar por una persona o ver todo el equipo (el filtrado ya se aplicaba; solo se había ocultado al compactar la cabecera). El buscador y «Varios…» siguen ocultos en Balances por no aplicar.
 
 ### [v1.9.16] — 2026-06-24 | *Cabecera de Fichajes/Balances más limpia y Balance compactado*
 - **Cambiado**: la barra superior de Fichajes/Balances ya no se parte en 2 filas con el panel lateral abierto. Los iconos secundarios (Sesame, Kiosko, export CSV/JSON, tema, cumpleaños) se agrupan en un **menú "⋯ Más herramientas"**; la barra se **compacta** cuando el sidebar resta ancho (etiquetas de presencia y "Actualizado hace…" se ocultan antes); y en modo **Balances** se ocultan los filtros de tabla que no aplican.

@@ -5,7 +5,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.9.16';
+const APP_VERSION = '1.9.17';
 
 // ─── Debug Mode ───────────────────────────────────────────────────────────────
 // false en producción (silencia console.log/info/warn).

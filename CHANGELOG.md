@@ -6,6 +6,11 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/) y el proy
 [Versionado Semántico](https://semver.org/lang/es/). El detalle ampliado de cada versión vive en el
 [README](./README.md#-changelog-detallado).
 
+## [1.9.17] — 2026-06-24
+
+### Añadido
+- **Selector de empleado en Balances**: vuelve a mostrarse para filtrar por una persona o ver todo el equipo (el filtrado ya se aplicaba; solo se había ocultado al compactar la cabecera). El buscador y «Varios…» siguen ocultos en Balances.
+
 ## [1.9.16] — 2026-06-24
 
 ### Cambiado

@@ -8784,8 +8784,10 @@ body {
 /* Los separadores verticales no tienen sentido dentro del panel desplegable */
 .overflow-panel .btn-group-sep { display: none; }
 
-/* En modo Balances, los filtros de tabla y "expandir filas" no aplican → se ocultan */
-#module-fichajes-wrapper.view-is-balance .search-group-signings,
+/* En modo Balances se conserva SOLO el selector de empleado (filtrar por uno o
+   ver todos); se ocultan el buscador, el botón "Varios…" y "expandir filas". */
+#module-fichajes-wrapper.view-is-balance .signings-search-input,
+#module-fichajes-wrapper.view-is-balance .multi-filter-btn,
 #module-fichajes-wrapper.view-is-balance #toggle-all-signings-btn { display: none; }
 
 /* Compactación de la barra cuando el sidebar resta ancho (evita el wrap a 2 filas).
