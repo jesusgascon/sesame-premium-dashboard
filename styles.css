@@ -8762,3 +8762,47 @@ body {
   border-color: rgba(239, 68, 68, 0.42) !important;
   font-weight: 700;
 }
+
+/* ─── Menú overflow "⋯" de la cabecera de Fichajes/Balances ─── */
+.overflow-menu { position: relative; display: inline-flex; }
+.overflow-toggle { font-size: 1.15rem; font-weight: 700; line-height: 1; }
+.overflow-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 1000;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  width: max-content;
+  max-width: 260px;
+  padding: 8px;
+  border-radius: 12px;
+}
+.overflow-panel.hidden { display: none; }
+/* Los separadores verticales no tienen sentido dentro del panel desplegable */
+.overflow-panel .btn-group-sep { display: none; }
+
+/* En modo Balances, los filtros de tabla y "expandir filas" no aplican → se ocultan */
+#module-fichajes-wrapper.view-is-balance .search-group-signings,
+#module-fichajes-wrapper.view-is-balance #toggle-all-signings-btn { display: none; }
+
+/* Compactación de la barra cuando el sidebar resta ancho (evita el wrap a 2 filas).
+   Con el sidebar abierto se comprime antes; en monitores pequeños, siempre. */
+@media (max-width: 1600px) {
+  body:not(.sidebar-collapsed) #module-fichajes-wrapper .presence-label,
+  body:not(.sidebar-collapsed) #module-fichajes-wrapper #last-update-fichajes { display: none; }
+}
+@media (max-width: 1380px) {
+  #module-fichajes-wrapper .presence-label,
+  #module-fichajes-wrapper #last-update-fichajes { display: none; }
+}
+
+/* Indicadores de FUENTE de datos en Balance ocultos para compactar la vista
+   (en su día servían para saber el origen del dato; ya no se necesitan). El
+   cálculo sigue intacto: solo se ocultan los badges/desglose/comparativa.
+   Reversible: eliminando este bloque vuelven a mostrarse. */
+.balance-source-badge,
+.balance-source-breakdown,
+.balance-source-section { display: none !important; }

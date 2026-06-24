@@ -6,6 +6,12 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/) y el proy
 [Versionado Semántico](https://semver.org/lang/es/). El detalle ampliado de cada versión vive en el
 [README](./README.md#-changelog-detallado).
 
+## [1.9.16] — 2026-06-24
+
+### Cambiado
+- **Cabecera de Fichajes/Balances**: deja de partirse en 2 filas con el panel lateral abierto. Los iconos secundarios (Sesame, Kiosko, export CSV/JSON, tema, cumpleaños) se agrupan en un menú «⋯ Más herramientas»; la barra se compacta cuando el sidebar resta ancho (se ocultan etiquetas de presencia y «Actualizado hace…»); y en modo Balances se ocultan los filtros de tabla que no aplican.
+- **Vista Balance compactada**: se ocultan los indicadores de fuente de datos (badges «Sesame Statistics / Calculado local / Fallback local» por empleado, fila de desglose de fuente y la sección «Comparativa de balance» del detalle). El cálculo no cambia; la fuente se conserva en el export.
+
 ## [1.9.15] — 2026-06-24
 
 ### Cambiado

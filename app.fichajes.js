@@ -520,6 +520,30 @@ const FichajesModule = {
       });
     });
 
+    // Menú overflow "⋯" de la cabecera (agrupa Sesame/Kiosko/export/tema/cumpleaños)
+    const overflowBtn = document.getElementById('fichajes-overflow-btn');
+    const overflowPanel = document.getElementById('fichajes-overflow-panel');
+    if (overflowBtn && overflowPanel) {
+      overflowBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isOpen = overflowPanel.classList.toggle('hidden') === false;
+        overflowBtn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      });
+      document.addEventListener('click', (e) => {
+        if (!overflowPanel.classList.contains('hidden') &&
+            !overflowPanel.contains(e.target) && e.target !== overflowBtn) {
+          overflowPanel.classList.add('hidden');
+          overflowBtn.setAttribute('aria-expanded', 'false');
+        }
+      });
+      overflowPanel.addEventListener('click', (e) => {
+        if (e.target.closest('a, button')) {
+          overflowPanel.classList.add('hidden');
+          overflowBtn.setAttribute('aria-expanded', 'false');
+        }
+      });
+    }
+
     // Búsqueda en tiempo real
     document.getElementById('signings-employee-search')?.addEventListener('input', (e) => {
       this.searchQuery = e.target.value.toLowerCase();
@@ -807,6 +831,8 @@ const FichajesModule = {
   },
 
   updateMonthLabel() {
+    // En modo Balances los filtros de tabla no aplican: se ocultan vía CSS con esta clase.
+    document.getElementById('module-fichajes-wrapper')?.classList.toggle('view-is-balance', this.currentView === 'balance');
     const el = document.getElementById('current-month-signings');
     if (!el) return;
 
@@ -5489,7 +5515,7 @@ const FichajesModule = {
           <div class="balance-employee-title">
             <span>${scopeTitle}</span>
             <h2>${safeName}</h2>
-            <p>${safeRange} · ${summary.rows.length} jornadas · ${summary.source} · <span class="balance-mode-chip ${this.balanceLiveMode === 'closed' ? 'closed' : 'live'}">${this.balanceLiveMode === 'closed' ? 'Sin hoy' : 'Con hoy'}</span></p>
+            <p>${safeRange} · ${summary.rows.length} jornadas · <span class="balance-mode-chip ${this.balanceLiveMode === 'closed' ? 'closed' : 'live'}">${this.balanceLiveMode === 'closed' ? 'Sin hoy' : 'Con hoy'}</span></p>
             <div class="balance-title-actions">
               <button class="balance-export-json-btn" type="button" data-employee-id="${escapeHTML(String(employeeId))}" title="Descargar JSON con todos los fichajes y métricas del periodo" aria-label="Descargar JSON de fichajes">
                 <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -5536,7 +5562,7 @@ const FichajesModule = {
             </div>
           </div>
 
-          <div class="balance-modal-section">
+          <div class="balance-modal-section balance-source-section">
             <div class="balance-modal-section-head">
               <strong>Comparativa de balance</strong>
               <span>${completionPct}% de cumplimiento equivalente del ${scopeLabel}</span>
@@ -6048,6 +6074,7 @@ const FichajesModule = {
         <td colspan="5" style="padding: 5px 12px; background: rgba(45, 212, 191, 0.07); border-bottom: 1px solid rgba(45, 212, 191, 0.16);">
           ${loadingPanelHtml}
           <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; font-size:0.66rem; color:var(--text-muted); ${loadingPanelHtml ? 'margin-top:8px;' : ''}">
+            <span class="balance-source-breakdown">
             <strong style="color:var(--text-primary); font-size:0.68rem;" title="Origen de los datos de balance de cada empleado">Fuente</strong>
             <span style="display:inline-flex; align-items:center; gap:5px;" title="Balances confirmados por Sesame Statistics">
               <span style="width:6px; height:6px; border-radius:50%; background:#2dd4bf;"></span>
@@ -6072,6 +6099,7 @@ const FichajesModule = {
             ${officialSkipped ? '<span style="color:#f59e0b;" title="Sesame Statistics desactivado manualmente">Local manual</span>' : ''}
             ${this.balanceLiveMode === 'closed' ? '<span style="color:#2dd4bf;" title="El balance oficial de Sesame incluye el día en curso, por eso en este modo se usa el cálculo local de días cerrados.">Sin hoy: local</span>' : ''}
             ${lastError && !officialSkipped ? `<span title="${escapeHTML(lastError)}" style="color:#f59e0b;">Último error</span>` : ''}
+            </span>
             <span class="balance-source-actions">
               ${balanceScopeActionHtml}
               ${sourceActionsHtml}
@@ -6257,7 +6285,7 @@ const FichajesModule = {
           <td class="text-center">
             <div style="display:inline-flex; flex-direction:column; align-items:center; gap:4px; position:relative;" data-tip="${escapeHTML(periodTooltip)}" data-tip-pos="bottom">
               <span style="font-size: 1.1rem; font-weight: 800; color: ${mColor}">${format(stat.periodBalance)}</span>
-              <span style="display:inline-flex; align-items:center; gap:5px; padding:2px 7px; border-radius:999px; border:1px solid ${sourceBadgeColor}40; background:${sourceBadgeColor}17; color:${sourceBadgeColor}; font-size:0.58rem; font-weight:900; text-transform:uppercase; letter-spacing:0.4px;">
+              <span class="balance-source-badge" style="display:inline-flex; align-items:center; gap:5px; padding:2px 7px; border-radius:999px; border:1px solid ${sourceBadgeColor}40; background:${sourceBadgeColor}17; color:${sourceBadgeColor}; font-size:0.58rem; font-weight:900; text-transform:uppercase; letter-spacing:0.4px;">
                 <span style="width:5px; height:5px; border-radius:50%; background:${sourceBadgeColor};"></span>
                 ${sourceBadgeLabel}
               </span>
@@ -6277,7 +6305,7 @@ const FichajesModule = {
               <div style="position:absolute; left:0; top:0; height:100%; width:${progress}%; background:${mColor}; opacity:0.5; transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);"></div>
               <div style="position:absolute; left:50%; top:0; height:100%; width:1px; background:rgba(255,255,255,0.2);"></div>
             </div>
-            <div data-tip="${escapeHTML(sourceTitle)}" data-tip-pos="bottom" style="margin-top:6px; display:inline-flex; align-items:center; gap:5px; color:${sourceColor}; font-size:0.62rem; font-weight:800; text-transform:uppercase; letter-spacing:0.4px; cursor:help;">
+            <div class="balance-source-badge" data-tip="${escapeHTML(sourceTitle)}" data-tip-pos="bottom" style="margin-top:6px; display:inline-flex; align-items:center; gap:5px; color:${sourceColor}; font-size:0.62rem; font-weight:800; text-transform:uppercase; letter-spacing:0.4px; cursor:help;">
               <span style="width:5px; height:5px; border-radius:50%; background:${sourceColor};"></span>
               ${escapeHTML(sourceLabel)}
             </div>

@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=1.9.15" />
+  <link rel="stylesheet" href="styles.css?v=1.9.16" />
   <script>
     // Apply theme as early as possible to avoid dark flash
     const savedTheme = localStorage.getItem('theme') || 'dark';
@@ -53,7 +53,7 @@
       </div>
 
       <div class="setup-footer-info">
-        <span id="app-version-display">Sesame HR Premium Dashboard v1.9.15</span>
+        <span id="app-version-display">Sesame HR Premium Dashboard v1.9.16</span>
       </div>
     </div>
   </div>
@@ -514,6 +514,9 @@
             </div>
 
             <div class="icon-actions-group">
+              <div class="overflow-menu">
+                <button id="fichajes-overflow-btn" class="btn-icon-round overflow-toggle" type="button" aria-haspopup="true" aria-expanded="false" title="Más herramientas" aria-label="Más herramientas">⋯</button>
+                <div id="fichajes-overflow-panel" class="overflow-panel glass hidden" role="menu" aria-label="Más herramientas">
               <a id="open-sesame-portal" class="btn-icon-round sesame-portal-btn" href="https://app.sesametime.com/employee/portal" target="_blank" rel="noopener noreferrer" title="Abrir Sesame oficial en nueva pestaña" aria-label="Abrir Sesame oficial">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;">
                   <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
@@ -537,6 +540,9 @@
               <button id="birthdays-btn" class="btn-icon-round birthdays-action-btn" title="Cumpleaños del equipo" aria-label="Abrir cumpleaños del equipo">
                 🎂
               </button>
+                </div>
+              </div>
+              <span class="btn-group-sep" aria-hidden="true"></span>
               <button id="toggle-all-signings-btn" class="btn-icon-round" title="Expandir/Contraer todos" aria-label="Expandir o contraer todos los fichajes">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;">
                   <polyline points="7 15 12 20 17 15"></polyline>
@@ -713,7 +719,7 @@
       </div>
       <h2>Conectando a Sesame</h2>
       <p>Sincronizando y normalizando la inteligencia operativa...</p>
-      <div class="loading-version-badge" id="loading-version-badge">v1.9.15</div>
+      <div class="loading-version-badge" id="loading-version-badge">v1.9.16</div>
     </div>
   </div>
 
@@ -735,10 +741,10 @@
        5) fichajes  FichajesModule + gestores + arranque DOMContentLoaded.
        core va primero porque STATE (línea 74) llama a readSessionDate en carga;
        fichajes va último porque contiene el addEventListener('DOMContentLoaded'). -->
-  <script src="app.core.js?v=1.9.15"></script>
-  <script src="app.boot.js?v=1.9.15"></script>
-  <script src="app.vacaciones.js?v=1.9.15"></script>
-  <script src="app.misc.js?v=1.9.15"></script>
-  <script src="app.fichajes.js?v=1.9.15"></script>
+  <script src="app.core.js?v=1.9.16"></script>
+  <script src="app.boot.js?v=1.9.16"></script>
+  <script src="app.vacaciones.js?v=1.9.16"></script>
+  <script src="app.misc.js?v=1.9.16"></script>
+  <script src="app.fichajes.js?v=1.9.16"></script>
 </body>
 </html>

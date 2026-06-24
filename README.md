@@ -5,7 +5,7 @@
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Frontend](https://img.shields.io/badge/frontend-Vanilla%20JS%20(ES6+)-yellow.svg)
 ![Backend](https://img.shields.io/badge/backend-Python%20Proxy-green.svg)
-![Version](https://img.shields.io/badge/version-1.9.15-success.svg)
+![Version](https://img.shields.io/badge/version-1.9.16-success.svg)
 ![Status](https://img.shields.io/badge/status-Production%20Ready-success.svg)
 
 ---
@@ -276,6 +276,10 @@ Para una inmersión profunda en los algoritmos de cruce de datos, heurísticas d
 ---
 
 ## 📜 Changelog Detallado
+
+### [v1.9.16] — 2026-06-24 | *Cabecera de Fichajes/Balances más limpia y Balance compactado*
+- **Cambiado**: la barra superior de Fichajes/Balances ya no se parte en 2 filas con el panel lateral abierto. Los iconos secundarios (Sesame, Kiosko, export CSV/JSON, tema, cumpleaños) se agrupan en un **menú "⋯ Más herramientas"**; la barra se **compacta** cuando el sidebar resta ancho (etiquetas de presencia y "Actualizado hace…" se ocultan antes); y en modo **Balances** se ocultan los filtros de tabla que no aplican.
+- **Cambiado**: la vista **Balance** se compacta ocultando los indicadores de **fuente de datos** (badges "Sesame Statistics / Calculado local / Fallback local" por empleado, fila de desglose de fuente y la sección «Comparativa de balance» del detalle). El cálculo no cambia; el dato de fuente se conserva en el export.
 
 ### [v1.9.15] — 2026-06-24 | *Fichaje fuera de oficina marcado en los pines del mapa*
 - **Cambiado**: el indicador de fichaje **fuera del recinto de la oficina** se muestra ahora **sobre los propios pines** 📍 In / 📍 Out del detalle (se convierten en **🚩 rojo** cuando la geolocalización cae fuera), en lugar de un badge aparte en la columna Origen. Tooltip explicativo en cada pin.
