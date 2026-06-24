@@ -8770,19 +8770,31 @@ body {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
-  z-index: 1000;
+  z-index: 1500;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   width: max-content;
-  max-width: 260px;
-  padding: 8px;
+  max-width: 280px;
+  padding: 10px;
   border-radius: 12px;
+  /* Fondo SÓLIDO (no glass) para que se lea bien sobre la tabla de balances */
+  background: var(--bg-card-solid);
+  border: 1px solid var(--border-strong, var(--border));
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.30);
+  backdrop-filter: none;
 }
 .overflow-panel.hidden { display: none; }
 /* Los separadores verticales no tienen sentido dentro del panel desplegable */
 .overflow-panel .btn-group-sep { display: none; }
+/* Iconos con más contraste sobre el panel sólido (antes casi no se veían) */
+.overflow-panel .btn-icon-round,
+.overflow-panel .sesame-portal-btn {
+  background: var(--surface2);
+  border-color: var(--border-strong, var(--border));
+  color: var(--text-primary);
+}
 
 /* En modo Balances se conserva SOLO el selector de empleado (filtrar por uno o
    ver todos); se ocultan el buscador, el botón "Varios…" y "expandir filas". */

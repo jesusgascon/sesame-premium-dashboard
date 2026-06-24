@@ -6,6 +6,11 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/) y el proy
 [Versionado Semántico](https://semver.org/lang/es/). El detalle ampliado de cada versión vive en el
 [README](./README.md#-changelog-detallado).
 
+## [1.9.18] — 2026-06-24
+
+### Corregido
+- El menú «⋯ Más herramientas» de la cabecera de Fichajes/Balances se veía translúcido y con los iconos casi invisibles sobre la tabla. Ahora tiene fondo sólido (tema claro/oscuro), borde, sombra, mayor z-index y mejor contraste.
+
 ## [1.9.17] — 2026-06-24
 
 ### Añadido
