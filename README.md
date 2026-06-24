@@ -35,6 +35,47 @@ El objetivo de este proyecto es transformar los datos crudos de recursos humanos
 
 ---
 
+## 🗺️ Arquitectura en un vistazo
+
+**Flujo de datos** — el navegador nunca habla directamente con Sesame; el proxy local valida la sesión, inyecta las credenciales y enruta la petición:
+
+```mermaid
+flowchart LR
+    subgraph nav["🖥️ Navegador · localhost:8765"]
+        UI["Frontend<br/>5 módulos JS clásicos"]
+    end
+    subgraph px["🐍 server.py · proxy local"]
+        P["Valida sesión (cookie HttpOnly)<br/>Inyecta Authorization<br/>Enruta por X-Backend-Url"]
+    end
+    subgraph ses["☁️ Sesame HR"]
+        R["back-eu1 / api-eu1<br/>REST /api/v3"]
+        B["bi-engine<br/>Analytics"]
+    end
+    UI -->|"fetch"| P
+    P -->|"Bearer + csid"| R
+    P -->|"Bearer + csid"| B
+    R -->|"JSON"| P
+    B -->|"JSON"| P
+    P -->|"respuesta sin exponer tokens"| UI
+```
+
+**Frontend modular (v1.9.12)** — el antiguo `app.js` se dividió en **5 módulos clásicos** cargados en este orden obligatorio (`core` primero porque `STATE` lo necesita en carga; `fichajes` último porque dispara el arranque):
+
+```mermaid
+flowchart TD
+    core["1 · app.core.js<br/>STATE · helpers · apiFetch · fechas · ausencias"]
+    boot["2 · app.boot.js<br/>multi-empresa · temas · animaciones · init/startApp"]
+    vac["3 · app.vacaciones.js<br/>calendario · filtros · stats · modales"]
+    misc["4 · app.misc.js<br/>export · navegación · idle · logout"]
+    fich["5 · app.fichajes.js<br/>FichajesModule · gestores · arranque"]
+    core ==> boot ==> vac ==> misc ==> fich
+    fich -.->|"DOMContentLoaded → init() (definido en boot)"| boot
+```
+
+> Detalle completo en [ARCHITECTURE.md §13 — Estructura Modular del Frontend](./ARCHITECTURE.md).
+
+---
+
 ## 🧩 Módulos Principales
 
 ### 1. Fichajes Avanzados e Insights

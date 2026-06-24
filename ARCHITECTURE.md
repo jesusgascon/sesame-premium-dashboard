@@ -8,6 +8,28 @@ Este documento sirve como el manual de ingeniería definitivo para el **Sesame P
 
 El sistema opera en una arquitectura híbrida cliente-servidor local diseñada para compatibilizar la ejecución en navegador con las APIs de Sesame HR, evitando exponer credenciales en el código cliente.
 
+**Diagrama de flujo de datos:**
+
+```mermaid
+flowchart LR
+    subgraph nav["🖥️ Navegador · localhost:8765"]
+        UI["Frontend<br/>5 módulos JS clásicos"]
+    end
+    subgraph px["🐍 server.py · proxy local"]
+        P["Valida sesión (cookie HttpOnly)<br/>Inyecta Authorization desde secretos<br/>Enruta por X-Backend-Url"]
+    end
+    subgraph ses["☁️ Sesame HR (orígenes permitidos)"]
+        R["back-eu1 / api-eu1<br/>REST /api/v3"]
+        B["bi-engine<br/>Analytics /report-query"]
+    end
+    UI -->|"fetch + X-Backend-Url"| P
+    P -->|"Bearer + csid"| R
+    P -->|"Bearer + csid"| B
+    R -->|"JSON"| P
+    B -->|"JSON"| P
+    P -->|"respuesta (sin exponer tokens)"| UI
+```
+
 ### 1.1. El Proxy Híbrido (`server.py`)
 Dado que las APIs de Sesame imponen políticas estrictas de CORS (Cross-Origin Resource Sharing) que impiden a un navegador hacer peticiones directas desde `localhost` o dominios no autorizados, el proyecto incluye un micro-servidor proxy escrito en Python puro (sin dependencias externas pesadas).
 - **Inyección controlada de cabeceras**: Intercepta las peticiones del frontend y añade únicamente las cabeceras necesarias para compatibilidad con la API de Sesame.
@@ -442,6 +464,19 @@ Los cinco ficheros se cargan como `<script>` **clásicos** (no `type="module"`),
 | 3 | `app.vacaciones.js` | Vista de Vacaciones: render de filtros, calendario, lista de empleados, estadísticas (Chart.js) y modales. |
 | 4 | `app.misc.js` | Utilidades transversales: export CSV/JSON/iCal, navegación de periodos, `logout` y auto-cierre por inactividad (`startIdleWatch`). |
 | 5 | `app.fichajes.js` | `FichajesModule` (motor de fichajes, balance y presencia), gestores de plantillas/calendario, y el arranque final `addEventListener('DOMContentLoaded', init)`. |
+
+**Diagrama del orden de carga** (flecha gruesa = orden de carga; punteada = dependencia que se resuelve en `runtime`, tras `DOMContentLoaded`):
+
+```mermaid
+flowchart TD
+    core["1 · app.core.js<br/>STATE · helpers · apiFetch · fechas · ausencias"]
+    boot["2 · app.boot.js<br/>multi-empresa · temas · animaciones · init/startApp"]
+    vac["3 · app.vacaciones.js<br/>calendario · filtros · stats · modales"]
+    misc["4 · app.misc.js<br/>export · navegación · idle · logout"]
+    fich["5 · app.fichajes.js<br/>FichajesModule · gestores · arranque"]
+    core ==> boot ==> vac ==> misc ==> fich
+    fich -.->|"DOMContentLoaded → init() (definido en boot)"| boot
+```
 
 ### 13.3. La regla de oro del orden
 
