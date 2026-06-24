@@ -5,7 +5,7 @@
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Frontend](https://img.shields.io/badge/frontend-Vanilla%20JS%20(ES6+)-yellow.svg)
 ![Backend](https://img.shields.io/badge/backend-Python%20Proxy-green.svg)
-![Version](https://img.shields.io/badge/version-1.9.13-success.svg)
+![Version](https://img.shields.io/badge/version-1.9.14-success.svg)
 ![Status](https://img.shields.io/badge/status-Production%20Ready-success.svg)
 
 ---
@@ -276,6 +276,12 @@ Para una inmersión profunda en los algoritmos de cruce de datos, heurísticas d
 ---
 
 ## 📜 Changelog Detallado
+
+### [v1.9.14] — 2026-06-24 | *Estadísticas de dispositivos y unificación de la barra superior*
+- **Añadido**: panel **«Dispositivos y origen»** en los resúmenes de Fichajes — reparto por canal (🌐 Web / 📱 App / 📟 Tablet), % de fichajes dentro/fuera de la oficina y ranking de **terminales más usados** (qué tablet se usa más). Banner a todo el ancho, calculado sobre los fichajes visibles.
+- **Añadido**: **resalte de fichaje fuera de oficina** — en el detalle del día, los tramos cuya geolocalización cae fuera del recinto muestran un distintivo 🚩 «Fuera».
+- **Cambiado**: **barra superior de Vacaciones unificada** con Fichajes y Balances (el contador de ausencias va al lado del mes, no debajo); rejilla de resúmenes reorganizada con banner a todo el ancho, `max-height` y responsividad corregidas.
+- **Corregido**: export **CSV** de Fichajes — la columna «Localización» salía siempre vacía; ahora se rellena con la dirección o las coordenadas.
 
 ### [v1.9.13] — 2026-06-24 | *Dispositivo de fichaje visible en detalle y mapa*
 - **Añadido**: el detalle de Fichajes muestra el **origen** del fichaje (🌐 Web / 📱 App / 📟 Tablet) y el **nombre del terminal** desde el que se fichó (p. ej. la tablet concreta) cuando Sesame lo proporciona — tanto en pequeño bajo la columna «Origen» como en el subtítulo del modal **«Mapa de fichaje»**. Si entrada y salida usan dispositivos distintos, se muestran ambos. Origen del dato: `check_in/out_device_name` (la app móvil y la web no siempre reportan nombre de terminal; las tablets sí).

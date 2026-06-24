@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=1.9.13" />
+  <link rel="stylesheet" href="styles.css?v=1.9.14" />
   <script>
     // Apply theme as early as possible to avoid dark flash
     const savedTheme = localStorage.getItem('theme') || 'dark';
@@ -53,7 +53,7 @@
       </div>
 
       <div class="setup-footer-info">
-        <span id="app-version-display">Sesame HR Premium Dashboard v1.9.13</span>
+        <span id="app-version-display">Sesame HR Premium Dashboard v1.9.14</span>
       </div>
     </div>
   </div>
@@ -355,8 +355,10 @@
           <div class="month-nav">
             <button id="prev-month" class="btn-icon-round" aria-label="Mes anterior">‹</button>
             <div class="current-period" style="position: relative;">
-              <h2 id="current-month-label" class="month-selector-title">Marzo 2026</h2>
-              <span id="absence-count-label" class="pill">Cargando…</span>
+              <div class="fichajes-period-main">
+                <h2 id="current-month-label" class="month-selector-title">Marzo 2026</h2>
+                <span id="absence-count-label" class="pill">Cargando…</span>
+              </div>
               <div class="team-presence-summary" data-presence-summary aria-label="Pulso del equipo">
                 <span class="team-presence-kicker">Ahora</span>
                 <button class="team-presence-item stats-btn is-working" data-presence-list-trigger="working" title="Ver empleados trabajando ahora">
@@ -591,6 +593,14 @@
               </div>
               <div id="insight-solicitudes-body" class="insight-card-body"></div>
             </div>
+
+            <div class="insight-card insight-card-wide">
+              <div class="insight-card-header">
+                <h3>📟 Dispositivos y origen</h3>
+                <span id="insight-devices-count" class="insight-badge">0</span>
+              </div>
+              <div id="insight-devices-body" class="insight-card-body"></div>
+            </div>
           </div>
         </section>
 
@@ -703,7 +713,7 @@
       </div>
       <h2>Conectando a Sesame</h2>
       <p>Sincronizando y normalizando la inteligencia operativa...</p>
-      <div class="loading-version-badge" id="loading-version-badge">v1.9.13</div>
+      <div class="loading-version-badge" id="loading-version-badge">v1.9.14</div>
     </div>
   </div>
 
@@ -725,10 +735,10 @@
        5) fichajes  FichajesModule + gestores + arranque DOMContentLoaded.
        core va primero porque STATE (línea 74) llama a readSessionDate en carga;
        fichajes va último porque contiene el addEventListener('DOMContentLoaded'). -->
-  <script src="app.core.js?v=1.9.13"></script>
-  <script src="app.boot.js?v=1.9.13"></script>
-  <script src="app.vacaciones.js?v=1.9.13"></script>
-  <script src="app.misc.js?v=1.9.13"></script>
-  <script src="app.fichajes.js?v=1.9.13"></script>
+  <script src="app.core.js?v=1.9.14"></script>
+  <script src="app.boot.js?v=1.9.14"></script>
+  <script src="app.vacaciones.js?v=1.9.14"></script>
+  <script src="app.misc.js?v=1.9.14"></script>
+  <script src="app.fichajes.js?v=1.9.14"></script>
 </body>
 </html>

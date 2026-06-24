@@ -6,6 +6,18 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/) y el proy
 [Versionado Semántico](https://semver.org/lang/es/). El detalle ampliado de cada versión vive en el
 [README](./README.md#-changelog-detallado).
 
+## [1.9.14] — 2026-06-24
+
+### Añadido
+- **Panel «Dispositivos y origen»** en los resúmenes de Fichajes: reparto por canal (Web/App/Tablet), % de fichajes dentro/fuera de la oficina y ranking de terminales más usados (qué tablet se usa más). Se calcula sobre los fichajes visibles en una sola pasada y se presenta como banner a todo el ancho de la rejilla.
+- **Resalte de fichaje fuera de oficina**: en el detalle del día, los tramos cuya geolocalización cae fuera del recinto (`insideOffice`) muestran un distintivo 🚩 «Fuera».
+
+### Cambiado
+- **Barra superior de Vacaciones unificada** con Fichajes y Balances: el contador de ausencias va al lado del mes (no debajo), reutilizando el contenedor `.fichajes-period-main`. Rejilla de resúmenes reorganizada (banner a todo el ancho), con `max-height` y responsividad de columnas corregidas.
+
+### Corregido
+- **Export CSV de Fichajes**: la columna «Localización» salía siempre vacía; ahora se rellena con la dirección o las coordenadas del fichaje.
+
 ## [1.9.13] — 2026-06-24
 
 ### Añadido

@@ -3685,6 +3685,7 @@ const FichajesModule = {
 
     // Refresh insights whenever the table filters update
     this.renderOperationalInsights();
+    this.renderDeviceStats();
 
     // Sort: Las más recientes primero
     filtered.sort((a,b) => (b.date || '').localeCompare(a.date || '') || (a.employeeName || '').localeCompare(b.employeeName || ''));
@@ -4176,6 +4177,10 @@ const FichajesModule = {
                         }
 
                         // Use a class that only applies if there is an explicit THIRD PARTY edit or request
+                        // Resalta el fichaje cuando la geolocalización lo sitúa FUERA del recinto de la oficina
+                        if (e.insideOfficeIn === false) {
+                          originContent += ' <span class="out-office-flag" title="Fichaje realizado FUERA del recinto de la oficina (geolocalización)">🚩 Fuera</span>';
+                        }
                         const highlightClass = (isEditedIn || isEditedOut) ? 'row-is-edited' : '';
 
 	                        const html = `
@@ -4420,7 +4425,7 @@ const FichajesModule = {
           esc(e.out),
           esc(e.duration),
           esc(e.typeLabel),
-          esc(e.loc || '')
+          esc(e.addrIn || e.addrOut || (Number.isFinite(Number(e.latIn)) && Number.isFinite(Number(e.lonIn)) ? `${e.latIn}, ${e.lonIn}` : ''))
         ].join(';') + '\n';
       });
     });
@@ -4657,6 +4662,82 @@ const FichajesModule = {
       });
 
     return rows.slice(0, 4);
+  },
+
+  // Estadísticas de dispositivos/origen sobre los fichajes visibles (Tier 1).
+  // Agrega por evento de check (entrada y salida): canal (Web/App/Tablet),
+  // terminal concreto (deviceName) y dentro/fuera de oficina (insideOffice).
+  renderDeviceStats() {
+    const body = document.getElementById('insight-devices-body');
+    if (!body) return;
+    const countEl = document.getElementById('insight-devices-count');
+    const rows = this.getFilteredRows();
+
+    const channel = {};
+    const channelIcon = {};
+    const device = {};
+    const office = { inside: 0, outside: 0, unknown: 0 };
+    let events = 0;
+
+    const tally = (origin, dev) => {
+      const meta = getOriginMeta(origin || '');
+      channel[meta.label] = (channel[meta.label] || 0) + 1;
+      channelIcon[meta.label] = meta.icon;
+      const d = (dev || '').trim();
+      if (d) device[d] = (device[d] || 0) + 1;
+      events++;
+    };
+
+    rows.forEach(row => (row.entries || []).forEach(e => {
+      tally(e.originIn, e.deviceNameIn);
+      if (e.out && e.out !== '--:--') tally(e.originOut, e.deviceNameOut);
+      if (e.insideOfficeIn === true) office.inside++;
+      else if (e.insideOfficeIn === false) office.outside++;
+      else office.unknown++;
+    }));
+
+    if (countEl) countEl.textContent = String(Object.keys(device).length);
+
+    if (events === 0) {
+      body.innerHTML = '<div class="dev-stats-empty">Sin fichajes en el rango seleccionado.</div>';
+      return;
+    }
+
+    const pct = n => Math.round((n / events) * 100);
+
+    const channelRows = Object.entries(channel).sort((a, b) => b[1] - a[1]).map(([label, n]) => `
+      <div class="dev-bar-row">
+        <span class="dev-bar-label">${channelIcon[label] || '📍'} ${escapeHTML(label)}</span>
+        <span class="dev-bar-track"><span class="dev-bar-fill" style="width:${pct(n)}%"></span></span>
+        <span class="dev-bar-val">${n} · ${pct(n)}%</span>
+      </div>`).join('');
+
+    const officeTotal = office.inside + office.outside + office.unknown;
+    const officeLine = (office.inside + office.outside) > 0
+      ? `<div class="dev-office-line">🏢 En oficina <strong>${Math.round((office.inside / officeTotal) * 100)}%</strong> · 📍 Fuera <strong>${Math.round((office.outside / officeTotal) * 100)}%</strong>${office.unknown ? ` · ❓ s/dato <strong>${Math.round((office.unknown / officeTotal) * 100)}%</strong>` : ''}</div>`
+      : '';
+
+    const devEntries = Object.entries(device).sort((a, b) => b[1] - a[1]);
+    const maxDev = devEntries.length ? devEntries[0][1] : 1;
+    const deviceRows = devEntries.length
+      ? devEntries.slice(0, 6).map(([name, n]) => `
+        <div class="dev-bar-row">
+          <span class="dev-bar-label" title="${escapeHTML(name)}">📟 ${escapeHTML(name)}</span>
+          <span class="dev-bar-track"><span class="dev-bar-fill" style="width:${Math.round((n / maxDev) * 100)}%"></span></span>
+          <span class="dev-bar-val">${n}</span>
+        </div>`).join('')
+      : '<div class="dev-stats-empty">Sin nombre de terminal (la app móvil y la web no siempre lo reportan).</div>';
+
+    body.innerHTML = `
+      <div class="dev-stats-block">
+        <div class="dev-stats-title">Canal de fichaje</div>
+        ${channelRows}
+        ${officeLine ? `<div style="margin-top:10px;">${officeLine}</div>` : ''}
+      </div>
+      <div class="dev-stats-block">
+        <div class="dev-stats-title">Terminales más usados</div>
+        ${deviceRows}
+      </div>`;
   },
 
   renderOperationalInsights() {
