@@ -717,10 +717,18 @@
     </svg>
   </button>
 
-  <!-- app.js dividido en dos módulos clásicos. ORDEN OBLIGATORIO:
-       app.main.js define STATE/helpers/init; app.fichajes.js (FichajesModule)
-       lo usa en tiempo de definición y contiene el arranque DOMContentLoaded. -->
-  <script src="app.main.js?v=1.9.12"></script>
+  <!-- app.js dividido en módulos clásicos. ORDEN DE CARGA OBLIGATORIO:
+       1) core  define STATE, helpers, API, fechas (readSessionDate), ausencias.
+       2) boot  multi-empresa, temas, animaciones, init/startApp, carga de datos.
+       3) vacaciones  render del calendario, filtros, lista, stats, modales.
+       4) misc  export, navegación, idle/auto-logout.
+       5) fichajes  FichajesModule + gestores + arranque DOMContentLoaded.
+       core va primero porque STATE (línea 74) llama a readSessionDate en carga;
+       fichajes va último porque contiene el addEventListener('DOMContentLoaded'). -->
+  <script src="app.core.js?v=1.9.12"></script>
+  <script src="app.boot.js?v=1.9.12"></script>
+  <script src="app.vacaciones.js?v=1.9.12"></script>
+  <script src="app.misc.js?v=1.9.12"></script>
   <script src="app.fichajes.js?v=1.9.12"></script>
 </body>
 </html>

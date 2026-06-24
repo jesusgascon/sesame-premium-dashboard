@@ -44,7 +44,9 @@ SCHEDULES_FILE = os.path.join(BASE_DIR, 'config.schedules.json')  # Overrides lo
 KEY_FILE      = os.path.join(BASE_DIR, 'key.bin')       # Clave AES local (gitignored)
 CERT_FILE     = os.path.join(BASE_DIR, 'cert.pem')      # Certificado TLS (gitignored)
 PRIVKEY_FILE  = os.path.join(BASE_DIR, 'privkey.pem')   # Clave TLS privada (gitignored)
-PUBLIC_FILES  = {'/index.html', '/styles.css', '/app.main.js', '/app.fichajes.js', '/favicon.png'}
+PUBLIC_FILES  = {'/index.html', '/styles.css',
+                 '/app.core.js', '/app.boot.js', '/app.vacaciones.js', '/app.misc.js', '/app.fichajes.js',
+                 '/favicon.png'}
 SENSITIVE_PATHS = {
     '/config.json',
     '/config.secrets.json',
