@@ -7,11 +7,11 @@
 > Documento histórico conservado como referencia técnica del análisis y la solución. El resumen de cambios por versión vive en [CHANGELOG.md](./CHANGELOG.md) y en el README.
 
 ## El Problema Central
-El cálculo local de balance (horas trabajadas vs horas teóricas) daba fallos masivos en las ausencias (ej. -265h en Fibercom, o 8h15m fijas en APL) cuando el motor de BI de Sesame no devolvía el cálculo procesado.
+El cálculo local de balance (horas trabajadas vs horas teóricas) daba fallos masivos en las ausencias (ej. -265h en una empresa sin acceso BI, u 8h15m fijas en una con acceso BI) cuando el motor de BI de Sesame no devolvía el cálculo procesado.
 
 ### Los Síntomas
-1. **Administradores (APL - Andrea)**: Los días con "Permiso Retribuido" o "Médico" mostraban el Teórico intacto a 8h15m, sin descontar las horas del médico.
-2. **Empleados sin acceso BI (Fibercom - Jesús)**: Todas las ausencias (Gestión Privada, Vacaciones, Permisos) mostraban el Teórico a 8h15m, provocando una deuda brutal en el balance (ej. -21h).
+1. **Administradores (cuenta con acceso BI)**: Los días con "Permiso Retribuido" o "Médico" mostraban el Teórico intacto a 8h15m, sin descontar las horas del médico.
+2. **Empleados sin acceso BI**: Todas las ausencias (Gestión Privada, Vacaciones, Permisos) mostraban el Teórico a 8h15m, provocando una deuda brutal en el balance (ej. -21h).
 
 ## Causa Raíz
 Sesame tiene dos formas de obtener la jornada teórica y las ausencias:
@@ -22,10 +22,10 @@ Sin embargo, el motor de reducción local (`dayOverrides`) tenía varios fallos 
 
 ### Fallo 1: El Modo Administrador ignoraba las ausencias personales
 En Modo Administrador (`_employeeMode = false`), la app usaba `fetchCalendarsRaw` llamando a `/api/v3/companies/.../calendars`. 
-**El problema:** Ese endpoint solo devuelve festivos de empresa. Las ausencias personales (Médico, Vacaciones) se obtenían en otro lado (`fetchCalendarGrouped`) para pintar los iconos 📌, pero **nunca** se pasaban al motor matemático `dayOverrides`. Resultado: El teórico en APL siempre era 8h15m, aunque hubiera permisos.
+**El problema:** Ese endpoint solo devuelve festivos de empresa. Las ausencias personales (Médico, Vacaciones) se obtenían en otro lado (`fetchCalendarGrouped`) para pintar los iconos 📌, pero **nunca** se pasaban al motor matemático `dayOverrides`. Resultado: El teórico en las cuentas de administrador siempre era 8h15m, aunque hubiera permisos.
 
 ### Fallo 2: El Modo Empleado no tenía fallback matemático
-En Modo Empleado (error 403 por falta de permisos en Fibercom), la app leía el calendario personal para los iconos 📌, pero al igual que el administrador, nunca lo inyectaba en `dayOverrides` para restar horas.
+En Modo Empleado (error 403 por falta de permisos de equipo), la app leía el calendario personal para los iconos 📌, pero al igual que el administrador, nunca lo inyectaba en `dayOverrides` para restar horas.
 
 ### Fallo 3: Extracción de tiempos parciales invisible
 La función que calculaba cuánto debía restar una ausencia parcial (`getDayOffSeconds`) solo buscaba en `dayOff.startTime`. La API de Sesame esconde los tiempos dentro de `dayOff.partialDay.startTime` o `dayOff.details.startTime`. Al no encontrar la hora, la función devolvía `0` y se anulaba el descuento en todos los casos.
@@ -63,4 +63,4 @@ Bloque que itera `localAbsences` (ya poblado tanto en modo admin como en modo em
 Este es el fix principal. Sin él, Médico, Vacaciones y Gestión Privada eran invisibles para el motor de teórico.
 
 ### 4. ✅ Eliminado guard `!isSesameComputedTheoretic` en `parseRealSignings` (línea ~7068)
-El BI devuelve la jornada BASE (ej. 8h15m) sin descontar ausencias. El parche aplica siempre la compensación local independientemente de si el BI proporcionó el teórico. El guard anterior impedía el descuento cuando existía dato BI, que es precisamente la situación más común (APL, cuentas con acceso BI).
+El BI devuelve la jornada BASE (ej. 8h15m) sin descontar ausencias. El parche aplica siempre la compensación local independientemente de si el BI proporcionó el teórico. El guard anterior impedía el descuento cuando existía dato BI, que es precisamente la situación más común (cuentas con acceso BI).

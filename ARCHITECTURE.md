@@ -67,6 +67,7 @@ Inventario funcional de endpoints usados por la aplicación:
 |------|-----------|
 | Sesión | `/api/v3/security/me` |
 | Empleados | `/api/v3/employees`, `/api/v3/companies/{companyId}/employees`, `/api/v3/employees/{employeeId}` |
+| Horarios (jornada teórica real) | `/api/v3/employees/{employeeId}/schedule-templates-v2?from&to` — jornada teórica que **Sesame calcula por persona y día**, respetando los cambios de plantilla con su rango (jornada de verano, reducciones…). Endpoint **interno `/api/v3`, accesible con la sesión sin licencia de API de pago** (a diferencia de `schedule/v1/*` y el BI, que devuelven `403` sin licencia). Es la **fuente autoritativa** del teórico; ver §8.3 y §10.3. |
 | Tipos de ausencia | `/api/v3/companies/{companyId}/absence-types` |
 | Calendario | `/api/v3/companies/{companyId}/calendars-grouped`, `/api/v3/companies/{companyId}/calendars`, `/api/v3/employees/{employeeId}/calendars` |
 | Saldos de vacaciones | `/api/v3/vacation-configuration/employee/{id}`, `/api/v3/statistics/employee/{id}/vacations` |
@@ -228,12 +229,13 @@ La regla importante es que las ausencias retribuidas por horas **no se suman com
 
 ### 8.3. Jornada teórica
 
-La jornada teórica diaria se resuelve por prioridad:
+La jornada teórica diaria se resuelve por prioridad en `parseRealSignings`:
 
-1. `biTheoreticMap`: dato calculado por Sesame BI cuando existe.
-2. `dayOverrides`: calendario individual, ausencias de día completo o excepciones.
-3. Plantilla semanal del empleado.
-4. Fallback conservador de 8h.
+1. `biTheoreticMap`: dato calculado por Sesame BI cuando existe (solo cuentas con licencia BI).
+2. `dayOverrides`: calendario individual, ausencias de día completo o excepciones (festivo → 0h).
+3. `resolveEmployeeScheduleForDate(empleado, fecha)` para el resto, que a su vez prioriza: **override local → horario real de Sesame por día (`schedule-templates-v2`, precargado en `STATE.scheduleV2ByEmpDate`) → vistas de plantilla por rango → 8h** (ver §10.3).
+
+Con esto, cuando la cuenta no tiene BI (caso habitual), el teórico ya no sale de una plantilla "por defecto" potencialmente desfasada, sino de la **jornada real que Sesame calcula para esa persona ese día** (p. ej. 8h15 en enero, 7h en la jornada de verano), por usuario y por fecha.
 
 Después se aplican reglas de empresa:
 
@@ -298,7 +300,7 @@ Este diseño evita dos problemas de UX: sensación de bloqueo al entrar en Balan
 ### 8.8. Plantillas de Jornada Pactada e Integración Híbrida
 Para comparar el tiempo de trabajo efectivo no sólo con la jornada teórica de un día concreto sino con el turno formal de contrato del trabajador, el dashboard realiza un cruce híbrido:
 - **Carga lazy optimizada (`ensureProfilesLoaded`)**: Antes de calcular saldos o balances en el periodo, se auditan las IDs de los empleados involucrados. Aquellos cuyos perfiles locales no tengan la jornada semanal (`workdays`) cargada son consultados en lotes pequeños (máximo 5 peticiones concurrentes) para no disparar alertas del limitador WAF de Sesame.
-- **Inyección de Metadatos de Horario**: Cada ficha diaria de control horario y balance almacena e inyecta dinámicamente un badge de jornada pactada `⏱ JORNADA PACTADA` con la duración correspondiente según el día de la semana y el nombre descriptivo de la plantilla activa de Sesame (ej. *Jornada 40h/semana Turno 13:00h - ZGZ*).
+- **Inyección de Metadatos de Horario**: Cada ficha diaria de control horario y balance inyecta dinámicamente un badge de jornada pactada `⏱ JORNADA PACTADA` con la duración y el nombre de plantilla **resueltos por fecha** mediante `resolveEmployeeScheduleForDate(empleado, fecha)` (no leyendo el `workdays` por defecto). Así, en días con cambio de plantilla con rango (p. ej. jornada de verano), el badge muestra la plantilla y la duración **reales de ESE día** (ej. *Jornada 40h/semana Turno 13:00h - ZGZ* en temporada normal, *Jornada 35h/semana* en verano), tomadas de `schedule-templates-v2` (§10.3).
 - **Evitación de Solapamientos**: El indicador de jornada pactada en el menú desplegable del balance por día se renderiza en un contenedor flex aislado con diseño de píldora de alto contraste. Esto evita solaparse con las métricas cuantitativas principales (Trabajado, Teórico, Pausas), manteniendo una legibilidad perfecta del grid.
 
 ---
@@ -376,15 +378,18 @@ Todas las rutas protegidas por sesión maestra cuando hay contraseña configurad
 
 ### 10.3. Jerarquía del teórico diario
 
+El teórico diario se resuelve en **dos niveles**. En el cálculo del balance (`parseRealSignings`) el orden superior es: **Sesame BI → `dayOverride.workdayOverride` (festivo/ausencia full-day → 0h) → `resolveEmployeeScheduleForDate`** (ver §8.3).
+
 `resolveEmployeeScheduleForDate(employee, dateKey)` consulta por prioridad:
 
-1. **Override local** (`STATE.scheduleOverrides[companyId][empId][dateKey]`) → manda sobre todo.
-2. **Sesame BI Engine** (`schedule_context_daily_computed.theoretic_seconds`).
-3. **`dayOverride.workdayOverride`** (festivo de empresa o ausencia full-day).
-4. **Plantilla vigente** del empleado por fecha (`scheduleTemplateAllViews` con `dateFrom`/`dateTo`).
-5. **8h por defecto**.
+1. **Override local** (`STATE.scheduleOverrides[companyId][empId][dateKey]`) → ajuste manual del admin desde el gestor de plantillas.
+2. **Horario real de Sesame por día** — `STATE.scheduleV2ByEmpDate.get('${empId}_${fecha}')`, precargado por `FichajesModule.loadScheduleV2(empleados, from, to)` desde `/api/v3/employees/{id}/schedule-templates-v2?from&to` (el `currentDayMinutes` de cada fecha es la jornada teórica de ese día). Es la **fuente autoritativa**: respeta la jornada de verano y cualquier cambio de plantilla con su rango, por usuario y por día. Tolerante a fallos (403/404 por empleado no rompen el resto; concurrencia limitada y caché por `(empleado, rango)`).
+3. **Vistas de plantilla por rango** (`scheduleTemplateAllViews`, con el rango extraído por `extractScheduleViewDates` de `startDate`/`endDate` u otras variantes). El *fallback* **nunca** aplica una plantilla **acotada** (p. ej. la de verano) fuera de su rango: si la fecha cae fuera y solo hay plantillas acotadas, devuelve descanso (0) si ese día es de descanso en todas, o `null` (→ el consumidor usa su jornada estándar por defecto), nunca la reducida de verano.
+4. **`workdays` por defecto / 8h** (solo empleados resueltos por contrato sin vistas).
 
 Encima se aplican: víspera de festivo (si la empresa la sigue) y compensación por permisos retribuidos.
+
+> **Por qué `schedule-templates-v2`:** con la licencia actual de algunas cuentas (sin acceso al BI), Sesame **no** expone el histórico de jornada por las vías clásicas — `/employees/{id}` solo devuelve la asignación vigente/acotada (la de verano) y `schedule/v1/*` + el BI dan `403`. El endpoint interno `schedule-templates-v2` sí devuelve la jornada real por fecha con la propia sesión, sin licencia de pago, y es lo que evita que una jornada reducida con fecha de inicio/fin "tape" el resto del año.
 
 ### 10.4. Auto-descubrimiento de plantillas
 

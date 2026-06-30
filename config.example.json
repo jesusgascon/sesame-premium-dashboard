@@ -9,6 +9,8 @@
       "backendUrl": "https://back-eu1.sesametime.com",
       "brandColor": "#6C63FF",
       "logoUrl": "https://tu-servidor.com/logo.png",
+      "applyZgzHolidays": false,
+      "_applyZgzHolidays_comment": "Pon true solo si esta empresa sigue los festivos locales de Zaragoza (HOLIDAYS_ZGZ) y aplica reducción de jornada en víspera. Si es false (por defecto), se usan únicamente los festivos del calendario API de la empresa.",
       "hasToken": false,
       "hasMasterPassword": false
     }

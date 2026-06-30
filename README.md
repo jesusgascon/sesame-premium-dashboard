@@ -145,6 +145,7 @@ Por tanto, técnicamente la aplicación consume endpoints web/internos de Sesame
 |------|-----------|
 | Sesión | `/api/v3/security/me` |
 | Empleados | `/api/v3/employees`, `/api/v3/companies/{companyId}/employees`, `/api/v3/employees/{employeeId}` |
+| Horarios (jornada teórica real) | `/api/v3/employees/{employeeId}/schedule-templates-v2?from&to` — jornada teórica que Sesame calcula por persona y día (respeta la jornada de verano y demás cambios de plantilla con su rango). Endpoint interno `/api/v3`, accesible con la sesión **sin licencia de API de pago**; fuente autoritativa del teórico cuando la cuenta no tiene BI |
 | Tipos de ausencia | `/api/v3/companies/{companyId}/absence-types` |
 | Calendario | `/api/v3/companies/{companyId}/calendars-grouped`, `/api/v3/companies/{companyId}/calendars`, `/api/v3/employees/{employeeId}/calendars` |
 | Saldos de vacaciones | `/api/v3/vacation-configuration/employee/{id}`, `/api/v3/statistics/employee/{id}/vacations` |
@@ -378,7 +379,7 @@ Para una inmersión profunda en los algoritmos de cruce de datos, heurísticas d
 ### [v1.7.9 / v1.7.10] — 2026-06-11 | *Cálculo del día vivo y teórico mensual completo*
 - **Corregido**: Teórico mensual = mes completo (176h en junio) proyectando los días laborables futuros; trabajado = días cerrados.
 - **Corregido**: La proyección teórica solo aplica en vista mensual; la anual usa días reales para no inflar el total (+112h).
-- **Corregido**: La víspera solo aplica a festivos impuestos por la empresa (Fibercom), no a vacaciones pedidas por el empleado.
+- **Corregido**: La víspera solo aplica a festivos impuestos por la empresa, no a vacaciones pedidas por el empleado.
 
 ### [v1.7.7] — 2026-06-11 | *Pulido visual: insights colapsables, selector año/mes y tooltips contextuales*
 - **Añadido**: **Insights de Fichajes colapsables**. Las 4 tarjetas (Incidencias, Validaciones, Radar de anomalías, Solicitudes y ausencias) ahora vienen **colapsadas por defecto** con un toggle único que las expande/colapsa todas a la vez. El estado se persiste en `localStorage`. Cuando están cerradas, el toggle muestra un resumen en una línea con los contadores.
@@ -416,7 +417,7 @@ Para una inmersión profunda en los algoritmos de cruce de datos, heurísticas d
 - **Añadido**: **Exports contextuales**: CSV/JSON en Vacaciones (calendario filtrado), Fichajes (fichajes filtrados con metadata) y Balances (tabla por empleado, no fichajes raw).
 - **Añadido**: Endpoints en `server.py`: `GET /schedules`, `POST /save-schedules`, `POST /save-custom-template`, `POST /delete-custom-template`. Persistencia local sin tocar Sesame.
 - **Añadido**: Botones "📅 Gestionar calendario" en ficha y balance; "📊 Ver balance" desde el gestor; avatares clickables en Vacaciones › Empleados con foco a la ficha.
-- **Mejorado**: Detección automática de empresa zaragozana solo por nombre (Fibercom) para `HOLIDAYS_ZGZ`; el resto depende del calendario API.
+- **Mejorado**: Aplicación de festivos locales (`HOLIDAYS_ZGZ`) a las empresas marcadas por configuración; el resto depende del calendario API.
 - **Mejorado**: Modo empleado detecta festivos de empresa en `/employees/{id}/calendars` y marca víspera reducida.
 - **Mejorado**: Plantilla vigente del empleado se resuelve **por fecha** (`scheduleTemplateAllViews` con `dateFrom`/`dateTo`), capturando reducciones individuales por paternidad, lactancia o jornada parcial.
 - **Corregido**: Cálculo de teórico cuadrado con Sesame en empleados con permisos retribuidos y vísperas.

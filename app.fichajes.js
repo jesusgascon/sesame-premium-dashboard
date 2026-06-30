@@ -1507,9 +1507,14 @@ const FichajesModule = {
         const normalizeText = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
         const normalizedRaw = normalizeText(rawText);
         const normalizedLabel = normalizeText(label);
+        // Nombre corto de la empresa activa (primer token), para detectar
+        // calendarios de festivos rotulados como "<Empresa> 20XX" sin hardcodear
+        // ningún nombre concreto: vale para cualquier organización.
+        const _coShort = String((STATE.companies?.find(c => c.companyId === STATE.companyId) || {}).name || '')
+          .normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().split(/[\s,.]+/)[0];
         const looksLikeCompanyCalendar = (
           /\b(festivo|holiday|company_holiday|bank_holiday|calendario)\b/.test(normalizedRaw) ||
-          /\bfibercom\b.*\b20\d{2}\b/.test(normalizedLabel) ||
+          (_coShort.length >= 3 && normalizedLabel.includes(_coShort) && /\b20\d{2}\b/.test(normalizedLabel)) ||
           /\b20\d{2}\b/.test(label) && !/\b(gestion|permiso|medico|asuntos|vacacion|vacaciones|baja)\b/.test(normalizedLabel)
         );
         const isVacation = /\b(vacacion|vacaciones|vacation|vacations|paid_vacation)\b/.test(normalizedRaw) ||
@@ -1729,18 +1734,14 @@ const FichajesModule = {
 	      this.absenceTimesMap = new Map();
 	      const eveScanEnd = addLocalDays(end, 1) || end;
 
-	      // ── DETECCIÓN AUTOMÁTICA de empresa con festivos zaragozanos ────────
-	      // HOLIDAYS_ZGZ es la lista de festivos LOCALES de Zaragoza. Solo se aplica
-	      // automáticamente a empresas que sabemos que la siguen (Fibercom). Para el
-	      // resto, confiamos en lo que devuelva el calendario API de la empresa, que
-	      // ya marca los festivos específicos de esa organización (ej. Andrea/APL
-	      // tiene "Aragon Photonics Labs SLU 2026" en su propio calendario API).
-	      // Estar en Zaragoza NO implica reducción automática de jornada en víspera:
-	      // es una decisión de cada empresa/convenio.
+	      // ── Festivos locales de Zaragoza (HOLIDAYS_ZGZ) ─────────────────────
+	      // Lista de festivos LOCALES de Zaragoza. Solo se aplica a las empresas que
+	      // lo tengan habilitado en su configuración (`applyZgzHolidays: true` en
+	      // config.json). Para el resto confiamos en el calendario API de la empresa,
+	      // que ya marca sus festivos específicos. Estar en Zaragoza NO implica
+	      // reducción automática de jornada en víspera: es decisión de cada empresa/convenio.
 	      const _activeCompany = STATE.companies.find(c => c.companyId === STATE.companyId) || {};
-	      const _companyNameNorm = String(_activeCompany.name || '')
-	        .normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-	      const _appliesZgzHolidays = /fibercom/.test(_companyNameNorm);
+	      const _appliesZgzHolidays = _activeCompany.applyZgzHolidays === true;
 
 	      if (_appliesZgzHolidays) {
 	        Object.entries(HOLIDAYS_ZGZ).forEach(([holidayDate, holidayName]) => {
@@ -1800,8 +1801,9 @@ const FichajesModule = {
 
                 if (doff.dayOffTimeType === 'full_day' && dayOffSeconds > 0) {
                   existing.workdayOverride = dayOffSeconds;
-                  // Solo marcar víspera si la empresa aplica reducción (Fibercom)
-                  // y el día libre es festivo de empresa, no vacaciones personales.
+                  // Solo marcar víspera si la empresa aplica reducción (festivos
+                  // locales habilitados) y el día libre es festivo de empresa, no
+                  // vacaciones personales.
                   if (_appliesZgzHolidays && calendarTypeInfo.isCompanyCalendar) {
                     markEveOfNonWorkingDay(empId, doff.date, typeName || 'Día no laborable');
                   }
@@ -6762,7 +6764,7 @@ async function openTemplatesManager(onClose) {
             }).join('')}
           </div>
           <p class="schedule-editor-hint">
-            Ejemplo Fibercom Jornada 40h L-J: 8h 15min = <strong>495 min</strong>.
+            Ejemplo: Jornada 40h L-J: 8h 15min = <strong>495 min</strong>.
             Viernes: 7h = <strong>420 min</strong>.
           </p>
           <div class="schedule-editor-actions">

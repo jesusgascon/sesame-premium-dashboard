@@ -80,15 +80,11 @@ function applyCompanyBranding(company) {
   let brandColor = company.brandColor;
   let logoUrl = company.logoUrl || company.logo;
 
-  // Fallback to corporate defaults if no manual color is provided
+  // Color de marca de respaldo. El color real de cada empresa se define en
+  // config.json (campo `brandColor`); aquí solo damos un azul neutro por defecto
+  // cuando no hay color configurado.
   if (!brandColor) {
-    if (name.toUpperCase().includes('FIBERCOM')) {
-      brandColor = '#e63946';
-    } else if (name.toUpperCase().includes('ARAGON')) {
-      brandColor = '#1d3557';
-    } else {
-      brandColor = '#60A5FA';
-    }
+    brandColor = '#60A5FA';
   }
 
   if (logoContainer) {
