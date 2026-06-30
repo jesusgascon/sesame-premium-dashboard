@@ -37,6 +37,11 @@ except ImportError:
 PORT      = 8765
 HOST      = os.environ.get('SESAME_HOST', '127.0.0.1')
 LAN_MODE  = HOST in ('0.0.0.0', '::') or os.environ.get('SESAME_LAN') == '1'
+# Modo debug: con SESAME_DEBUG=1 se loguean TODOS los errores de upstream.
+# Sin él, se silencian los códigos "esperados" del descubrimiento de endpoints y de
+# la falta de licencia BI (403/404/422), que son ruido normal y no fallos reales.
+DEBUG     = os.environ.get('SESAME_DEBUG', '').lower() in ('1', 'true', 'yes', 'on')
+EXPECTED_UPSTREAM_CODES = (403, 404, 422)
 BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE   = os.path.join(BASE_DIR, 'config.json')
 SECRETS_FILE  = os.path.join(BASE_DIR, 'config.secrets.json')
@@ -950,12 +955,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(data)
             except (BrokenPipeError, ConnectionResetError, ssl.SSLError):
                 pass # El cliente cortó la conexión antes de recibir el error
-            print(f'  ❌  API Error {e.code}: {api_path}')
-            try:
-                error_body = json.loads(data.decode())
-                print(f'      Motivo: {error_body}')
-            except:
-                print(f'      Motivo: {data.decode()[:200]}')
+            # Los 403/404/422 son ruido esperado (descubrimiento de endpoints + sin
+            # licencia BI). Solo se loguean en modo debug (SESAME_DEBUG=1). El resto
+            # (errores inesperados) se loguean siempre.
+            if DEBUG or e.code not in EXPECTED_UPSTREAM_CODES:
+                print(f'  ❌  API Error {e.code}: {api_path}')
+                try:
+                    error_body = json.loads(data.decode())
+                    print(f'      Motivo: {error_body}')
+                except:
+                    print(f'      Motivo: {data.decode()[:200]}')
         except (BrokenPipeError, ConnectionResetError, ssl.SSLError):
             # El navegador abortó la petición (ej. al darle a F5 o cerrar la pestaña)
             pass

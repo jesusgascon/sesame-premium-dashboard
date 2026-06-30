@@ -528,6 +528,17 @@ const FichajesModule = {
         e.stopPropagation();
         const isOpen = overflowPanel.classList.toggle('hidden') === false;
         overflowBtn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        // El panel es position:fixed (escapa del contexto del top-bar): hay que
+        // colocarlo bajo el botón con coordenadas de viewport al abrir.
+        if (isOpen && typeof positionFixedPopover === 'function') {
+          positionFixedPopover(overflowPanel, overflowBtn, 280);
+        }
+      });
+      // Recolocar si cambia el tamaño de ventana con el menú abierto.
+      window.addEventListener('resize', () => {
+        if (!overflowPanel.classList.contains('hidden') && typeof positionFixedPopover === 'function') {
+          positionFixedPopover(overflowPanel, overflowBtn, 280);
+        }
       });
       document.addEventListener('click', (e) => {
         if (!overflowPanel.classList.contains('hidden') &&

@@ -5,7 +5,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.9.20';
+const APP_VERSION = '1.9.21';
 
 // ─── Debug Mode ───────────────────────────────────────────────────────────────
 // false en producción (silencia console.log/info/warn).
@@ -1276,7 +1276,9 @@ async function fetchScheduleTemplates() {
 // Devuelve un Map: 'YYYY-MM-DD' -> { templateId, templateName, mondayMinutes,... currentDayMinutes }
 async function fetchEmployeeScheduleByDay(employeeId, from, to) {
   if (!employeeId || !from || !to) return new Map();
-  const path = `/schedule/v1/employees/${employeeId}/schedule-templates?from=${from}&to=${to}&limit=400`;
+  // Sesame limita el items-per-page (limit=400 daba 422 invalid_items_per_page_limit_exceeded).
+  // 100 es de sobra: el rango se consulta por meses (≤31 entradas).
+  const path = `/schedule/v1/employees/${employeeId}/schedule-templates?from=${from}&to=${to}&limit=100`;
   try {
     const data = await apiFetch(path, {
       method: 'GET',

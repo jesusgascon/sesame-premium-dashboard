@@ -8767,10 +8767,12 @@ body {
 .overflow-menu { position: relative; display: inline-flex; }
 .overflow-toggle { font-size: 1.15rem; font-weight: 700; line-height: 1; }
 .overflow-panel {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  z-index: 1500;
+  /* position:fixed + z-index alto para escapar del contexto de apilamiento que
+     crea el backdrop-filter del .top-bar (si no, en Balances quedaba DETRÁS de la
+     cabecera sticky de la tabla). Las coordenadas top/left/width las fija en JS
+     positionFixedPopover() al abrir, igual que los popovers de presencia. */
+  position: fixed;
+  z-index: 10000;
   display: flex;
   flex-wrap: wrap;
   align-items: center;

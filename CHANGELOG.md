@@ -6,6 +6,15 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/) y el proy
 [Versionado Semántico](https://semver.org/lang/es/). El detalle ampliado de cada versión vive en el
 [README](./README.md#-changelog-detallado).
 
+## [1.9.21] — 2026-06-30
+
+### Corregido
+- **Menú «⋯ Más herramientas» detrás de la tabla en Balances**: el panel quedaba oculto tras la cabecera *sticky* de la tabla de balance (en Fichajes se veía bien, en Balances no). Causa: el panel era `position:absolute` y quedaba atrapado en el contexto de apilamiento que crea el `backdrop-filter` de la barra superior. Ahora usa `position:fixed` con coordenadas calculadas en JS (`positionFixedPopover`) y z-index alto, igual que los popovers de presencia, así que aparece siempre por encima del contenido.
+
+### Mejorado
+- **Menos ruido en el log del servidor**: los errores *esperados* del descubrimiento de endpoints y de la falta de licencia BI (`403`/`404`/`422`) ya no se imprimen en el arranque normal. Se siguen logueando todos con `SESAME_DEBUG=1`, y los errores inesperados (5xx, etc.) se muestran siempre.
+- **Carga de horario por empleado**: la petición a `/schedule/v1/employees/{id}/schedule-templates` usaba `limit=400` y Sesame la rechazaba con `422 invalid_items_per_page_limit_exceeded`; se baja a `limit=100` (de sobra para el rango mensual), evitando el error.
+
 ## [1.9.20] — 2026-06-30
 
 ### Corregido
