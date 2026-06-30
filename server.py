@@ -999,7 +999,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         msg = fmt % args
         if '/sesame-api/' in msg:
-            print(f'  → API: {args[0] if args else msg}')
+            # El trace por petición (incluidas URLs largas de worked-hours) es ruido
+            # en operación normal; solo se muestra con SESAME_DEBUG=1.
+            if DEBUG:
+                print(f'  → API: {args[0] if args else msg}')
         elif '/config' in msg or '/save-config' in msg:
             print(f'  ⚙  Config: {args[0] if args else msg}')
         elif not any(x in msg for x in ['.css', '.js', '.ico', '.png', '.woff']):

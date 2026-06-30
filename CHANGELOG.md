@@ -6,6 +6,11 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/) y el proy
 [Versionado Semántico](https://semver.org/lang/es/). El detalle ampliado de cada versión vive en el
 [README](./README.md#-changelog-detallado).
 
+## [1.9.22] — 2026-06-30
+
+### Mejorado
+- **Arranque del servidor sin ruido**: además de los errores esperados (1.9.21), ahora también el *trace* por petición (`→ API: …`, incluidas las URLs largas de `worked-hours` con todos los IDs) se muestra solo con `SESAME_DEBUG=1`. En operación normal el log queda limpio (banner + config/web); con debug se ve todo el detalle.
+
 ## [1.9.21] — 2026-06-30
 
 ### Corregido
