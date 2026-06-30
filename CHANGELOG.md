@@ -6,6 +6,11 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/) y el proy
 [Versionado Semántico](https://semver.org/lang/es/). El detalle ampliado de cada versión vive en el
 [README](./README.md#-changelog-detallado).
 
+## [1.9.23] — 2026-06-30
+
+### Corregido
+- **Menú «⋯» salía cortado en una esquina** (regresión de 1.9.21): al pasar el panel a `position:fixed`, el `backdrop-filter` del `.top-bar` lo convertía en un elemento posicionado **respecto al top-bar y no al viewport**, así que las coordenadas calculadas caían fuera de pantalla y el panel aparecía recortado e inusable. Ahora el panel se reubica en el `<body>` (sin ancestro con `filter`/`transform`), de modo que el posicionamiento `fixed` es relativo al viewport y aparece correctamente bajo el botón, completo y por delante de la tabla, tanto en Fichajes como en Balances.
+
 ## [1.9.22] — 2026-06-30
 
 ### Mejorado

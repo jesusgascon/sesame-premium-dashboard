@@ -524,6 +524,14 @@ const FichajesModule = {
     const overflowBtn = document.getElementById('fichajes-overflow-btn');
     const overflowPanel = document.getElementById('fichajes-overflow-panel');
     if (overflowBtn && overflowPanel) {
+      // El .top-bar usa backdrop-filter, que convierte a sus descendientes
+      // position:fixed en relativos al top-bar (no al viewport), por lo que las
+      // coordenadas de positionFixedPopover caían mal (el panel salía cortado en una
+      // esquina). Lo movemos al <body> —sin ancestro con filter/transform— para que
+      // el posicionamiento fixed sea relativo al viewport, como los popovers de presencia.
+      if (overflowPanel.parentElement !== document.body) {
+        document.body.appendChild(overflowPanel);
+      }
       overflowBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         const isOpen = overflowPanel.classList.toggle('hidden') === false;
