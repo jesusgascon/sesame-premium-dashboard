@@ -5,7 +5,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.9.18';
+const APP_VERSION = '1.9.20';
 
 // ─── Debug Mode ───────────────────────────────────────────────────────────────
 // false en producción (silencia console.log/info/warn).
@@ -501,6 +501,37 @@ function getAbsenceRemuneratedType(...sources) {
   return '';
 }
 
+// Extrae el rango de vigencia (dateFrom/dateTo) de una vista de horario de
+// Sesame y lo normaliza a 'YYYY-MM-DD' (o null = sin l\u00edmite). Sesame ha usado
+// distintos nombres de campo seg\u00fan versi\u00f3n/endpoint; probamos los conocidos para
+// que el filtrado por fecha funcione aunque cambie la clave. Leer campos que no
+// existen es inocuo (undefined \u2192 se ignora).
+function extractScheduleViewDates(view) {
+  const tmpl = view?.scheduleTemplate || {};
+  const norm = (val) => {
+    if (!val) return null;
+    const s = String(val).slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+  };
+  const firstDate = (...cands) => {
+    for (const c of cands) { const d = norm(c); if (d) return d; }
+    return null;
+  };
+  const dateFrom = firstDate(
+    view?.dateFrom, view?.from, view?.startDate, view?.start_date,
+    view?.validFrom, view?.effectiveFrom, view?.effectiveDate, view?.effectiveAt,
+    view?.dateInit, view?.initDate, view?.beginDate, view?.since,
+    tmpl?.dateFrom, tmpl?.startDate, tmpl?.validFrom
+  );
+  const dateTo = firstDate(
+    view?.dateTo, view?.to, view?.endDate, view?.end_date,
+    view?.validTo, view?.effectiveTo, view?.dateEnd, view?.finishDate,
+    view?.until, view?.expiresAt, view?.expirationDate,
+    tmpl?.dateTo, tmpl?.endDate, tmpl?.validTo
+  );
+  return { dateFrom, dateTo };
+}
+
 // NUEVO: resuelve el horario te\u00f3rico de un empleado para una fecha concreta,
 // teniendo en cuenta que un empleado puede tener varias plantillas en su
 // hist\u00f3rico (paternidad, lactancia, jornada reducida, etc.).
@@ -526,6 +557,22 @@ function resolveEmployeeScheduleForDate(employee, dateKey) {
       templateName: tmpl?.name || 'Override local',
       isLocalOverride: true
     };
+  }
+
+  // ── Horario REAL de Sesame por día (endpoint interno schedule-templates-v2) ──
+  // Jornada teórica que Sesame calcula para ESA persona en ESE día concreto,
+  // respetando los cambios de plantilla con fecha (verano, reducciones, etc.).
+  // Es la fuente autoritativa: va por delante de las vistas y del fallback local.
+  // Se precarga en STATE.scheduleV2ByEmpDate (ver FichajesModule.loadScheduleV2).
+  if (STATE.scheduleV2ByEmpDate instanceof Map && employee.id) {
+    const hitV2 = STATE.scheduleV2ByEmpDate.get(`${employee.id}_${dateKey}`);
+    if (hitV2 && typeof hitV2.seconds === 'number') {
+      return {
+        secondsForDay: hitV2.seconds,
+        templateName: hitV2.name || '',
+        isScheduleV2: true
+      };
+    }
   }
 
   const views = Array.isArray(employee.scheduleTemplateAllViews)
@@ -555,7 +602,40 @@ function resolveEmployeeScheduleForDate(employee, dateKey) {
     }
   }
 
-  // Fallback: plantilla por defecto (la primera o \u00fanica vista)
+  // Fallback: ninguna vista cubre la fecha exacta. NO aplicar una plantilla
+  // ACOTADA (p. ej. horario de verano con fecha de inicio y fin) fuera de su
+  // rango. Preferimos la jornada "base" permanente: una vista sin dateTo
+  // (vigencia indefinida); entre varias, la de dateFrom m\u00e1s reciente que no
+  // empiece en el futuro respecto a la fecha pedida.
+  if (views && views.length > 0) {
+    const byRecentFrom = (list) => list.slice().sort((a, b) => {
+      const af = a.dateFrom || '0000-00-00';
+      const bf = b.dateFrom || '0000-00-00';
+      return bf.localeCompare(af);
+    })[0];
+    const openEnded = views.filter(v => !v.dateTo);
+    const openStarted = openEnded.filter(v => !v.dateFrom || v.dateFrom <= dateKey);
+    const base = openStarted.length ? byRecentFrom(openStarted)
+               : openEnded.length   ? byRecentFrom(openEnded)
+               : null;
+    if (base) {
+      const secs = base?.workdays?.[dayOfWeek];
+      if (typeof secs === 'number') {
+        return { secondsForDay: secs, templateName: base.name || '' };
+      }
+    }
+    // Solo quedan vistas ACOTADAS (p. ej. la de verano) y la fecha cae FUERA de
+    // su rango: no conocemos la jornada real de ese d\u00eda por esta v\u00eda. Si en TODAS
+    // esas plantillas el d\u00eda es de DESCANSO (0), lo respetamos (fin de semana);
+    // si no, devolvemos null para que el consumidor use su jornada est\u00e1ndar por
+    // defecto \u2014 NUNCA la jornada reducida de verano fuera de su rango.
+    if (views.every(v => Number(v.workdays?.[dayOfWeek] || 0) === 0)) {
+      return { secondsForDay: 0, templateName: '' };
+    }
+    return null;
+  }
+
+  // Sin vistas (empleados resueltos por 'contracts'): jornada por defecto.
   if (employee.workdays && typeof employee.workdays[dayOfWeek] === 'number') {
     return {
       secondsForDay: employee.workdays[dayOfWeek],
@@ -1105,9 +1185,10 @@ function upsertEmployee(emp) {
     // Normalizar todas las vistas a {dateFrom, dateTo, workdays, name}
     const allViews = emp.scheduleTemplateViews.map(view => {
       const tmpl = view?.scheduleTemplate || {};
+      const { dateFrom, dateTo } = extractScheduleViewDates(view);
       return {
-        dateFrom: view.dateFrom || view.from || null,  // 'YYYY-MM-DD' o null
-        dateTo:   view.dateTo   || view.to   || null,  // null = vigente
+        dateFrom,  // 'YYYY-MM-DD' o null
+        dateTo,    // null = vigente sin fin
         name: tmpl.name || '',
         workdays: {
           1: (tmpl.mondayMinutes    || 0) * 60,
@@ -2117,9 +2198,10 @@ async function fetchEmployees() {
       if (Array.isArray(detail.scheduleTemplateViews) && detail.scheduleTemplateViews.length > 0) {
         scheduleTemplateAllViews = detail.scheduleTemplateViews.map(view => {
           const tmpl = view?.scheduleTemplate || {};
+          const { dateFrom, dateTo } = extractScheduleViewDates(view);
           return {
-            dateFrom: view.dateFrom || view.from || null,
-            dateTo:   view.dateTo   || view.to   || null,
+            dateFrom,
+            dateTo,
             name: tmpl.name || '',
             workdays: {
               1: (tmpl.mondayMinutes    || 0) * 60,

@@ -1469,6 +1469,19 @@ const FichajesModule = {
         }
       }
 
+      // 2.4 Horario REAL por día desde Sesame (schedule-templates-v2). Fuente
+      // autoritativa de la jornada teórica por empleado y fecha (respeta verano y
+      // demás cambios de plantilla con su rango). No crítico: si falla, el resolver
+      // cae a las vistas/fallback locales.
+      try {
+        const _schedEmpIds = _employeeMode
+          ? [getCurrentEmployeeId()].filter(Boolean)
+          : Array.from(STATE.allEmployees.keys());
+        await this.loadScheduleV2(_schedEmpIds, start, end);
+      } catch (e) {
+        console.warn('loadScheduleV2 falló (no crítico):', e?.message || e);
+      }
+
       // 2.5 Excepciones de jornada + mapa de horarios de ausencias parciales
       const dayOverrides = new Map();
       this.balanceCalendarSummaryMap = new Map();
@@ -2032,6 +2045,15 @@ const FichajesModule = {
             }
 
             if (rawData.length > 0) {
+               // Asegurar horario real (schedule-templates-v2) para los empleados
+               // con fichajes en esta rama de fallback (pueden ser nuevos respecto
+               // a la carga inicial de V2). Cacheado: no re-pide los ya cargados.
+               try {
+                 const _v2Ids = [...new Set(rawData.map(h => h.employeeId).filter(Boolean))];
+                 await this.loadScheduleV2(_v2Ids, start, end);
+               } catch (e) {
+                 console.warn('loadScheduleV2 (fallback) falló (no crítico):', e?.message || e);
+               }
                this.data = this.parseRealSignings(rawData, localAbsences);
             }
           }
@@ -3144,6 +3166,64 @@ const FichajesModule = {
   },
 
   /**
+   * Carga el horario REAL por día desde Sesame mediante el endpoint interno
+   * `/api/v3/employees/{id}/schedule-templates-v2?from&to` (api/v3, accesible sin
+   * licencia de API de pago). Es la jornada teórica que Sesame calcula para cada
+   * persona y fecha, respetando los cambios de plantilla con su rango (jornada de
+   * verano, reducciones, etc.). Se vuelca en `STATE.scheduleV2ByEmpDate` para que
+   * `resolveEmployeeScheduleForDate` la use como fuente autoritativa (cálculo y
+   * displays). Tolerante a fallos: si un empleado da error, se cae a las vistas/
+   * fallback locales sin romper la carga.
+   */
+  async loadScheduleV2(employeeIds, start, end) {
+    if (!Array.isArray(employeeIds) || employeeIds.length === 0 || !start || !end) return;
+    if (!(STATE.scheduleV2ByEmpDate instanceof Map)) STATE.scheduleV2ByEmpDate = new Map();
+    // Aislar por empresa: al cambiar de empresa, vaciar para no mezclar horarios.
+    if (STATE.scheduleV2Company !== STATE.companyId) {
+      STATE.scheduleV2ByEmpDate.clear();
+      STATE.scheduleV2Loaded = new Set();
+      STATE.scheduleV2Company = STATE.companyId;
+    }
+    if (!(STATE.scheduleV2Loaded instanceof Set)) STATE.scheduleV2Loaded = new Set();
+
+    const wkKeys = ['sundayMinutes','mondayMinutes','tuesdayMinutes','wednesdayMinutes',
+                    'thursdayMinutes','fridayMinutes','saturdayMinutes'];
+    const ids = [...new Set(employeeIds.filter(Boolean).map(String))]
+      .filter(id => !STATE.scheduleV2Loaded.has(`${id}|${start}|${end}`));
+    if (ids.length === 0) return;
+
+    const fetchOne = async (id) => {
+      try {
+        const res = await apiFetch(`/api/v3/employees/${id}/schedule-templates-v2?from=${start}&to=${end}`);
+        const data = (res && res.data) || {};
+        Object.entries(data).forEach(([date, arr]) => {
+          if (!Array.isArray(arr) || arr.length === 0) return;
+          const dow = new Date(date + 'T12:00:00').getDay();
+          let mins = 0;
+          let name = '';
+          arr.forEach(t => {
+            const m = (typeof t.currentDayMinutes === 'number')
+              ? t.currentDayMinutes
+              : Number(t[wkKeys[dow]] || 0);
+            mins += Number(m || 0);
+            if (!name) name = t.name || '';
+          });
+          STATE.scheduleV2ByEmpDate.set(`${id}_${date}`, { seconds: mins * 60, name });
+        });
+        STATE.scheduleV2Loaded.add(`${id}|${start}|${end}`);
+      } catch (e) {
+        console.warn(`schedule-templates-v2 falló para ${String(id).substring(0,8)}:`, e?.message || e);
+      }
+    };
+
+    // Concurrencia limitada para no saturar el proxy con muchas peticiones.
+    const CONCURRENCY = 6;
+    for (let i = 0; i < ids.length; i += CONCURRENCY) {
+      await Promise.all(ids.slice(i, i + CONCURRENCY).map(fetchOne));
+    }
+  },
+
+  /**
    * Algoritmo de orquestación y cruce (Smart Match).
    * Transforma los registros RAW de Sesame BI en una estructura agrupada por empleado/día,
    * asignando etiquetas de ausencia a los tramos de trabajo que coincidan temporalmente.
@@ -3838,11 +3918,14 @@ const FichajesModule = {
 
         // --- Datos del horario del empleado para ese día concreto ---
         const empProfile = STATE.allEmployees.get(String(row.employeeId || ''));
-        const scheduleTemplateName = empProfile?.scheduleTemplateName || '';
-        // day-of-week en JS: 0=Dom, 1=Lun ... 6=Sáb
-        const rowDow = row.date ? new Date(row.date + 'T12:00:00').getDay() : null;
-        const scheduleSecondsForDay = (rowDow !== null && empProfile?.workdays)
-          ? (empProfile.workdays[rowDow] ?? null)
+        // Resolver el horario vigente de ESE empleado en ESA fecha (respeta
+        // override de verano por fecha exacta y vistas de Sesame por rango).
+        const _schedResolved = (empProfile && row.date)
+          ? resolveEmployeeScheduleForDate(empProfile, row.date)
+          : null;
+        const scheduleTemplateName = _schedResolved?.templateName || empProfile?.scheduleTemplateName || '';
+        const scheduleSecondsForDay = (typeof _schedResolved?.secondsForDay === 'number')
+          ? _schedResolved.secondsForDay
           : null;
         const scheduleHtmlForDay = (() => {
           if (scheduleSecondsForDay === null) return '';
@@ -5197,8 +5280,10 @@ const FichajesModule = {
       theoreticFormatted: fmt(row.theoreticSeconds),
       theoreticBeforeCompensation: row.theoreticBeforeCompensation,
       theoreticSource: row.theoreticSource,
-      pactedSeconds: (empProfile.workdays && typeof empProfile.workdays[new Date(row.date + 'T00:00:00').getDay()] !== 'undefined')
-        ? empProfile.workdays[new Date(row.date + 'T00:00:00').getDay()] : null,
+      pactedSeconds: (() => {
+        const _r = (empProfile && row.date) ? resolveEmployeeScheduleForDate(empProfile, row.date) : null;
+        return (typeof _r?.secondsForDay === 'number') ? _r.secondsForDay : null;
+      })(),
       compensatedSeconds: row.compensatedSeconds,
       compensatedFormatted: fmt(row.compensatedSeconds),
       compensatedAppliedToTheoretic: row.compensatedAppliedToTheoretic,
@@ -5437,14 +5522,14 @@ const FichajesModule = {
     // Perfil del empleado para mostrar el horario pactado por día en el modal
     const _balEmpProfile = STATE.allEmployees.get(String(employeeId));
     const _balScheduleName = _balEmpProfile?.scheduleTemplateName || '';
-    const _balWorkdays = _balEmpProfile?.workdays || null;
+    // Resuelve el horario vigente de ESE empleado en ESA fecha (override de
+    // verano por fecha exacta + vistas de Sesame por rango). Devuelve segundos
+    // y el nombre de la plantilla aplicada ese día (puede cambiar día a día).
     const _getScheduleForDate = (dateKey) => {
-      if (!_balWorkdays || !dateKey) return null;
-      const match = String(dateKey).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-      if (!match) return null;
-      const dow = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])).getDay();
-      const secs = _balWorkdays[dow];
-      return (typeof secs === 'number') ? secs : null;
+      if (!_balEmpProfile || !dateKey) return null;
+      const r = resolveEmployeeScheduleForDate(_balEmpProfile, dateKey);
+      if (!r || typeof r.secondsForDay !== 'number') return null;
+      return { secs: r.secondsForDay, name: r.templateName || _balScheduleName };
     };
     const dayRowsHtml = summary.rows.length ? summary.rows.map((row, index) => {
       const entriesHtml = (row.entries || []).map(entry => {
@@ -5477,12 +5562,13 @@ const FichajesModule = {
             <span>Pausas ${formatDuration(row.totalPauseSec)}</span>
           </div>
           ${(() => {
-            const secs = _getScheduleForDate(row.date);
-            if (secs === null) return '';
+            const sched = _getScheduleForDate(row.date);
+            if (sched === null) return '';
+            const secs = sched.secs;
             const sh = Math.floor(secs / 3600);
             const sm = Math.floor((secs % 3600) / 60);
             const label = secs === 0 ? 'Descanso' : sh + 'h' + (sm > 0 ? ' ' + sm + 'm' : '');
-            const nameHtml = _balScheduleName ? ' <span style="opacity:0.55;font-size:0.68rem;font-weight:500;">' + escapeHTML(_balScheduleName) + '</span>' : '';
+            const nameHtml = sched.name ? ' <span style="opacity:0.55;font-size:0.68rem;font-weight:500;">' + escapeHTML(sched.name) + '</span>' : '';
             return '<div style="display:flex;align-items:center;gap:6px;padding:5px 16px 10px;"><span style="display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;background:rgba(45,212,191,0.12);border:1px solid rgba(45,212,191,0.22);color:#2dd4bf;font-size:0.68rem;font-weight:800;letter-spacing:0.3px;">⏱ Pactado ' + escapeHTML(label) + '</span>' + nameHtml + '</div>';
           })()}
           <div class="balance-day-entries">${entriesHtml || '<span class="balance-empty-line">Sin tramos detallados</span>'}</div>

@@ -417,6 +417,13 @@ function switchCompany(cid) {
   STATE.presenceList = [];
   STATE.calendarData = {};
   STATE.hiddenEmployeeIds.clear();
+  // Horario real por día (schedule-templates-v2): es estado por empresa. Aunque
+  // las claves llevan el employeeId (único por empresa) y loadScheduleV2 también
+  // se autolimpia al detectar cambio de empresa, lo vaciamos aquí por consistencia
+  // con el resto del reset y para liberar memoria al cambiar de empresa.
+  if (STATE.scheduleV2ByEmpDate instanceof Map) STATE.scheduleV2ByEmpDate.clear();
+  if (STATE.scheduleV2Loaded instanceof Set) STATE.scheduleV2Loaded.clear();
+  STATE.scheduleV2Company = null;
 
   // Limpiamos datos del módulo de fichajes si existe
   if (typeof FichajesModule !== 'undefined') {

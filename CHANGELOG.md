@@ -6,6 +6,17 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/) y el proy
 [Versionado Semántico](https://semver.org/lang/es/). El detalle ampliado de cada versión vive en el
 [README](./README.md#-changelog-detallado).
 
+## [1.9.20] — 2026-06-30
+
+### Corregido
+- **(Crítico) Horario teórico real por día desde Sesame**: el horario reducido de verano (y cualquier cambio de plantilla con fecha) ya no «tapa» el resto del año. Causa de fondo: con la licencia actual Sesame **no** expone el histórico de jornada por las vías que usábamos (`/employees/{id}` solo devolvía la asignación de verano; `schedule/v1/*` y el BI dan 403). Se ha localizado el endpoint **interno** que sí lo da sin licencia de pago — `/api/v3/employees/{id}/schedule-templates-v2?from&to` —, que devuelve la jornada teórica que **Sesame calcula para cada persona y día** (p. ej. enero → «Jornada 40h/semana» 8h15 L-J / 7h V; 29-jun→31-ago → «Jornada 35h/semana» 7h). El dashboard lo carga para el rango visible y lo usa como **fuente autoritativa** en `resolveEmployeeScheduleForDate`, de modo que el cálculo del balance y todos los displays muestran **el horario real de cada usuario en cada día**. Tolerante a fallos: si el endpoint no responde, se cae a las vistas/fallback locales.
+
+## [1.9.19] — 2026-06-30
+
+### Corregido
+- **(Crítico) Horario de verano aplicado a todos los días**: al activarse por primera vez un horario reducido con fecha de inicio y fin (jornada de verano, por empleado y por sede: oficina Fibercom desde el 29-jun, instaladores y Barcelona en fechas distintas), el horario reducido se mostraba en **todos** los días pasados y futuros en la «JORNADA PACTADA» del detalle de Fichajes, en el horario por día del modal de Balance y en el export JSON. Causa: esos tres puntos leían el horario **por defecto** del empleado (`workdays`, fijado a la primera vista que devuelve Sesame) sin resolver por fecha. Ahora los tres pasan por `resolveEmployeeScheduleForDate(empleado, fecha)`, que respeta el override de verano por fecha exacta y las vistas de Sesame por su rango de vigencia, de modo que cada usuario ve **su** horario en **ese** día.
+- **Robustez del resolutor de horarios**: (1) la detección del rango de vigencia (`dateFrom`/`dateTo`) admite ahora más variantes de nombre de campo de la API de Sesame; y (2) cuando ninguna vista cubre una fecha, el *fallback* ya **no** aplica una plantilla acotada (p. ej. la de verano) fuera de su rango, sino la jornada base permanente (vista sin fecha de fin).
+
 ## [1.9.18] — 2026-06-24
 
 ### Corregido
