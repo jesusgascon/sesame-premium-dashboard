@@ -5,7 +5,7 @@
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Frontend](https://img.shields.io/badge/frontend-Vanilla%20JS%20(ES6+)-yellow.svg)
 ![Backend](https://img.shields.io/badge/backend-Python%20Proxy-green.svg)
-![Version](https://img.shields.io/badge/version-1.9.46-success.svg)
+![Version](https://img.shields.io/badge/version-1.9.50-success.svg)
 ![Status](https://img.shields.io/badge/status-Production%20Ready-success.svg)
 
 ---
@@ -277,6 +277,10 @@ Para una inmersión profunda en los algoritmos de cruce de datos, heurísticas d
 ---
 
 ## 📜 Changelog Detallado
+
+### [v1.9.50] — 2026-07-02 | *Empleados de dos empresas mezclados en Fichajes/Balances (crítico)*
+- **Corregido**: con un token de administrador multi-empresa, el endpoint "por empresa" de Sesame podía ignorar el `companyId` de la URL y devolver la plantilla de **todas** las empresas mezcladas (el objeto de empleado no expone `companyId` en ningún nivel para poder filtrarlo). Esto hacía que Balance y Fichajes mostraran empleados de otra empresa de forma intermitente.
+- **Arreglo**: `fetchEmployees()` valida ahora el resultado final contra `/api/v3/security/me` (siempre correctamente scopeado) usando la oficina propia (`mainOffice`) como referencia, descartando empleados de otra empresa cuando el `companyId` no viene expuesto. Misma protección añadida al fallback de "Búsqueda Global" de Fichajes. Se añaden logs `[anti-mezcla]` en consola para diagnosticar si volviera a pasar.
 
 ### [v1.9.46] — 2026-07-01 | *Animación de carga en Vacaciones + fallos de reentrada*
 - **Añadido**: onda diagonal de entrada al cambiar de mes/vista/hoy/selector en el calendario de Vacaciones (fundido + deslizamiento, retardo por fila+columna), sustituyendo el simple atenuado anterior.

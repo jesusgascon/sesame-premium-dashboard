@@ -6,6 +6,13 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/) y el proy
 [Versionado Semántico](https://semver.org/lang/es/). El detalle ampliado de cada versión vive en el
 [README](./README.md#-changelog-detallado).
 
+## [1.9.50] — 2026-07-02
+
+### Corregido
+- **(Crítico) Empleados de las dos empresas mezclados en Fichajes y Balances**: con un token de administrador multi-empresa, el endpoint "por empresa" (`/api/v3/companies/{companyId}/employees`) podía ignorar el `companyId` de la URL y devolver la plantilla de **todas** las empresas del token mezclada — y como el objeto de empleado no trae ningún campo `companyId` en ningún nivel, no había forma de filtrarlo después. Esto hacía que Balance y Fichajes mostraran empleados de otra empresa (p. ej. los 46 de ambas en vez de los ~24 de la activa), de forma intermitente según si esa petición fallaba o no.
+- **Arreglo**: `fetchEmployees()` ahora pasa el resultado final (venga de la ruta "por empresa" o del directorio global) por una red de seguridad adicional: consulta `/api/v3/security/me` (siempre correctamente scopeado al token activo) y usa la oficina propia (`mainOffice`) como referencia para descartar empleados de otra empresa. Se añaden registros de diagnóstico (`[anti-mezcla]` en consola) para poder verificar en el futuro si este caso volviera a darse.
+- También se corrigió, de paso, la misma clase de fallo en el fallback de "Búsqueda Global" de Fichajes (endpoints sin scope por empresa), que ahora reutiliza la validación ya existente para el BI Engine.
+
 ## [1.9.46] — 2026-07-01
 
 ### Añadido

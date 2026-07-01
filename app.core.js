@@ -5,7 +5,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.9.46';
+const APP_VERSION = '1.9.50';
 
 // ─── Debug Mode ───────────────────────────────────────────────────────────────
 // false en producción (silencia console.log/info/warn).
@@ -2158,13 +2158,60 @@ function getEmployeeCompanyId(e) {
   return e.companyId ?? e.company_id ?? e.companyID ?? e.company?.id ?? null;
 }
 
+// Filtra una lista de empleados por la oficina propia (mainOffice) cuando no
+// hay forma de distinguir empresa por companyId. /api/v3/security/me siempre
+// está scopeado de forma fiable al token/empresa activa ("quién soy yo
+// AHORA"), así que se usa como referencia para descartar empleados de otra
+// empresa/oficina. Solo se aplica si reduce la lista y deja al menos un
+// empleado: si mainOffice no fuera fiable para esta cuenta (ej. null en
+// todos), es mejor no filtrar que dejar la plantilla vacía.
+async function filterEmployeesByOwnOffice(list, contextLabel) {
+  // Diagnóstico: se deja este console.info a propósito (no solo warn en el
+  // caso de éxito) para poder ver en la consola, en cualquier caso, si esta
+  // red de seguridad llegó a ejecutarse y por qué no filtró si no lo hizo.
+  if (!Array.isArray(list) || list.length <= 1) {
+    console.info(`[anti-mezcla] ${contextLabel}: lista de ${list?.length ?? 0} empleados, no hace falta filtrar.`);
+    return list;
+  }
+  try {
+    const meRaw = await apiFetch(`/api/v3/security/me`).catch(() => null);
+    const me = meRaw?.data || meRaw;
+    const meEmp = me?.employee || (Array.isArray(me) ? me[0] : me);
+    const myOfficeId = meEmp?.mainOffice?.id || null;
+    const myOfficeName = meEmp?.mainOffice?.name || null;
+    console.info(`[anti-mezcla] ${contextLabel}: mi mainOffice = { id: ${JSON.stringify(myOfficeId)}, name: ${JSON.stringify(myOfficeName)} } (de /api/v3/security/me)`);
+    if (!myOfficeId && !myOfficeName) {
+      console.warn(`[anti-mezcla] ${contextLabel}: /me no trae mainOffice, no se puede filtrar. Lista se queda en ${list.length}.`);
+      return list;
+    }
+    const matching = list.filter(e => {
+      const off = e?.mainOffice || {};
+      return (myOfficeId && off.id === myOfficeId) || (myOfficeName && off.name === myOfficeName);
+    });
+    console.info(`[anti-mezcla] ${contextLabel}: ${list.length} empleados totales, ${matching.length} coinciden con mi oficina.`);
+    if (matching.length > 0 && matching.length < list.length) {
+      console.warn(`${contextLabel} [${String(STATE.companyId || '').substring(0, 8)}]: filtrado por oficina propia ${list.length} -> ${matching.length} empleados (companyId no expuesto por la API).`);
+      return matching;
+    }
+    if (matching.length === 0) {
+      console.warn(`[anti-mezcla] ${contextLabel}: NINGÚN empleado coincide con mi oficina — mainOffice no es fiable aquí, me quedo con los ${list.length} sin filtrar (mejor eso que una plantilla vacía). Primer empleado de muestra: ${JSON.stringify(list[0]?.mainOffice)}`);
+    }
+  } catch (err) {
+    console.warn(`[anti-mezcla] ${contextLabel}: fallo comprobando /me (${err?.message || err}), sigo sin filtrar por oficina.`);
+  }
+  return list;
+}
+
 async function fetchEmployees() {
   try {
-    // 1. Fuente PRINCIPAL: endpoint POR EMPRESA. El companyId va en la URL, así
-    //    que Sesame devuelve SOLO la plantilla de la empresa activa. El directorio
-    //    global /api/v3/employees puede ignorar la cabecera x-company-id cuando el
-    //    token tiene acceso multi-empresa y devolver las plantillas de varias
-    //    empresas mezcladas (bug de empleados cruzados en fichajes y balances).
+    // 1. Fuente PRINCIPAL: endpoint POR EMPRESA. El companyId va en la URL, y en
+    //    teoría Sesame debería devolver SOLO la plantilla de la empresa activa
+    //    — pero confirmado en producción: con un token de administrador
+    //    multi-empresa, este endpoint TAMBIÉN puede ignorar el companyId de la
+    //    URL y devolver la plantilla de TODAS las empresas del token mezclada
+    //    (el objeto de empleado no trae companyId en ningún nivel para poder
+    //    filtrarlo después). Por eso el resultado, venga de donde venga, se
+    //    pasa siempre por filterEmployeesByOwnOffice() más abajo.
     let results = [];
     if (STATE.companyId) {
       const companyData = await apiFetch(
@@ -2172,22 +2219,38 @@ async function fetchEmployees() {
       ).catch(() => null);
       results = companyData?.data || (Array.isArray(companyData) ? companyData : []) || [];
     }
+    console.info(`[anti-mezcla] fetchEmployees paso 1 (endpoint por empresa): ${results.length} empleados.`);
 
     // 2. Fallback: directorio global (cuentas sin permiso sobre el endpoint por
-    //    empresa). Filtramos por companyId cuando el objeto lo expone, para no
-    //    arrastrar empleados de otra empresa del token.
+    //    empresa, o que lo devuelven vacío). Filtramos por companyId cuando el
+    //    objeto lo expone, para no arrastrar empleados de otra empresa del token.
     if (results.length <= 1) {
       const data = await apiFetch(`/api/v3/employees?limit=500&include=personalData,details`).catch(() => null);
       let globalResults = data?.data || (Array.isArray(data) ? data : []) || [];
       const cid = STATE.companyId ? String(STATE.companyId) : null;
       const exposesCompany = globalResults.some(e => getEmployeeCompanyId(e));
+      console.info(`[anti-mezcla] fetchEmployees paso 2 (directorio global): ${globalResults.length} empleados, exposesCompany=${exposesCompany}.`);
       if (cid && exposesCompany) {
         globalResults = globalResults.filter(e => String(getEmployeeCompanyId(e)) === cid);
       }
       if (globalResults.length > results.length) results = globalResults;
     }
 
-    // 3. Enriquecer con los horarios teóricos (contracts/scheduleTemplateViews)
+    // 3. Red de seguridad final: si ninguna de las dos fuentes anteriores pudo
+    //    filtrar por companyId (no viene expuesto en el objeto), se filtra por
+    //    la oficina propia. Se aplica siempre al resultado final, venga de la
+    //    ruta "por empresa" o del directorio global — el bug confirmado en
+    //    producción estaba precisamente en la ruta "por empresa", que se daba
+    //    por buena sin comprobar nunca si de verdad venía filtrada.
+    const cidFinal = STATE.companyId ? String(STATE.companyId) : null;
+    const alreadyFiltered = cidFinal && results.some(e => getEmployeeCompanyId(e));
+    console.info(`[anti-mezcla] fetchEmployees paso 3: resultado actual ${results.length} empleados, alreadyFiltered=${alreadyFiltered}.`);
+    if (!alreadyFiltered) {
+      results = await filterEmployeesByOwnOffice(results, 'Directorio de empleados');
+    }
+    console.info(`[anti-mezcla] fetchEmployees FINAL: ${results.length} empleados devueltos.`);
+
+    // 4. Enriquecer con los horarios teóricos (contracts/scheduleTemplateViews)
     // Hacemos llamadas en paralelo para obtener el detalle real de cada empleado
     const detailedResults = await Promise.allSettled(
       results.map(e => apiFetch(`/api/v3/employees/${e.id}`).catch(() => null))

@@ -1976,20 +1976,36 @@ const FichajesModule = {
                 }
              }
 
-             this.realSignings = globalData;
-             this.data = this.parseRealSignings(globalData, localAbsences);
-             // Este retorno anticipado saltaba el arranque de
-             // startOfficialWorkedHoursLoad para Balances (típico en empresas sin
-             // acceso a BI/Statistics, que llegan a esta rama): la fase se
-             // quedaba en 'local' para siempre y, con la guarda que evita pintar
-             // balances a 0h mientras no hay datos fiables, la tabla no llegaba
-             // a mostrarse nunca. Hay que lanzarlo aquí también antes de salir.
-             if (this.currentView === 'balance') {
-               this.populateEmployeeSelect();
-               this.renderTable();
-               this.startOfficialWorkedHoursLoad(start, end);
+             // VALIDACIÓN DE PLANTILLA: a diferencia del BI Engine (línea ~1886),
+             // esta "Búsqueda Global" (candidates de arriba) no va scopeada por
+             // companyId en la URL — depende solo de la cabecera x-company-id,
+             // que un token multi-empresa puede ignorar — y puede devolver
+             // fichajes de TODAS las empresas del token. Sin esta guarda, tras
+             // cambiar de empresa se colaban aquí fichajes/empleados de la
+             // empresa anterior (u otra), mezclados con los de la activa, tanto
+             // en Fichajes (este.data) como en Balances (getBalanceEmployeeIds()
+             // añade employeeId de cada fila de this.data).
+             if (this.rowsBelongToAnotherCompany(globalData)) {
+               console.warn(`Búsqueda Global [${String(STATE.companyId || '').substring(0, 8)}]: las filas devueltas pertenecen a otra empresa (${globalData.length}). Descartando y usando fallback individual.`);
+               globalData = null;
+               DISCOVERY.workingChecks = null;
+               localStorage.removeItem('ssm_path_checks');
+             } else {
+               this.realSignings = globalData;
+               this.data = this.parseRealSignings(globalData, localAbsences);
+               // Este retorno anticipado saltaba el arranque de
+               // startOfficialWorkedHoursLoad para Balances (típico en empresas sin
+               // acceso a BI/Statistics, que llegan a esta rama): la fase se
+               // quedaba en 'local' para siempre y, con la guarda que evita pintar
+               // balances a 0h mientras no hay datos fiables, la tabla no llegaba
+               // a mostrarse nunca. Hay que lanzarlo aquí también antes de salir.
+               if (this.currentView === 'balance') {
+                 this.populateEmployeeSelect();
+                 this.renderTable();
+                 this.startOfficialWorkedHoursLoad(start, end);
+               }
+               return;
              }
-             return;
           }
 
           // 2. Si lo anterior falla (403/404), procedemos al fallback individual
