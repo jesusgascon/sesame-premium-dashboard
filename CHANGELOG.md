@@ -6,6 +6,23 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/) y el proy
 [Versionado Semántico](https://semver.org/lang/es/). El detalle ampliado de cada versión vive en el
 [README](./README.md#-changelog-detallado).
 
+## [1.9.34] — 2026-07-01
+
+### Corregido
+- **Balances mostraba filas de empleados a 0h antes de tiempo**: mientras el cálculo local aún no estaba listo (fichajes/horario a medio cargar), se llegaban a ver balances en 0h que se corregían solos segundos después. Ahora, mientras esa fase no está lista, se muestra un loader dedicado («Cargando balances de {empresa}… Un momento, recuperando información de Sesame») en vez de filas con datos poco fiables.
+- **Riesgo de pantalla de carga colgada**: al corregir lo anterior se detectó un camino de carga (empresas sin acceso a BI/Statistics) que podía saltarse el arranque de la confirmación de Sesame Statistics, dejando esa pantalla de carga para siempre en vez de solo unos segundos. Corregido.
+
+### Mejorado
+- **Revelado fila a fila en Balances**: la confirmación de Sesame Statistics ya no vuelca las ~20-40 filas de golpe; la lista crece de una en una (0, 1, 2, 3…) con una pequeña entrada (fundido + deslizamiento), en el orden final ya correcto. Ritmo ajustado para que se note el paso por cada empleado.
+- **Cascada de entrada en Fichajes** (mes/semana/día): mismo lenguaje visual que Balances al llegar datos nuevos, con un retardo creciente por fila. Solo se activa en cargas visibles para el usuario, nunca en el auto-refresco silencioso ni al filtrar/buscar.
+
+## [1.9.30] — 2026-07-01
+
+### Mejorado
+- **Estado de carga rediseñado (2026)**: el panel «Preparando base local» (fases, chips de pasos, nombres en curso) se sustituye por un componente único —contador fino «hecho/total» + hairline con el gradiente de marca— igual en Balances y Fichajes. Los balances de Sesame Statistics se revelan empleado a empleado en pequeñas tandas con un flash sutil por fila, en vez de saltar de golpe de 0/N a N/N cuando Sesame devuelve todo en una sola respuesta de red.
+- **Overlay de arranque más tranquilo**: una sola animación (latido suave del logo, sin anillo girando) y sin solape con las barras de progreso al arrancar con caché.
+- **Servidor sin cachear `index.html`**: el cache-busting `?v=` de los `.js`/`.css` siempre surte efecto, sin necesitar recarga forzada.
+
 ## [1.9.23] — 2026-06-30
 
 ### Corregido
