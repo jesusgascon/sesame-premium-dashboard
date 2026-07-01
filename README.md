@@ -5,7 +5,7 @@
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Frontend](https://img.shields.io/badge/frontend-Vanilla%20JS%20(ES6+)-yellow.svg)
 ![Backend](https://img.shields.io/badge/backend-Python%20Proxy-green.svg)
-![Version](https://img.shields.io/badge/version-1.9.41-success.svg)
+![Version](https://img.shields.io/badge/version-1.9.46-success.svg)
 ![Status](https://img.shields.io/badge/status-Production%20Ready-success.svg)
 
 ---
@@ -277,6 +277,14 @@ Para una inmersión profunda en los algoritmos de cruce de datos, heurísticas d
 ---
 
 ## 📜 Changelog Detallado
+
+### [v1.9.46] — 2026-07-01 | *Animación de carga en Vacaciones + fallos de reentrada*
+- **Añadido**: onda diagonal de entrada al cambiar de mes/vista/hoy/selector en el calendario de Vacaciones (fundido + deslizamiento, retardo por fila+columna), sustituyendo el simple atenuado anterior.
+- **Añadido**: el calendario ya no se queda en blanco al recargar la página con caché de empleados; muestra el mismo indicador que la navegación de mes/vista mientras llegan los datos reales.
+- **Corregido**: cambiar de Mes a Semana/Día no respondía al primer clic si coincidía con la cola de tareas de fondo del arranque (presencia, Fichajes, caché) — compartían el mismo flag `STATE.isLoading`. Ahora se libera en cuanto el calendario tiene datos reales.
+- **Corregido**: cambiar de empresa estando en Vacaciones podía quedarse colgado en "Cargando datos de X…" si quedaba una carga anterior en vuelo sin terminar (`loadInitialData()` se auto-descartaba en silencio).
+- **Corregido**: la animación del calendario apenas se notaba porque competía con la propia transición de opacidad del contenedor; ahora están desacopladas y con más recorrido.
+- **Corregido**: la vista Día ya no está limitada a 760px centrados; ocupa todo el ancho disponible, igual que mes/semana.
 
 ### [v1.9.41] — 2026-07-01 | *Balances: cierre de todos los huecos de carga "cruda"*
 - **Corregido**: caché de sesión de Fichajes se leía también en Balances, pintando un instante datos antiguos a 0h.

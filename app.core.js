@@ -5,7 +5,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.9.41';
+const APP_VERSION = '1.9.46';
 
 // ─── Debug Mode ───────────────────────────────────────────────────────────────
 // false en producción (silencia console.log/info/warn).
@@ -88,7 +88,8 @@ const STATE = {
   currentDate:  readSessionDate('ssm_current_date'),
   calView:      'month', // 'month' | 'week'
   activeView:   'calendar',
-  isLoading:    false,  // Guard to prevent redundant loads
+  isLoading:    false,  // Guard to prevent redundant loads (loadData/reloadCalendarSilent)
+  _bootstrapping: false, // Guard de reentrada exclusivo de loadInitialData() (ver app.boot.js)
   sidebarCollapsed: localStorage.getItem('ssm_sidebar_collapsed') === 'true',
   sidebarSections: {
     'absence-section': localStorage.getItem('sidebar_section_absence_collapsed') === 'true',

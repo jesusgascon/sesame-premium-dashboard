@@ -6,6 +6,18 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/) y el proy
 [Versionado Semántico](https://semver.org/lang/es/). El detalle ampliado de cada versión vive en el
 [README](./README.md#-changelog-detallado).
 
+## [1.9.46] — 2026-07-01
+
+### Añadido
+- **Animación de carga en el calendario de Vacaciones**: al cambiar de mes/vista/hoy/selector de fecha, las celdas del calendario ahora se revelan con una onda diagonal (fundido + deslizamiento, retardo creciente por fila+columna) en vez de aparecer todas de golpe tras el simple atenuado anterior.
+- **Calendario nunca en blanco al recargar la página**: si había caché de empleados (arranque instantáneo), el calendario podía quedarse vacío unos instantes mientras llegaban los datos reales. Ahora se muestra el mismo indicador (píldora + atenuado) que ya usa la navegación de mes/vista.
+
+### Corregido
+- **Cambio de vista Mes → Semana/Día no respondía a la primera**: `STATE.isLoading` (compartido entre el arranque de la app y los botones Mes/Semana/Día) no se liberaba hasta que terminaban también tareas de fondo no relacionadas con el calendario (resumen de presencia, precarga de Fichajes, caché de empleados). Si se cambiaba de vista justo en ese hueco, el clic no hacía nada. Ahora se libera en cuanto el calendario tiene datos reales.
+- **Cambio de empresa estando en Vacaciones podía quedarse colgado en "Cargando datos de X…"**: si quedaba una carga anterior en vuelo sin terminar, `loadInitialData()` se convertía en un no-op silencioso y nada sustituía el placeholder de cambio de empresa. Se fuerza el reseteo de los flags de carga antes de arrancar la carga de la empresa nueva.
+- **Animación del calendario apenas se notaba**: el contenedor del grid tenía su propia transición de opacidad que competía con la de cada celda y la disolvía. Se decoupla la una de la otra y se amplía el recorrido/duración específico del calendario.
+- **Vista Día no ocupaba todo el ancho disponible**: se quita el límite de 760px centrado (decisión de una versión anterior); ahora se estira igual que mes/semana.
+
 ## [1.9.41] — 2026-07-01
 
 ### Corregido

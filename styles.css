@@ -2164,6 +2164,19 @@ button[disabled] {
   gap: 4px; flex: 1;
 }
 
+/* Ola diagonal del calendario: mismo mecanismo que .row-entering (fila que
+   entra en Balances/Fichajes) pero con más recorrido — las celdas del
+   calendario son mucho más grandes que una fila de tabla, así que el
+   desplazamiento/duración de la versión genérica apenas se notaba. Mayor
+   especificidad que .row-entering para no tocar Balances/Fichajes. */
+.calendar-grid .cal-day.row-entering {
+  animation: cal-day-enter 0.42s ease-out both;
+}
+@keyframes cal-day-enter {
+  from { opacity: 0; transform: translateY(14px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 .cal-day {
   background: var(--bg-card-solid);
   border: 1px solid var(--border);
@@ -2254,10 +2267,6 @@ button[disabled] {
   font-size: 0.72rem; padding: 2px 6px;
 }
 
-.calendar-grid.cal-view-day {
-  max-width: 760px;
-  margin: 0 auto;
-}
 .calendar-grid.cal-view-day .cal-day {
   min-height: 300px;
   padding: 16px;
@@ -3593,10 +3602,11 @@ button[disabled] {
   100% { background-color: transparent; }
 }
 
-/* Fila que acaba de entrar en la lista (revelado por filas en Balances, o
-   cascada de entrada al llegar datos nuevos en Fichajes): entra con un
-   fundido + deslizamiento corto, en vez de aparecer seca de golpe. Selector
-   genérico: se usa tanto en .balance-row como en .row-expandable. */
+/* Fila/celda que acaba de entrar (revelado por filas en Balances, cascada de
+   entrada al llegar datos nuevos en Fichajes, u onda diagonal por celda en el
+   calendario de Vacaciones): entra con un fundido + deslizamiento corto, en
+   vez de aparecer seca de golpe. Selector genérico: se usa en .balance-row,
+   .row-expandable y .cal-day. */
 .row-entering {
   animation: balance-row-enter 0.32s ease-out both;
 }

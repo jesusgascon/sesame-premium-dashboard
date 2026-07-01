@@ -487,6 +487,17 @@ function switchCompany(cid) {
   renderTeamPresenceSummary([]);
 
   // Cargamos TODO de la nueva empresa (Metadatos + Calendario)
+  // Guarda: loadInitialData() se protege contra reentrada con
+  // STATE._bootstrapping, y loadData() (los botones Mes/Semana/Día y
+  // prev/next) con STATE.isLoading. Si al cambiar de empresa quedaba una
+  // carga anterior en vuelo (de la empresa vieja) sin haber terminado su
+  // finally todavía, loadInitialData() se convertía en un no-op silencioso:
+  // el placeholder "Cargando datos de X…" de showCompanySwitchLoading() se
+  // quedaba congelado para siempre porque nada llegaba a sustituirlo.
+  // Cualquier carga en vuelo de la empresa anterior ya no sirve para la
+  // nueva, así que se fuerza aquí el reseteo de ambos flags antes de arrancar.
+  STATE._bootstrapping = false;
+  STATE.isLoading = false;
   loadInitialData();
   startAutoRefresh();
 }
@@ -1338,7 +1349,10 @@ async function persistConfigToServer(name, brandColor, logoUrl, masterPassword) 
 // ── Load data ──────────────────────────────────────────────────────────────
 // ── Load data ──────────────────────────────────────────────────────────────
 async function loadInitialData() {
-  if (STATE.isLoading) return;
+  // Reentrada propia con un flag dedicado (no STATE.isLoading): ver más abajo
+  // por qué se separan.
+  if (STATE._bootstrapping) return;
+  STATE._bootstrapping = true;
   STATE.isLoading = true;
 
   // Hidratar empleados desde cache local (TTL 1h) para mostrar la app de
@@ -1347,7 +1361,14 @@ async function loadInitialData() {
   if (cacheHit) {
     // Cache cogido: el overlay se oculta ya y de forma instantánea (sin fundido)
     // — la app tiene datos para renderizar y así no se cruza con las barras.
+    // Pero el calendario (#calendar-grid) sigue vacío hasta que termine el
+    // fetch de verdad más abajo (loadDataInternal): sin nada aquí, se veía la
+    // tarjeta del calendario en blanco unos instantes. Reutilizamos el mismo
+    // loader in-situ (píldora + dim) que ya usa la navegación de mes/vista;
+    // renderCalendar() lo detecta (is-month-loading) y hace crecer las celdas
+    // con la misma ola diagonal en cuanto llegan los datos.
     showLoading(false, true);
+    setCalendarLoading(true);
   } else {
     showLoading(true);
     STATE.allEmployees.clear();
@@ -1416,6 +1437,21 @@ async function loadInitialData() {
 
     // 5. Initial calendar load
     await loadDataInternal();
+    // Apaga la píldora/dim que se encendió arriba en el hueco de la caché de
+    // empleados (no-op si nunca se encendió). renderCalendar() ya quitó el
+    // dim del grid al pintar; esto solo cierra la píldora y reactiva prev/next.
+    setCalendarLoading(false);
+    // El calendario ya está listo con datos reales: liberamos aquí
+    // STATE.isLoading (y no al final de la función, con el resto de tareas de
+    // fondo que quedan abajo). loadData()/reloadCalendarSilent() —los botones
+    // Mes/Semana/Día y prev/next— comparten ese mismo flag y se auto-descartan
+    // si ya está a true. Antes, si el usuario cambiaba de vista justo en el
+    // hueco entre "el calendario ya se ve" y que terminaran el resumen de
+    // presencia + la precarga de Fichajes (unos cientos de ms más), el clic no
+    // hacía nada — daba la impresión de que "la primera vez no responde".
+    // STATE._bootstrapping sigue en true y sigue evitando que loadInitialData()
+    // se reentre mientras tanto.
+    STATE.isLoading = false;
     await refreshPresenceSummaryFromTodaySignings();
 
     // 6. Sincronizar Módulo de Fichajes si está activo
@@ -1433,6 +1469,7 @@ async function loadInitialData() {
       showSetupError(e.message);
     }
   } finally {
+    STATE._bootstrapping = false;
     STATE.isLoading = false;
     showLoading(false);
   }

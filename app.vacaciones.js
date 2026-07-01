@@ -273,6 +273,33 @@ function renderCalendar() {
   const grid = $('calendar-grid');
   grid.innerHTML = '';
 
+  // Cascada diagonal de entrada: solo al terminar una carga real de mes/vista
+  // (reloadCalendarSilent deja la clase is-month-loading puesta hasta que este
+  // render corre dentro de loadData().finally), nunca al re-renderizar por un
+  // toggle de filtro o de empleado visible, para no repetir la animación cada
+  // vez que se pulsa un checkbox.
+  const wrapper = document.querySelector('.calendar-wrapper');
+  const animateEntrance = !!wrapper && wrapper.classList.contains('is-month-loading');
+  if (animateEntrance) {
+    // reloadCalendarSilent() solo quita is-month-loading en el .finally(), unos
+    // milisegundos después de este render: si lo dejamos así, el grid entero
+    // pasa de opacity 0.45 a 1 (transición propia de 0.25s) casi a la vez que
+    // cada celda hace su propio fundido — como la opacidad de una celda se
+    // multiplica por la del contenedor, la ola diagonal quedaba disuelta
+    // dentro de ese brillo general y apenas se notaba. Se quita aquí, ya,
+    // para que el grid ya esté a opacidad plena cuando entran las celdas:
+    // la única animación visible pasa a ser la ola celda a celda.
+    wrapper.classList.remove('is-month-loading');
+  }
+  let cellIndex = 0;
+  const nextDiagIndex = () => {
+    if (!animateEntrance) return -1;
+    const col = cellIndex % 7;
+    const row = Math.floor(cellIndex / 7);
+    cellIndex += 1;
+    return row + col;
+  };
+
   // Clase de vista para escalar celdas/contenido por CSS y cabecera coherente
   grid.classList.remove('cal-view-month', 'cal-view-week', 'cal-view-day');
   grid.classList.add(`cal-view-${STATE.calView}`);
@@ -284,7 +311,7 @@ function renderCalendar() {
 
   if (STATE.calView === 'day') {
     grid.style.gridTemplateColumns = '1fr';
-    grid.appendChild(buildDayCell(new Date(STATE.currentDate), false));
+    grid.appendChild(buildDayCell(new Date(STATE.currentDate), false, nextDiagIndex()));
     return;
   }
 
@@ -293,7 +320,7 @@ function renderCalendar() {
     const range = getWeekRange(STATE.currentDate);
     let curr = new Date(range.from);
     for (let i = 0; i < 7; i++) {
-      grid.appendChild(buildDayCell(new Date(curr), false));
+      grid.appendChild(buildDayCell(new Date(curr), false, nextDiagIndex()));
       curr.setDate(curr.getDate() + 1);
     }
     return;
@@ -313,13 +340,13 @@ function renderCalendar() {
   for (let i = startDow - 2; i >= 0; i--) {
     const day = prevMonthDays - i;
     const d = new Date(y, m-1, day);
-    grid.appendChild(buildDayCell(d, true));
+    grid.appendChild(buildDayCell(d, true, nextDiagIndex()));
   }
 
   // Current month
   for (let d = 1; d <= daysInMonth; d++) {
     const date = new Date(y, m, d);
-    grid.appendChild(buildDayCell(date, false));
+    grid.appendChild(buildDayCell(date, false, nextDiagIndex()));
   }
 
   // Next month fill to complete rows
@@ -327,11 +354,11 @@ function renderCalendar() {
   const remaining  = Math.ceil(totalCells / 7) * 7 - totalCells;
   for (let d = 1; d <= remaining; d++) {
     const date = new Date(y, m+1, d);
-    grid.appendChild(buildDayCell(date, true));
+    grid.appendChild(buildDayCell(date, true, nextDiagIndex()));
   }
 }
 
-function buildDayCell(date, otherMonth) {
+function buildDayCell(date, otherMonth, diagIndex = -1) {
   const dateStr = fmtDate(date);
   const dayOfWeek = date.getDay(); // 0=Sun,6=Sat
   const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
@@ -344,7 +371,13 @@ function buildDayCell(date, otherMonth) {
     + (otherMonth ? ' other-month' : '')
     + (isWeekend  ? ' weekend'     : '')
     + (isHoliday  ? ' holiday'     : '')
-    + (isToday(dateStr) ? ' today' : '');
+    + (isToday(dateStr) ? ' today' : '')
+    + (diagIndex >= 0 ? ' row-entering' : '');
+  // Onda diagonal: retardo proporcional a fila+columna (tope 380ms) para que
+  // el mes se "revele" celda a celda en vez de aparecer todo de golpe.
+  if (diagIndex >= 0) {
+    cell.style.animationDelay = `${Math.min(diagIndex * 38, 380)}ms`;
+  }
 
   let html = `<div class="day-num">${date.getDate()}</div>`;
   if (isHoliday) {
