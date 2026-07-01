@@ -448,6 +448,23 @@ function switchCompany(cid) {
     if (typeof FichajesModule.cancelBalanceWarmup === 'function') {
       FichajesModule.cancelBalanceWarmup();
     }
+    // Si estamos viendo Balances, resetOfficialWorkedHoursState() deja
+    // officialHoursBagLoading en false (aún no hemos empezado a cargar la
+    // empresa nueva). Eso abre un hueco durante loadInitialData(): sus
+    // refreshAllViews() intermedios (de Vacaciones) también repintan esta
+    // tabla vía FichajesModule.renderTable(), y sin la guarda de carga activa
+    // se colaba un balance real a 0h para todos los empleados antes de que
+    // loadData() arrancara la carga oficial. Forzamos aquí la fase 'local'
+    // para mantener cerrada la puerta hasta entonces.
+    if (FichajesModule.currentView === 'balance') {
+      FichajesModule.officialHoursBagLoading = true;
+      FichajesModule.officialHoursBagProgress = {
+        ...(FichajesModule.officialHoursBagProgress || {}),
+        phase: 'local',
+        total: 0,
+        done: 0
+      };
+    }
   }
 
   // Limpiar caché de rutas y modo de empresa (cada empresa puede tener permisos distintos)
@@ -498,7 +515,16 @@ function showCompanySwitchLoading(companyName) {
   const stats = document.getElementById('stats-container');
   if (stats) stats.innerHTML = fullWidth;
   const tbody = document.getElementById('signings-tbody');
-  if (tbody) tbody.innerHTML = `<tr><td colspan="4" style="border:none;background:none;padding:0;">${loader}</td></tr>`;
+  if (tbody) {
+    // En Balances usamos el panel unificado ("Cargando balances de X...") en
+    // vez de este loader genérico con anillo girando, para que el cambio de
+    // empresa se vea igual que el resto de animaciones de carga de Balances.
+    if (typeof FichajesModule !== 'undefined' && FichajesModule.currentView === 'balance' && typeof FichajesModule.renderBalanceWarmup === 'function') {
+      FichajesModule.renderBalanceWarmup();
+    } else {
+      tbody.innerHTML = `<tr><td colspan="4" style="border:none;background:none;padding:0;">${loader}</td></tr>`;
+    }
+  }
 }
 
 /**
@@ -511,7 +537,7 @@ function startAutoRefresh() {
     const canRefresh = isAppVisible && !STATE.isLoading && STATE.companyId && (STATE.token || hasProxyUnlockSession());
     if (!canRefresh) return;
 
-    if (STATE.currentModule === 'fichajes') {
+    if (STATE.currentModule === 'fichajes' || STATE.currentModule === 'balances') {
       if (typeof FichajesModule !== 'undefined' && FichajesModule.initialized) {
         await FichajesModule.loadData(true, { silent: true });
       }
@@ -731,6 +757,27 @@ function switchModule(module, options = {}) {
         FichajesModule.cancelBalanceWarmup();
         FichajesModule.loadData();
       }
+    } else if (requestedModule === 'balances') {
+      // Arranque de la app aterrizando directamente en Balances (recarga de
+      // página con ese módulo guardado): este primer switchModule() se llama
+      // con skipLoad para pintar el layout antes de loadInitialData(), pero
+      // sin esto el usuario vería la tabla de Fichajes vacía (cabeceras
+      // "Empleado/Fecha/Horas") durante ese hueco en vez del panel de carga.
+      FichajesModule.renderBalanceWarmup();
+      // renderBalanceWarmup() solo pinta un frame estático: si loadInitialData()
+      // tiene empleados en caché (loadEmployeesCache), sus refreshAllViews()
+      // intermedios repintan esta misma tabla vía FichajesModule.renderTable()
+      // antes de que loadData() arranque de verdad. Sin la puerta cerrada
+      // (officialHoursBagLoading=true, fase 'local'), esos repintados colaban un
+      // balance real con todos los empleados a 0h. Mismo arreglo que en
+      // switchCompany() para el mismo problema.
+      FichajesModule.officialHoursBagLoading = true;
+      FichajesModule.officialHoursBagProgress = {
+        ...(FichajesModule.officialHoursBagProgress || {}),
+        phase: 'local',
+        total: 0,
+        done: 0
+      };
     }
   } else {
     FichajesModule.cancelBalanceWarmup();
@@ -892,7 +939,21 @@ async function startApp() {
   });
   // El giro del icono lo gestiona el ciclo de vida de loadData (ver
   // setRefreshSpinning), así también gira en el auto-refresco silencioso.
-  $('refresh-btn').addEventListener('click', () => loadData(true));
+  // Este botón llamaba siempre a la carga global de Vacaciones, sin mirar
+  // qué módulo está activo: en Fichajes/Balances eso solo repintaba la tabla
+  // con los datos ya cargados (refreshAllViews) sin relanzar la carga real,
+  // así que en Balances nunca se veía la animación nueva ni se refrescaban
+  // las horas oficiales. Hay que enrutar al módulo activo, igual que ya hace
+  // el auto-refresco silencioso (startAutoRefresh).
+  $('refresh-btn').addEventListener('click', () => {
+    if (STATE.currentModule === 'fichajes' || STATE.currentModule === 'balances') {
+      if (typeof FichajesModule !== 'undefined' && FichajesModule.initialized) {
+        FichajesModule.loadData(true);
+      }
+      return;
+    }
+    loadData(true);
+  });
   $('logout-btn').addEventListener('click', () => logout());
   initMonthPickers();
 

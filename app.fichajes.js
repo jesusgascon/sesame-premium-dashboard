@@ -144,33 +144,22 @@ const FichajesModule = {
     if (theoreticEl) theoreticEl.textContent = '--';
 
     const { start, end } = this.getCurrentRangeKeys();
-    const scopeLabel = this.isBalanceMonthScope() ? 'mes' : 'ejercicio';
-    const total = this.getBalanceEmployeeIds().length || STATE.allEmployees.size || 0;
 
-    const skeletonRows = Array(6).fill(0).map(() => `
-      <tr class="balance-warmup-skeleton-row">
-        <td><span></span></td>
-        <td><span></span></td>
-        <td><span></span></td>
-        <td><span></span></td>
-        <td><span></span></td>
-      </tr>
-    `).join('');
-
-    tbody.innerHTML = `
-      <tr class="balance-warmup-row">
-        <td colspan="5">
-          <div class="balance-progress-mini" role="status" aria-live="polite">
-            <div class="balance-progress-mini-row">
-              <span class="balance-progress-mini-phase">Abriendo balance ${escapeHTML(scopeLabel)} · ${escapeHTML(start)} → ${escapeHTML(end)}</span>
-              <span class="balance-progress-mini-count"><b>0</b><i>/ ${total}</i></span>
-            </div>
-            <div class="balance-progress-hairline is-indeterminate" aria-hidden="true"><span></span></div>
-          </div>
-        </td>
-      </tr>
-      ${skeletonRows}
-    `;
+    // Mismo panel "Cargando balances de <empresa>…" que se muestra durante toda
+    // la fase 'local' (ver renderBalanceEmptyLoading). Antes este warmup tenía
+    // su propio texto ("Abriendo balance...") que se veía ~250ms y luego
+    // cambiaba de golpe al mensaje real: se sentía como 2 animaciones distintas
+    // en vez de una sola. Se fuerza aquí un progreso 'local' fresco (no el que
+    // haya quedado de la carga anterior) para que el primer pintado ya sea el
+    // definitivo.
+    this.officialHoursBagProgress = {
+      ...(this.officialHoursBagProgress || {}),
+      phase: 'local',
+      total: this.getBalanceEmployeeIds().length || STATE.allEmployees.size || 0,
+      done: 0,
+      range: `${start} -> ${end}`
+    };
+    this.renderBalanceEmptyLoading(tbody);
 
     this.requestBalanceTopPin();
   },
@@ -1143,7 +1132,11 @@ const FichajesModule = {
       // 0. Cache check: Si ya tenemos los datos en esta sesión, mostrarlos inmediatamente
       const cacheKey = `ssm_fichajes_cache_${STATE.companyId}_${this.currentView}_${start}_${end}`;
       const cached = sessionStorage.getItem(cacheKey);
-      if (cached && !ignoreCache && !isSilent) {
+      // Balance nunca escribe en esta caché (ver más abajo, "GUARDAR EN CACHÉ"):
+      // sus datos oficiales tardan en llegar y no queremos pintar un instante
+      // los valores locales a 0 antes de que arranque prepareOfficialWorkedHoursLoad.
+      // Si queda una entrada residual de una sesión antigua, se ignora aquí.
+      if (cached && !ignoreCache && !isSilent && this.currentView !== 'balance') {
         try {
           const parsed = JSON.parse(cached);
           // Validar el sello de empresa: entradas sin sello (formato antiguo) o
@@ -2411,18 +2404,27 @@ const FichajesModule = {
       this.hoursBagRuleHistoryMap = new Map();
       this.hoursBagRuleHistoryErrors = new Map();
       this.hoursBagRuleHistoryError = '';
-      this.officialHoursBagLoading = false;
+      // Antes se ponía loading=false y phase='done' aquí mismo, lo que abría
+      // la puerta de renderTable() al instante: como los fichajes reales (de
+      // los que sale el cálculo local) todavía no han llegado, se veía un
+      // balance a 0h para todo el mundo hasta que terminaba ese fetch. Ahora
+      // se deja "cargando" con fase 'local' igual que el caso normal, y es
+      // startOfficialWorkedHoursLoad quien lo cierra justo después de que
+      // lleguen los datos reales (ver más abajo, primeras líneas de esa fn).
+      this.officialHoursBagLoading = true;
       this.officialHoursBagProgress = {
         endpoint: 'calculo-local',
         range: `${start} -> ${end}`,
         total: estimatedTotal,
-        done: estimatedTotal,
-        pending: 0,
+        done: 0,
+        pending: estimatedTotal,
         employeeIds,
-        phase: 'done',
-        activeEmployeeIds: [],
+        phase: 'local',
+        activeEmployeeIds: employeeIds.slice(0, 6),
+        localPulse: 10,
         lastError: 'Sesame Statistics omitido por el usuario'
       };
+      this.startBalanceLocalPulse();
       return;
     }
 
@@ -2799,11 +2801,69 @@ const FichajesModule = {
     this.officialHoursBagJustResolvedIds = new Set();
   },
 
+  // Variante de revealOfficialResultsGradually() para el modo "solo cálculo
+  // local" (Sesame Statistics omitido): aquí no hay resultMap/errorsMap que
+  // fusionar (las cifras ya están en this.data desde el fetch normal), solo
+  // hace falta ir soltando el contador done/total para que renderTable()
+  // revele las filas de una en una en vez de todas de golpe.
+  async revealLocalBalanceGradually(employeeIds, runId, updateBalanceProgress) {
+    const total = employeeIds.length;
+    if (total === 0) return;
+    const steps = Math.min(total, 30);
+    const batchSize = Math.max(1, Math.ceil(total / steps));
+
+    for (let i = 0; i < total; i += batchSize) {
+      if (runId !== this.officialHoursBagRunId || this.currentView !== 'balance') return;
+
+      const batch = employeeIds.slice(i, i + batchSize);
+      const done = Math.min(total, i + batchSize);
+      this.officialHoursBagJustResolvedIds = new Set(batch.map(String));
+      updateBalanceProgress('local-reveal', {
+        done,
+        total,
+        pending: total - done,
+        activeEmployeeIds: employeeIds.slice(done, done + 5)
+      });
+
+      if (done < total) {
+        await new Promise(resolve => setTimeout(resolve, 170));
+      }
+    }
+    this.officialHoursBagJustResolvedIds = new Set();
+  },
+
   async startOfficialWorkedHoursLoad(start, end) {
     if (this.currentView !== 'balance' || !this.officialHoursBagLoading) return;
 
     const runId = this.officialHoursBagRunId;
     const employeeIds = this.officialHoursBagProgress.employeeIds || this.getBalanceEmployeeIds();
+
+    // Sesame Statistics omitido por el usuario: no hay nada que pedir, pero
+    // prepareOfficialWorkedHoursLoad() dejó la fase en 'local' a propósito
+    // para mantener cerrada la puerta del loader mientras llegaban los
+    // fichajes reales. Ahora que ya están (este método se llama justo
+    // después de esa carga), se revela el balance calculado localmente fila
+    // a fila (igual que el resto de Balances) y luego se cierra la carga.
+    if (this.isOfficialWorkedHoursSkipped()) {
+      const updateLocalProgress = (phase, extra = {}) => {
+        if (runId !== this.officialHoursBagRunId || this.currentView !== 'balance') return;
+        this.officialHoursBagProgress = {
+          ...(this.officialHoursBagProgress || {}),
+          phase,
+          range: `${start} -> ${end}`,
+          employeeIds,
+          ...extra
+        };
+        this.renderTable();
+      };
+      this.stopBalanceLocalPulse();
+      await this.revealLocalBalanceGradually(employeeIds, runId, updateLocalProgress);
+      if (runId !== this.officialHoursBagRunId || this.currentView !== 'balance') return;
+      this.officialHoursBagLoading = false;
+      updateLocalProgress('done', { done: employeeIds.length, total: employeeIds.length, pending: 0 });
+      return;
+    }
+
     if (employeeIds.length === 0) {
       this.stopBalanceLocalPulse();
       this.officialHoursBagLoading = false;
@@ -2837,11 +2897,19 @@ const FichajesModule = {
 
       const result = await this.loadOfficialWorkedHoursReport(start, end, employeeIds, {
         runId,
+        // Ojo: en empresas con más de 40 empleados esta petición se pagina en
+        // bloques de 40, y este callback avisa al terminar cada bloque real.
+        // Si dejáramos que su "done" (a saltos de 40) controlara también el
+        // revelado de filas, se verían aparecer de golpe en esos bloques y
+        // LUEGO el contador retrocedería a 0 al empezar revealOfficialResultsGradually
+        // (que fusiona los resultados y sí revela uno a uno). Por eso aquí solo
+        // se actualizan total/pending/lastError informativos, sin tocar "done":
+        // el revelado de filas queda 100% en manos del paso gradual de abajo.
         onProgress: progress => {
-          const activeStart = Math.min(Number(progress.done || 0), employeeIds.length);
           updateBalanceProgress('statistics', {
-            ...progress,
-            activeEmployeeIds: employeeIds.slice(activeStart, activeStart + 5)
+            total: progress.total,
+            pending: progress.pending,
+            lastError: progress.lastError
           });
         }
       });
@@ -6148,9 +6216,11 @@ const FichajesModule = {
         ? 'Aplicando bolsa de horas'
         : phase === 'local'
           ? 'Preparando base local'
-          : officialSkipped
-            ? 'Modo cálculo local'
-            : 'Balances listos';
+          : phase === 'local-reveal'
+            ? 'Calculando balance local'
+            : officialSkipped
+              ? 'Modo cálculo local'
+              : 'Balances listos';
     // Set usado más abajo para resaltar (barrido sutil) la fila del empleado
     // que se está procesando ahora mismo (.balance-row.is-active).
     const activeEmployeeIds = new Set((progressState.activeEmployeeIds || []).map(String));
@@ -6234,7 +6304,7 @@ const FichajesModule = {
     // la lista crece de una en una según van resolviéndose los empleados (ver
     // revealOfficialResultsGradually), en vez de enseñar las filas completas
     // desde el principio. El resto se cubre con skeleton hasta que le toca.
-    const isRevealingRows = this.officialHoursBagLoading && phase === 'statistics';
+    const isRevealingRows = this.officialHoursBagLoading && (phase === 'statistics' || phase === 'local-reveal');
     const visibleRows = isRevealingRows ? rows.slice(0, Math.min(rows.length, progressDone)) : rows;
     const pendingSkeletonRows = isRevealingRows
       ? Array(rows.length - visibleRows.length).fill(0).map(() => `

@@ -6,6 +6,22 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/) y el proy
 [Versionado Semántico](https://semver.org/lang/es/). El detalle ampliado de cada versión vive en el
 [README](./README.md#-changelog-detallado).
 
+## [1.9.41] — 2026-07-01
+
+### Corregido
+- **Balances mostraba un instante de datos a 0h / mensaje de Fichajes al entrar o refrescar**: se han cerrado, uno a uno, todos los huecos por los que se podía colar contenido "crudo" antes de la animación de carga de Balances:
+  - La lectura de la caché de sesión (pensada para Fichajes) también se aplicaba a Balances, pintando un instante datos antiguos con 0h. Ahora se excluye explícitamente.
+  - Al cambiar de empresa estando en Balances, el estado de carga se reseteaba a "no cargando" antes de empezar la carga real, dejando un hueco en el que los refrescos de fondo de Vacaciones (`refreshAllViews`) pintaban un balance real a 0h. Ahora se mantiene la fase "cargando" hasta que la carga real toma el relevo.
+  - Ese mismo hueco existía al arrancar la app o recargar la página estando ya en Balances.
+  - El botón "Actualizar" de Fichajes/Balances y el auto-refresco silencioso de 5 min no distinguían el módulo activo (`balances`) y podían disparar la carga equivocada o ninguna.
+  - `refreshPresenceSummaryFromTodaySignings()` (calcula el resumen de presencia "Trab./Pausa/Fuera") cambiaba brevemente la vista interna de Fichajes a "día" incluso estando en Balances, lo que hacía aparecer el mensaje "No hay fichajes que coincidan..." (propio de Fichajes) en medio de la carga de Balances.
+  - En empresas con "Sesame Statistics" desactivado (solo cálculo local), la fase de carga se cerraba antes de que llegaran los fichajes reales, mostrando el balance a 0h para todos.
+- **Revelado a saltos en empresas grandes**: en empresas con más de 40 empleados (la consulta a Sesame se pagina en bloques de 40), el contador avanzaba a saltos con cada bloque real y luego retrocedía a 0 para el revelado fila a fila artificial. Ahora ese aviso de bloque solo actualiza información interna, sin mover el contador visible; el revelado queda siempre suave, sea cual sea el tamaño de la empresa.
+
+### Mejorado
+- **Panel de carga de Balances unificado**: el aviso inicial al entrar en Balances ("Abriendo balance...") y el panel que se muestra mientras se preparan los datos ya son el mismo componente, sin cambiar de aspecto a mitad de carga.
+- **Revelado fila a fila también en el modo "solo cálculo local"**: antes aparecían todas las filas de golpe al terminar; ahora crecen una a una igual que con Sesame Statistics.
+
 ## [1.9.34] — 2026-07-01
 
 ### Corregido

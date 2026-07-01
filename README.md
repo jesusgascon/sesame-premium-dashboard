@@ -5,7 +5,7 @@
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Frontend](https://img.shields.io/badge/frontend-Vanilla%20JS%20(ES6+)-yellow.svg)
 ![Backend](https://img.shields.io/badge/backend-Python%20Proxy-green.svg)
-![Version](https://img.shields.io/badge/version-1.9.18-success.svg)
+![Version](https://img.shields.io/badge/version-1.9.41-success.svg)
 ![Status](https://img.shields.io/badge/status-Production%20Ready-success.svg)
 
 ---
@@ -277,6 +277,15 @@ Para una inmersión profunda en los algoritmos de cruce de datos, heurísticas d
 ---
 
 ## 📜 Changelog Detallado
+
+### [v1.9.41] — 2026-07-01 | *Balances: cierre de todos los huecos de carga "cruda"*
+- **Corregido**: caché de sesión de Fichajes se leía también en Balances, pintando un instante datos antiguos a 0h.
+- **Corregido**: al cambiar de empresa estando en Balances, un hueco entre el reseteo de estado y el arranque de la carga real dejaba que los refrescos de fondo de Vacaciones pintaran un balance a 0h. Mismo hueco existía al arrancar/recargar la app ya en Balances.
+- **Corregido**: el botón "Actualizar" y el auto-refresco silencioso de 5 min no reconocían el módulo `balances`, disparando la carga equivocada.
+- **Corregido**: `refreshPresenceSummaryFromTodaySignings()` cambiaba brevemente la vista interna a "día" incluso estando en Balances, colando el mensaje "No hay fichajes que coincidan..." en medio de la carga.
+- **Corregido**: en empresas con Sesame Statistics desactivado (solo cálculo local), el balance se mostraba a 0h antes de que llegaran los fichajes reales.
+- **Corregido**: en empresas de más de 40 empleados, el contador de progreso avanzaba a saltos y luego retrocedía a 0 antes del revelado fila a fila; ahora el revelado es siempre suave, sea cual sea el tamaño de la empresa.
+- **Mejorado**: unificado el panel de "abriendo balance" con el de "cargando balance", sin cambio de aspecto a mitad de carga. El modo "solo cálculo local" también revela las filas una a una en vez de todas de golpe.
 
 ### [v1.9.34] — 2026-07-01 | *Balances sin 0h prematuros + revelado fila a fila*
 - **Corregido**: Balances mostraba filas de empleados a **0h** mientras el cálculo local aún no estaba listo (se corregían solas segundos después). Ahora, mientras esa fase no está lista, se muestra un loader dedicado («Cargando balances de {empresa}… Un momento, recuperando información de Sesame») en vez de datos poco fiables.

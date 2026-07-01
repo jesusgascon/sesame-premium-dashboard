@@ -5,7 +5,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.9.34';
+const APP_VERSION = '1.9.41';
 
 // ─── Debug Mode ───────────────────────────────────────────────────────────────
 // false en producción (silencia console.log/info/warn).
@@ -2036,7 +2036,14 @@ function renderTeamPresenceSummary(presenceList = STATE.presenceList, options = 
 }
 
 async function refreshPresenceSummaryFromTodaySignings() {
-  if (STATE.currentModule === 'fichajes') return;
+  // Excluía solo 'fichajes', no 'balances': con Balances abierto, esta función
+  // igualmente ponía FichajesModule.currentView='day' un instante (para pedir
+  // los fichajes de hoy y sacar el resumen de presencia), disparando un
+  // renderTable() con la vista de Fichajes de por medio — de ahí el mensaje
+  // "No hay fichajes que coincidan..." colándose antes de la animación de
+  // Balances. Balances comparte módulo/tabla con Fichajes, así que también
+  // hay que excluirlo aquí.
+  if (STATE.currentModule === 'fichajes' || STATE.currentModule === 'balances') return;
   if (typeof FichajesModule === 'undefined' || FichajesModule.isLoading) return;
   if (!STATE.companyId || !(STATE.token || hasProxyUnlockSession())) return;
 

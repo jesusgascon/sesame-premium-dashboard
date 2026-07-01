@@ -3324,12 +3324,6 @@ button[disabled] {
   min-width: 320px;
 }
 
-.balance-warmup-row td {
-  padding: 14px;
-  background: linear-gradient(135deg, rgba(45, 212, 191, 0.08), rgba(96, 165, 250, 0.06));
-  border-bottom: 1px solid rgba(96, 165, 250, 0.16);
-}
-
 /* ============================================================
    ESTADO DE CARGA — "Skeleton vivo + contador fino" (2026)
    Un único componente reutilizado en los 3 puntos donde Balances muestra
