@@ -257,8 +257,14 @@ function showApp() {
 
 // NOTE: showSetup() is defined earlier in the file (with editData parameter support)
 
-function showLoading(show) {
-  $('loading-overlay').classList.toggle('hidden', !show);
+function showLoading(show, instant = false) {
+  const el = $('loading-overlay');
+  if (!el) return;
+  // Ocultado instantáneo (sin fundido) para el arranque con caché: evita que el
+  // overlay se disuelva durante 0.4s por encima de las barras de progreso que ya
+  // están corriendo debajo (era lo que hacía ver "logo + 2 barras" a la vez).
+  el.classList.toggle('loading-overlay--instant', instant && !show);
+  el.classList.toggle('hidden', !show);
 }
 
 // ── Loader LOCAL del calendario (Vacaciones) ───────────────────────────────

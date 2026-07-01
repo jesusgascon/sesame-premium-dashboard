@@ -344,6 +344,17 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return False
         return True
 
+    def end_headers(self):
+        # El index.html nunca se cachea: así el navegador siempre relee la
+        # versión actual y el rebusteo ?v=X.Y.Z de los .js/.css surte efecto
+        # sin recargas en duro. Los assets versionados sí pueden cachearse.
+        parsed = urllib.parse.urlparse(self.path).path
+        if parsed in ('/', '/index.html'):
+            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+            self.send_header('Pragma', 'no-cache')
+            self.send_header('Expires', '0')
+        super().end_headers()
+
     # ── CORS preflight ───────────────────────────────────────────────────
     def do_OPTIONS(self):
         self.send_response(200)

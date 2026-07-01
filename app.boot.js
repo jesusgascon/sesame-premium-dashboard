@@ -1284,9 +1284,9 @@ async function loadInitialData() {
   // inmediato. El fetch real refresca después en background.
   const cacheHit = loadEmployeesCache();
   if (cacheHit) {
-    // Cache cogido: el overlay de loading se puede ocultar antes — la app
-    // ya tiene datos para renderizar.
-    showLoading(false);
+    // Cache cogido: el overlay se oculta ya y de forma instantánea (sin fundido)
+    // — la app tiene datos para renderizar y así no se cruza con las barras.
+    showLoading(false, true);
   } else {
     showLoading(true);
     STATE.allEmployees.clear();

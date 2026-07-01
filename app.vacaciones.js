@@ -215,7 +215,15 @@ function updateProfileWidgets(user) {
       const percent = Math.min(100, Math.max(0, (used / total) * 100));
 
       if (leftEl) leftEl.textContent = `${left} días`;
-      if (barEl) barEl.style.width = `${percent}%`;
+      if (barEl) {
+        // Rellenar sin barrido de 0→valor: es un medidor de días consumidos, no
+        // una barra de progreso de carga. Así no parece un segundo loader
+        // corriendo a la vez durante el arranque.
+        barEl.style.transition = 'none';
+        barEl.style.width = `${percent}%`;
+        // Restaurar la transición para futuros cambios reales del saldo.
+        requestAnimationFrame(() => { barEl.style.transition = ''; });
+      }
 
       if (subEl) {
         let label = `${used} consumidos de ${total}`;

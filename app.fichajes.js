@@ -34,6 +34,10 @@ const FichajesModule = {
   officialHoursBagErrors: new Map(),
   officialHoursBagLoading: false,
   officialHoursBagRunId: 0,
+  // Ids resueltos en el último "tick" del revelado gradual (ver
+  // revealOfficialResultsGradually): se usa solo para disparar un fundido
+  // breve en esas filas; se pisa en cada tick, no requiere limpieza aparte.
+  officialHoursBagJustResolvedIds: new Set(),
   hoursBagRuleHistoryMap: new Map(),
   hoursBagRuleHistoryErrors: new Map(),
   hoursBagRuleHistoryError: '',
@@ -141,17 +145,9 @@ const FichajesModule = {
 
     const { start, end } = this.getCurrentRangeKeys();
     const scopeLabel = this.isBalanceMonthScope() ? 'mes' : 'ejercicio';
-    const candidateIds = this.getBalanceEmployeeIds({ applySearch: true }).slice(0, 5);
-    const peopleHtml = candidateIds.length ? `
-      <div class="balance-warmup-people">
-        ${candidateIds.map(id => {
-          const info = this.getBalanceEmployeeInfo(id);
-          return `<span title="${escapeHTML(info.name)}">${escapeHTML(info.name)}</span>`;
-        }).join('')}
-      </div>
-    ` : '';
+    const total = this.getBalanceEmployeeIds().length || STATE.allEmployees.size || 0;
 
-    const skeletonRows = Array(4).fill(0).map(() => `
+    const skeletonRows = Array(6).fill(0).map(() => `
       <tr class="balance-warmup-skeleton-row">
         <td><span></span></td>
         <td><span></span></td>
@@ -164,14 +160,12 @@ const FichajesModule = {
     tbody.innerHTML = `
       <tr class="balance-warmup-row">
         <td colspan="5">
-          <div class="balance-warmup-panel" role="status" aria-live="polite">
-            <div class="balance-warmup-orb" aria-hidden="true"></div>
-            <div class="balance-warmup-copy">
-              <strong>Abriendo Balance</strong>
-              <span>Preparando ${escapeHTML(scopeLabel)} ${escapeHTML(start)} - ${escapeHTML(end)}</span>
-              ${peopleHtml}
+          <div class="balance-progress-mini" role="status" aria-live="polite">
+            <div class="balance-progress-mini-row">
+              <span class="balance-progress-mini-phase">Abriendo balance ${escapeHTML(scopeLabel)} · ${escapeHTML(start)} → ${escapeHTML(end)}</span>
+              <span class="balance-progress-mini-count"><b>0</b><i>/ ${total}</i></span>
             </div>
-            <div class="balance-warmup-track" aria-hidden="true"><span></span></div>
+            <div class="balance-progress-hairline is-indeterminate" aria-hidden="true"><span></span></div>
           </div>
         </td>
       </tr>
@@ -238,6 +232,10 @@ const FichajesModule = {
   },
 
   startSigningsTopProgress() {
+    // En Balances el único indicador de carga es el panel "Preparando base
+    // local"; no mostramos además la barra superior (evita ver 2 barras + el
+    // botón girando a la vez).
+    if (this.currentView === 'balance') return;
     const progressBar = $('signings-progress-bar');
     const progressContainer = $('signings-progress-container');
     if (!progressContainer || !progressBar) return;
@@ -251,6 +249,8 @@ const FichajesModule = {
   },
 
   updateSigningsTopProgress(percent) {
+    // Ver startSigningsTopProgress: en Balances no se usa la barra superior.
+    if (this.currentView === 'balance') return;
     const progressBar = $('signings-progress-bar');
     const progressContainer = $('signings-progress-container');
     if (!progressContainer || !progressBar) return;
@@ -305,17 +305,8 @@ const FichajesModule = {
     const rangeLabel = progressState.range || `${start} -> ${end}`;
     const total = Number(progressState.total || this.getBalanceEmployeeIds().length || STATE.allEmployees.size || 0);
     const done = Number(progressState.done || 0);
-    const pending = Math.max(0, Number(progressState.pending ?? total));
-    const activeIds = (progressState.activeEmployeeIds || progressState.employeeIds || this.getBalanceEmployeeIds()).slice(0, 6);
-    const activePeopleHtml = activeIds.length ? `
-      <div class="balance-load-people" aria-label="Empleados en preparacion">
-        <span>Preparando</span>
-        ${activeIds.map(id => {
-          const info = this.getBalanceEmployeeInfo(id);
-          return `<b title="${escapeHTML(info.name)}">${escapeHTML(info.name)}</b>`;
-        }).join('')}
-      </div>
-    ` : '';
+    const isIndeterminate = phase === 'local' || total === 0;
+    const pct = total > 0 ? Math.max(4, Math.round((done / total) * 100)) : 0;
     const skeletonRows = Array(5).fill(0).map(() => `
       <tr class="balance-warmup-skeleton-row">
         <td><span></span></td>
@@ -329,26 +320,14 @@ const FichajesModule = {
     tbody.innerHTML = `
       <tr class="balance-source-audit-row">
         <td colspan="5" style="padding: 12px 14px; background: rgba(45, 212, 191, 0.07); border-bottom: 1px solid rgba(45, 212, 191, 0.16);">
-          <div class="balance-load-panel balance-load-panel-empty">
-            <div class="balance-load-main">
-              <strong class="balance-load-title">${escapeHTML(phaseLabel)}</strong>
-              <span title="${escapeHTML(rangeLabel)}">Preparando rango ${escapeHTML(scopeLabel)}: ${escapeHTML(rangeLabel)}</span>
+          <div class="balance-progress-mini" role="status" aria-live="polite">
+            <div class="balance-progress-mini-row">
+              <span class="balance-progress-mini-phase" title="${escapeHTML(rangeLabel)}">${escapeHTML(phaseLabel)}</span>
+              <span class="balance-progress-mini-count"><b>${done}</b><i>/ ${total}</i></span>
             </div>
-            <div class="balance-load-metrics">
-              <span><strong>${done}</strong> procesados</span>
-              <span><strong>${total}</strong> empleados</span>
-              <span><strong>${pending}</strong> pendientes</span>
+            <div class="balance-progress-hairline ${isIndeterminate ? 'is-indeterminate' : ''}" aria-hidden="true">
+              <span${isIndeterminate ? '' : ` style="width:${pct}%"`}></span>
             </div>
-            <div class="balance-load-track balance-load-track-pending" aria-hidden="true">
-              <div class="balance-load-fill"></div>
-            </div>
-            <div class="balance-load-steps">
-              <span class="balance-load-step active">Base local</span>
-              <span class="balance-load-step">Statistics</span>
-              <span class="balance-load-step">Bolsa</span>
-              <span class="balance-load-step">Listo</span>
-            </div>
-            ${activePeopleHtml}
           </div>
         </td>
       </tr>
@@ -1083,7 +1062,10 @@ const FichajesModule = {
   // carga (carga principal + warmup de balance en segundo plano). Idempotente:
   // refleja siempre la verdad, así el icono nunca se queda girando pegado.
   syncRefreshSpinner() {
-    setRefreshSpinning('refresh-signings-btn', !!(this.isLoading || this.officialHoursBagLoading));
+    // En Balances el estado de carga ya lo comunica el panel "Preparando base
+    // local"; no hacemos girar también el botón 🔄 (era la 3ª animación).
+    const spinning = this.currentView !== 'balance' && !!(this.isLoading || this.officialHoursBagLoading);
+    setRefreshSpinning('refresh-signings-btn', spinning);
   },
 
   async loadData(ignoreCache = false, options = {}) {
@@ -2406,6 +2388,7 @@ const FichajesModule = {
       this.officialHoursBagMap = new Map();
       this.officialHoursBagErrors = new Map();
       this.officialHoursBagError = 'Sesame Statistics omitido por el usuario';
+      this.officialHoursBagJustResolvedIds = new Set();
       this.hoursBagRuleHistoryMap = new Map();
       this.hoursBagRuleHistoryErrors = new Map();
       this.hoursBagRuleHistoryError = '';
@@ -2428,6 +2411,7 @@ const FichajesModule = {
     this.officialHoursBagMap = new Map();
     this.officialHoursBagErrors = new Map();
     this.officialHoursBagError = '';
+    this.officialHoursBagJustResolvedIds = new Set();
     this.hoursBagRuleHistoryMap = new Map();
     this.hoursBagRuleHistoryErrors = new Map();
     this.hoursBagRuleHistoryError = '';
@@ -2534,20 +2518,17 @@ const FichajesModule = {
           const rows = Array.isArray(payload?.data)
             ? payload.data
             : (Array.isArray(payload) ? payload : []);
-          const normalizedRows = [];
+          let variantRowsCount = 0;
           rows.forEach(row => {
             const normalized = this.normalizeOfficialWorkedHoursRow({ ...row, queryVariant: variant.label });
             if (normalized?.employeeId) {
               if (!chunkSet.has(String(normalized.employeeId))) return;
               resultMap.set(normalized.employeeId, normalized);
-              normalizedRows.push(normalized);
+              variantRowsCount += 1;
             }
           });
-          variantRows += normalizedRows.length;
+          variantRows += variantRowsCount;
           chunkHadResponse = true;
-          if (normalizedRows.length && typeof options.onRows === 'function') {
-            options.onRows(normalizedRows);
-          }
 
           const meta = payload?.meta || {};
           const currentPage = Number(meta.currentPage ?? page);
@@ -2755,6 +2736,48 @@ const FichajesModule = {
     return { map: resultMap, errors: errorMap, aborted: false, lastError };
   },
 
+  // Aplica los resultados ya recibidos de Sesame Statistics en pequeñas
+  // tandas (máx. ~14 pasos, sea cual sea el tamaño de la empresa) en vez de
+  // volcarlos todos de golpe. `updateBalanceProgress` es la misma función que
+  // ya usa startOfficialWorkedHoursLoad para refrescar fase/contador/render.
+  async revealOfficialResultsGradually(resultMap, errorsMap, employeeIds, runId, updateBalanceProgress) {
+    const total = employeeIds.length;
+    if (total === 0) return;
+    const steps = Math.min(total, 14);
+    const batchSize = Math.max(1, Math.ceil(total / steps));
+
+    for (let i = 0; i < total; i += batchSize) {
+      if (runId !== this.officialHoursBagRunId || this.currentView !== 'balance') return;
+
+      const batch = employeeIds.slice(i, i + batchSize);
+      batch.forEach(id => {
+        const key = String(id);
+        const row = resultMap.get(key);
+        if (row) {
+          this.officialHoursBagMap.set(key, row);
+          this.officialHoursBagErrors.delete(key);
+        } else {
+          const message = errorsMap.get(key);
+          if (message) this.officialHoursBagErrors.set(key, message);
+        }
+      });
+
+      const done = Math.min(total, i + batchSize);
+      this.officialHoursBagJustResolvedIds = new Set(batch.map(String));
+      updateBalanceProgress('statistics', {
+        done,
+        total,
+        pending: total - done,
+        activeEmployeeIds: employeeIds.slice(done, done + 5)
+      });
+
+      if (done < total) {
+        await new Promise(resolve => setTimeout(resolve, 90));
+      }
+    }
+    this.officialHoursBagJustResolvedIds = new Set();
+  },
+
   async startOfficialWorkedHoursLoad(start, end) {
     if (this.currentView !== 'balance' || !this.officialHoursBagLoading) return;
 
@@ -2799,24 +2822,20 @@ const FichajesModule = {
             ...progress,
             activeEmployeeIds: employeeIds.slice(activeStart, activeStart + 5)
           });
-        },
-        onRows: rows => {
-          if (runId !== this.officialHoursBagRunId || this.currentView !== 'balance') return;
-          rows.forEach(row => {
-            if (row?.employeeId) {
-              this.officialHoursBagMap.set(String(row.employeeId), row);
-              this.officialHoursBagErrors.delete(String(row.employeeId));
-            }
-          });
-          this.renderTable();
         }
       });
 
       if (result.aborted || runId !== this.officialHoursBagRunId || this.currentView !== 'balance') return;
 
-      this.officialHoursBagMap = result.map;
-      this.officialHoursBagErrors = result.errors;
       this.officialHoursBagError = result.lastError || '';
+      // Sesame suele devolver el balance oficial de toda la empresa en una
+      // única respuesta (una empresa pequeña cabe en un solo chunk de red), así
+      // que sin este reparto la tabla pasaría de "0/N" a "N/N" en un único
+      // frame. Aquí se revela empleado a empleado, con una pausa breve entre
+      // tandas, para que se note el avance real.
+      await this.revealOfficialResultsGradually(result.map, result.errors, employeeIds, runId, updateBalanceProgress);
+      if (runId !== this.officialHoursBagRunId || this.currentView !== 'balance') return;
+
       updateBalanceProgress('history', {
         done: 0,
         total: employeeIds.length,
@@ -6079,11 +6098,6 @@ const FichajesModule = {
     const rangeLabel = progressState.range || `${this.getCurrentRangeKeys().start} -> ${this.getCurrentRangeKeys().end}`;
     const progressTotal = Math.max(1, Number(progressState.total || rows.length || 1));
     const progressDone = Math.min(progressTotal, Number(progressState.done || 0));
-    const progressLabel = this.officialHoursBagLoading
-      ? (progressState.phase === 'local'
-          ? `Preparando rango ${scopeLabel}: ${rangeLabel}`
-          : `Calculando balances ${progressDone}/${progressTotal}`)
-      : `Balances procesados ${Number(progressState.done || rows.length)}/${Number(progressState.total || rows.length)}`;
     const progressPct = this.officialHoursBagLoading
       ? Math.max(4, Math.round((progressDone / progressTotal) * 100))
       : 100;
@@ -6098,26 +6112,9 @@ const FichajesModule = {
           : officialSkipped
             ? 'Modo cálculo local'
             : 'Balances listos';
-    const phaseSteps = [
-      { key: 'local', label: 'Base local' },
-      { key: 'statistics', label: 'Statistics' },
-      { key: 'history', label: 'Bolsa' },
-      { key: 'done', label: 'Listo' }
-    ];
-    const phaseRank = { local: 0, statistics: 1, history: 2, done: 3 };
+    // Set usado más abajo para resaltar (barrido sutil) la fila del empleado
+    // que se está procesando ahora mismo (.balance-row.is-active).
     const activeEmployeeIds = new Set((progressState.activeEmployeeIds || []).map(String));
-    const activeIds = (progressState.activeEmployeeIds || []).length
-      ? progressState.activeEmployeeIds
-      : (this.officialHoursBagLoading ? (progressState.employeeIds || []).slice(0, 6) : []);
-    const activePeopleHtml = activeIds.length ? `
-            <div class="balance-load-people" aria-label="Empleados en proceso">
-              <span>En curso</span>
-              ${activeIds.slice(0, 6).map(id => {
-                const info = this.getBalanceEmployeeInfo(id);
-                return `<b title="${escapeHTML(info.name)}">${escapeHTML(info.name)}</b>`;
-              }).join('')}
-            </div>
-    ` : '';
     const lastError = progressState.lastError || this.officialHoursBagError || '';
     const currentExerciseYear = new Date().getFullYear();
     const isCurrentExercise = this.currentDate.getFullYear() === currentExerciseYear && !this.isBalanceMonthScope();
@@ -6143,37 +6140,15 @@ const FichajesModule = {
       ? '<button type="button" class="btn-secondary" onclick="FichajesModule.retryOfficialWorkedHours()" style="font-size:0.62rem; padding:3px 7px;" title="Reintentar el balance oficial de Sesame Statistics">Probar Sesame</button>'
       : '<button type="button" class="btn-secondary" onclick="FichajesModule.useLocalBalanceOnly()" style="font-size:0.62rem; padding:3px 7px;" title="Usar solo el cálculo local, sin consultar Sesame Statistics">Solo local</button>';
     const useIndeterminateProgress = this.officialHoursBagLoading && (phase === 'local' || progressDone === 0);
-    const progressTrackClass = useIndeterminateProgress
-      ? 'balance-load-track balance-load-track-pending'
-      : 'balance-load-track';
-    const localPulsePct = Math.max(8, Math.min(96, Number(progressState.localPulse || 10)));
-    const progressFillStyle = useIndeterminateProgress
-      ? ` style="width:${localPulsePct}%;" data-pulse="${localPulsePct}"`
-      : ` style="width:${progressPct}%;"`;
     const loadingPanelHtml = this.officialHoursBagLoading ? `
-          <div class="balance-load-panel">
-            <div class="balance-load-main">
-              <strong class="balance-load-title">${escapeHTML(phaseLabel)}</strong>
-              <span title="${escapeHTML(`${endpointLabel} · ${rangeLabel}`)}">${escapeHTML(progressLabel)}</span>
+          <div class="balance-progress-mini">
+            <div class="balance-progress-mini-row">
+              <span class="balance-progress-mini-phase" title="${escapeHTML(`${endpointLabel} · ${rangeLabel}`)}">${escapeHTML(phaseLabel)}</span>
+              <span class="balance-progress-mini-count"><b>${progressDone}</b><i>/ ${progressTotal}</i></span>
             </div>
-            <div class="balance-load-metrics">
-              <span><strong>${progressDone}</strong> procesados</span>
-              <span><strong>${officialCount}</strong> Sesame</span>
-              <span><strong>${pendingCount}</strong> pendientes</span>
+            <div class="balance-progress-hairline ${useIndeterminateProgress ? 'is-indeterminate' : ''}" aria-hidden="true">
+              <span${useIndeterminateProgress ? '' : ` style="width:${progressPct}%"`}></span>
             </div>
-            <div class="${progressTrackClass}" aria-hidden="true">
-              <div class="balance-load-fill"${progressFillStyle}></div>
-            </div>
-            <div class="balance-load-steps">
-              ${phaseSteps.map(step => {
-                const done = officialSkipped
-                  ? step.key === 'local' || step.key === 'done'
-                  : phaseRank[step.key] <= phaseRank[phase];
-                const active = step.key === phase;
-                return `<span class="balance-load-step ${done ? 'done' : ''} ${active ? 'active' : ''}">${escapeHTML(step.label)}</span>`;
-              }).join('')}
-            </div>
-            ${activePeopleHtml}
           </div>
     ` : '';
     const sourceAuditHtml = `
@@ -6276,6 +6251,7 @@ const FichajesModule = {
       const rowId = String(stat.employeeId);
       const rowIsActive = activeEmployeeIds.has(rowId);
       const rowIsLoading = this.officialHoursBagLoading && (isPending || rowIsActive);
+      const rowJustResolved = this.officialHoursBagJustResolvedIds?.has(rowId);
       const rowPhaseLabel = rowIsActive
         ? (phase === 'local'
             ? 'Preparando base...'
@@ -6297,7 +6273,8 @@ const FichajesModule = {
         rowIsActive ? 'is-active' : '',
         stat.hasOfficialBalance ? 'has-official' : '',
         hasLocalRuleAdjustment ? 'has-bag-adjustment' : '',
-        officialError ? 'has-error' : ''
+        officialError ? 'has-error' : '',
+        rowJustResolved ? 'just-resolved' : ''
       ].filter(Boolean).join(' ');
       const localComparison = stat.hasOfficialBalance && stat.days > 0
         ? ` Calculo local ajustado para comparar: ${format(stat.localPeriodBalance)}. Diferencia Sesame-local: ${format(stat.periodBalance - stat.localPeriodBalance)}.`
