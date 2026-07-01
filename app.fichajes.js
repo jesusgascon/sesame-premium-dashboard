@@ -294,14 +294,18 @@ const FichajesModule = {
 
   renderBalanceEmptyLoading(tbody) {
     const { start, end } = this.getCurrentRangeKeys();
-    const scopeLabel = this.isBalanceMonthScope() ? 'mes' : 'ejercicio';
     const progressState = this.officialHoursBagProgress || {};
     const phase = progressState.phase || 'local';
+    // Fase 'local': todavía no hay datos fiables (los fichajes/horario reales
+    // pueden estar a medio cargar). Mismo mensaje que al cambiar de empresa,
+    // para no enseñar balances a 0h que luego se corrigen solos.
+    const companyName = (STATE.companies.find(c => c.companyId === STATE.companyId) || {}).name || 'la empresa';
     const phaseLabel = phase === 'statistics'
       ? 'Consultando Sesame Statistics'
       : phase === 'history'
         ? 'Aplicando bolsa de horas'
-        : 'Preparando base local';
+        : `Cargando balances de ${companyName}…`;
+    const phaseSub = phase === 'local' ? 'Un momento, recuperando información de Sesame' : '';
     const rangeLabel = progressState.range || `${start} -> ${end}`;
     const total = Number(progressState.total || this.getBalanceEmployeeIds().length || STATE.allEmployees.size || 0);
     const done = Number(progressState.done || 0);
@@ -328,6 +332,7 @@ const FichajesModule = {
             <div class="balance-progress-hairline ${isIndeterminate ? 'is-indeterminate' : ''}" aria-hidden="true">
               <span${isIndeterminate ? '' : ` style="width:${pct}%"`}></span>
             </div>
+            ${phaseSub ? `<span class="balance-progress-mini-sub">${escapeHTML(phaseSub)}</span>` : ''}
           </div>
         </td>
       </tr>
@@ -1153,7 +1158,7 @@ const FichajesModule = {
               this.biTheoreticMap = new Map(Object.entries(parsed.biTheoreticMap));
             }
             this.populateEmployeeSelect();
-            this.renderTable();
+            this.renderTable({ animateEntrance: true });
             console.info(`Fichajes: Cache hits for ${start}/${end} (${this.data.length} registros).`);
           }
         } catch (e) {
@@ -1980,6 +1985,17 @@ const FichajesModule = {
 
              this.realSignings = globalData;
              this.data = this.parseRealSignings(globalData, localAbsences);
+             // Este retorno anticipado saltaba el arranque de
+             // startOfficialWorkedHoursLoad para Balances (típico en empresas sin
+             // acceso a BI/Statistics, que llegan a esta rama): la fase se
+             // quedaba en 'local' para siempre y, con la guarda que evita pintar
+             // balances a 0h mientras no hay datos fiables, la tabla no llegaba
+             // a mostrarse nunca. Hay que lanzarlo aquí también antes de salir.
+             if (this.currentView === 'balance') {
+               this.populateEmployeeSelect();
+               this.renderTable();
+               this.startOfficialWorkedHoursLoad(start, end);
+             }
              return;
           }
 
@@ -2147,7 +2163,10 @@ const FichajesModule = {
         this.renderPresenceSummaryOnly();
       } else {
         this.populateEmployeeSelect(); // Re-poblar para incluir los empleados recién cosechados
-        this.renderTable();
+        // La cascada de entrada solo tiene sentido en una carga visible para el
+        // usuario (no en el auto-refresco silencioso cada 5 min, que repetiría
+        // la animación sin que nadie haya pedido nada).
+        this.renderTable({ animateEntrance: !isSilent });
         if (this.currentView === 'balance') {
           this.startOfficialWorkedHoursLoad(start, end);
         }
@@ -2743,7 +2762,9 @@ const FichajesModule = {
   async revealOfficialResultsGradually(resultMap, errorsMap, employeeIds, runId, updateBalanceProgress) {
     const total = employeeIds.length;
     if (total === 0) return;
-    const steps = Math.min(total, 14);
+    // Hasta 30 empleados se revelan de uno en uno (más allá, en tandas
+    // pequeñas para no alargar demasiado la espera en empresas grandes).
+    const steps = Math.min(total, 30);
     const batchSize = Math.max(1, Math.ceil(total / steps));
 
     for (let i = 0; i < total; i += batchSize) {
@@ -2772,7 +2793,7 @@ const FichajesModule = {
       });
 
       if (done < total) {
-        await new Promise(resolve => setTimeout(resolve, 90));
+        await new Promise(resolve => setTimeout(resolve, 170));
       }
     }
     this.officialHoursBagJustResolvedIds = new Set();
@@ -3754,9 +3775,15 @@ const FichajesModule = {
    * Renderiza la tabla de fichajes y el resumen de horas en la interfaz.
    * Aplica filtros de búsqueda y selección de empleado en tiempo real.
    */
-  renderTable() {
+  renderTable(options = {}) {
     const tbody = document.getElementById('signings-tbody');
     if (!tbody) return;
+    // Entrada en cascada para Fichajes (mes/semana/día), igual en espíritu al
+    // revelado por filas de Balances: solo se activa cuando quien llama marca
+    // "acaban de llegar datos nuevos" (options.animateEntrance), nunca al
+    // re-renderizar por un filtro/búsqueda, para no repetir la animación en
+    // cada tecleo. Balances tiene su propio mecanismo, no usa este.
+    const animateRowEntrance = !!options.animateEntrance && this.currentView !== 'balance';
     this.syncInsightsVisibility();
 
     // Actualizar el header de la tabla según la vista activa
@@ -4035,7 +4062,12 @@ const FichajesModule = {
         ].join('');
 
         const tr = document.createElement('tr');
-        tr.className = 'row-expandable';
+        tr.className = animateRowEntrance ? 'row-expandable row-entering' : 'row-expandable';
+        if (animateRowEntrance) {
+          // Tope de 18 filas con retardo creciente: más allá se solaparían
+          // tanto que no se notaría, y alargaría la espera sin necesidad.
+          tr.style.animationDelay = `${Math.min(idx, 18) * 28}ms`;
+        }
         tr.innerHTML = `
           <td class="col-employee">
             <div class="employee-cell">
@@ -6040,7 +6072,14 @@ const FichajesModule = {
     if (workedEl) workedEl.textContent = this.formatDurationCompact(totalEquivalent);
     if (theoreticEl) theoreticEl.textContent = this.formatDurationCompact(totalTheoretic);
 
-    if (rows.length === 0 && this.currentView === 'balance' && (this.isLoading || this.officialHoursBagLoading)) {
+    // Fase 'local': el balance real todavía puede no estar listo (fichajes u
+    // horario a medio cargar) aunque ya haya filas calculadas — sin esta
+    // guarda se llegaban a ver balances en 0h que se corregían solos al
+    // llegar el dato real. Se prioriza el loader dedicado sobre esas filas.
+    const isLocalPhaseNotReady = this.currentView === 'balance'
+      && this.officialHoursBagLoading
+      && (this.officialHoursBagProgress?.phase || 'local') === 'local';
+    if ((rows.length === 0 || isLocalPhaseNotReady) && this.currentView === 'balance' && (this.isLoading || this.officialHoursBagLoading)) {
       this.renderBalanceEmptyLoading(tbody);
       return;
     }
@@ -6191,7 +6230,25 @@ const FichajesModule = {
       </tr>
     `;
 
-    tbody.innerHTML = sourceAuditHtml + rows.map(stat => {
+    // Revelado por filas (no solo por valores): durante la fase 'statistics'
+    // la lista crece de una en una según van resolviéndose los empleados (ver
+    // revealOfficialResultsGradually), en vez de enseñar las filas completas
+    // desde el principio. El resto se cubre con skeleton hasta que le toca.
+    const isRevealingRows = this.officialHoursBagLoading && phase === 'statistics';
+    const visibleRows = isRevealingRows ? rows.slice(0, Math.min(rows.length, progressDone)) : rows;
+    const pendingSkeletonRows = isRevealingRows
+      ? Array(rows.length - visibleRows.length).fill(0).map(() => `
+        <tr class="balance-warmup-skeleton-row">
+          <td><span></span></td>
+          <td><span></span></td>
+          <td><span></span></td>
+          <td><span></span></td>
+          <td><span></span></td>
+        </tr>
+      `).join('')
+      : '';
+
+    tbody.innerHTML = sourceAuditHtml + visibleRows.map(stat => {
 
       const balanceTone = stat.periodBalance > 0
         ? { color: '#4ade80', label: 'Superávit' }
@@ -6252,6 +6309,11 @@ const FichajesModule = {
       const rowIsActive = activeEmployeeIds.has(rowId);
       const rowIsLoading = this.officialHoursBagLoading && (isPending || rowIsActive);
       const rowJustResolved = this.officialHoursBagJustResolvedIds?.has(rowId);
+      // La fila que acaba de entrar en la lista (revelado por filas: ver
+      // isRevealingRows/visibleRows) recibe una pequeña entrada en vez de
+      // aparecer seca — es siempre la última visible, porque visibleRows es
+      // un prefijo creciente y estable de rows (ya ordenado por balance).
+      const rowIsNewestEntry = isRevealingRows && stat === visibleRows[visibleRows.length - 1];
       const rowPhaseLabel = rowIsActive
         ? (phase === 'local'
             ? 'Preparando base...'
@@ -6274,7 +6336,8 @@ const FichajesModule = {
         stat.hasOfficialBalance ? 'has-official' : '',
         hasLocalRuleAdjustment ? 'has-bag-adjustment' : '',
         officialError ? 'has-error' : '',
-        rowJustResolved ? 'just-resolved' : ''
+        rowJustResolved ? 'just-resolved' : '',
+        rowIsNewestEntry ? 'row-entering' : ''
       ].filter(Boolean).join(' ');
       const localComparison = stat.hasOfficialBalance && stat.days > 0
         ? ` Calculo local ajustado para comparar: ${format(stat.localPeriodBalance)}. Diferencia Sesame-local: ${format(stat.periodBalance - stat.localPeriodBalance)}.`
@@ -6396,7 +6459,7 @@ const FichajesModule = {
           </td>
         </tr>
       `;
-    }).join('');
+    }).join('') + pendingSkeletonRows;
     tbody.querySelectorAll('.balance-avatar-trigger').forEach(button => {
       button.addEventListener('click', event => {
         event.preventDefault();

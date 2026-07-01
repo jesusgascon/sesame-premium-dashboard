@@ -3380,6 +3380,15 @@ button[disabled] {
   font-style: normal;
 }
 
+/* Subtítulo opcional (solo en fase 'local', antes de tener datos fiables) —
+   mismo tono que el mensaje de cambio de empresa ("Un momento, recuperando
+   información de Sesame"), para no enseñar balances a 0h mientras se cargan. */
+.balance-progress-mini-sub {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  opacity: 0.85;
+}
+
 .balance-progress-hairline {
   position: relative;
   height: 3px;
@@ -3588,6 +3597,18 @@ button[disabled] {
 @keyframes balance-row-resolve {
   0%   { background-color: rgba(45, 212, 191, 0.16); }
   100% { background-color: transparent; }
+}
+
+/* Fila que acaba de entrar en la lista (revelado por filas en Balances, o
+   cascada de entrada al llegar datos nuevos en Fichajes): entra con un
+   fundido + deslizamiento corto, en vez de aparecer seca de golpe. Selector
+   genérico: se usa tanto en .balance-row como en .row-expandable. */
+.row-entering {
+  animation: balance-row-enter 0.32s ease-out both;
+}
+@keyframes balance-row-enter {
+  from { opacity: 0; transform: translateY(5px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 .balance-row-processing {
