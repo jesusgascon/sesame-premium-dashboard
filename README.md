@@ -278,6 +278,33 @@ Para una inmersión profunda en los algoritmos de cruce de datos, heurísticas d
 
 ## 📜 Changelog Detallado
 
+### [v1.9.34] — 2026-07-01 | *Balances sin 0h prematuros + revelado fila a fila*
+- **Corregido**: Balances mostraba filas de empleados a **0h** mientras el cálculo local aún no estaba listo (se corregían solas segundos después). Ahora, mientras esa fase no está lista, se muestra un loader dedicado («Cargando balances de {empresa}… Un momento, recuperando información de Sesame») en vez de datos poco fiables.
+- **Corregido**: detectado y arreglado un camino de carga (empresas sin acceso a BI/Statistics) que podía dejar esa pantalla de carga colgada para siempre.
+- **Mejorado**: la confirmación de Sesame Statistics revela la lista **fila a fila** (0, 1, 2, 3…) con una pequeña entrada (fundido + deslizamiento), en vez de volcar todas las filas de golpe. Fichajes (mes/semana/día) recibe la misma cascada de entrada al llegar datos nuevos.
+
+### [v1.9.30] — 2026-07-01 | *Estado de carga rediseñado (2026)*
+- **Mejorado**: el panel «Preparando base local» (fases, chips de pasos, nombres en curso) se sustituye por un componente único —contador fino «hecho/total» + hairline con el gradiente de marca— igual en Balances y Fichajes. Los balances de Sesame Statistics se revelan empleado a empleado con un flash sutil por fila, en vez de saltar de golpe de 0/N a N/N.
+- **Mejorado**: overlay de arranque con una sola animación (latido suave del logo, sin anillo girando) y sin solape con las barras de progreso al arrancar con caché.
+- **Cambiado**: el servidor ya no cachea `index.html`, así el cache-busting `?v=` de los `.js`/`.css` siempre surte efecto sin recarga forzada.
+
+### [v1.9.23] — 2026-06-30 | *Menú "⋯" cortado en una esquina*
+- **Corregido**: regresión de 1.9.21 — el `backdrop-filter` del `.top-bar` convertía el panel `position:fixed` en relativo al top-bar y no al viewport, recortándolo. Se reubica en `<body>` para que el posicionamiento sea relativo al viewport.
+
+### [v1.9.22] — 2026-06-30 | *Arranque del servidor sin ruido*
+- **Mejorado**: el *trace* por petición (`→ API: …`) del proxy solo se muestra con `SESAME_DEBUG=1`; en operación normal el log queda limpio.
+
+### [v1.9.21] — 2026-06-30 | *Menú "⋯" por delante en Balances + log más limpio*
+- **Corregido**: el menú «⋯ Más herramientas» quedaba detrás de la cabecera *sticky* de la tabla en Balances. Ahora usa `position:fixed` con coordenadas calculadas en JS, igual que los popovers de presencia.
+- **Mejorado**: los errores esperados del descubrimiento de endpoints y de la falta de licencia BI (403/404/422) ya no se imprimen en el arranque normal.
+- **Corregido**: `limit=400` → `limit=100` en la carga de horario por empleado (Sesame rechazaba la petición con 422).
+
+### [v1.9.20] — 2026-06-30 | *Horario teórico real por día desde Sesame*
+- **Corregido**: (crítico) el horario reducido de verano (y cualquier cambio de plantilla con fecha) ya no «tapa» el resto del año. Se localizó el endpoint interno `/api/v3/employees/{id}/schedule-templates-v2?from&to`, que devuelve la jornada teórica real por empleado y día sin necesitar licencia de pago, y se usa como fuente autoritativa del cálculo del balance.
+
+### [v1.9.19] — 2026-06-30 | *Horario de verano aplicado a todos los días (fix crítico)*
+- **Corregido**: el horario reducido de verano se mostraba en todos los días pasados y futuros de la «JORNADA PACTADA», el modal de Balance y el export JSON. Los tres puntos ahora resuelven el horario por fecha exacta (`resolveEmployeeScheduleForDate`), respetando el rango de vigencia de cada plantilla.
+
 ### [v1.9.18] — 2026-06-24 | *Menú "⋯" legible sobre la tabla*
 - **Corregido**: el menú desplegable «⋯ Más herramientas» de la cabecera de Fichajes/Balances se veía translúcido y con los iconos casi invisibles sobre la tabla. Ahora tiene **fondo sólido** (adaptado a tema claro/oscuro), borde, sombra, mayor z-index y mejor contraste de iconos.
 
